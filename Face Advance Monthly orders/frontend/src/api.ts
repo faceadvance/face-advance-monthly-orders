@@ -26,6 +26,26 @@ export function fetchOrders(month: string): Promise<OrdersResponse> {
   return restRpc<OrdersResponse>("get_orders", { p_token: getToken(), p_month: month });
 }
 
+// ---- import (Stage 2): rows ถูก parse ที่ browser แล้ว → RPC ตรวจ+เขียน ----
+export interface ImportResp {
+  authorized: boolean;
+  ok?: boolean;
+  mode?: string;
+  error?: string | null;
+  problems?: { order_no: string; reason: string }[];
+  warnings?: string[];
+  orders_total?: number;
+  orders_ok?: number;
+  items_total?: number;
+  total_sales?: number;
+  dates?: string[];
+  new_customers?: number;
+  inserted?: number;
+}
+export function importOrders(rows: unknown[], mode: "preflight" | "confirm"): Promise<ImportResp> {
+  return restRpc<ImportResp>("app_import_orders", { p_token: getToken(), p_rows: rows, p_mode: mode });
+}
+
 // ---- auth: Edge Function ----
 export interface AuthResp {
   ok: boolean; message?: string;

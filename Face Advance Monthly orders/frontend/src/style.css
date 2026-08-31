@@ -109,8 +109,10 @@ th.datehead .hh{justify-content:flex-end}
 .kcap{font-size:.66rem;color:var(--ink-3);margin-top:.35rem;min-height:.95rem}
 .kcap b{color:var(--ink);font-weight:600}
 /* หัวคอลัมน์ที่กรอง = น้ำเงิน */
-thead th.filtered{background:#EFF6FF;color:var(--primary)}
-thead th.filtered .funnel{color:var(--primary)}
+/* คอลัมน์ที่ถูกกรอง: พื้น primary ตัวอักษร+ไอคอนขาว (เห็นชัดว่ากรองอยู่) */
+thead th.filtered{background:var(--primary);color:#fff}
+thead th.filtered .funnel,thead th.filtered .funnel.on{color:#fff;opacity:1}
+thead th.filtered .hh{color:#fff}
 .name{font-weight:500}.code{color:var(--ink-3);font-weight:400}
 .addr{color:var(--ink-2);max-width:13rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .amount{text-align:right;font-weight:500}.center{text-align:center}.tar{text-align:right}.note{color:var(--ink-3);font-size:.78rem}
@@ -144,12 +146,16 @@ th.rcol .hh{justify-content:flex-end}
 .fbtn.p{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}
 .fbtn.p:hover{background:var(--primary-700)}
 /* ===== ฟีเจอร์เลือกเลขแทร็คคัดลอก ===== */
-.trackcell{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
+.trackcell{display:flex;align-items:center;gap:.45rem;justify-content:flex-start}
 .tick{width:1.15rem;height:1.15rem;border:1.5px solid var(--border);border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;color:#fff;transition:background .1s,border-color .1s}
 .tick svg{width:.7rem;height:.7rem;stroke-width:3;opacity:0}
 .tick.on{background:var(--primary);border-color:var(--primary)}
 .tick.on svg{opacity:1}
 .tick.disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+/* ช่องติ๊กหัวตาราง (เลือกทั้งคอลัม) — partial = เลือกบางส่วน */
+.headtick{width:1.05rem;height:1.05rem}
+.headtick.partial{background:var(--primary);border-color:var(--primary)}
+.headtick.partial svg{opacity:1;clip-path:inset(45% 0 0 0)}
 /* แถบก๊อปบนหัวคอลัมน์เลขแทร็ค */
 .copybar{display:flex;align-items:center;gap:.4rem;text-transform:none;letter-spacing:normal}
 .copybar[hidden]{display:none}
@@ -159,10 +165,54 @@ th.rcol .hh{justify-content:flex-end}
 .copybtn .cnt{background:rgba(255,255,255,.28);border-radius:.35rem;padding:0 .3rem;font-variant-numeric:tabular-nums}
 .copyx{width:1.4rem;height:1.4rem;border:1px solid var(--border);border-radius:.4rem;background:#fff;color:var(--ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .copyx:hover{background:var(--hover);color:var(--ink)}
-.maxbadge{background:#FEF08A;color:#854D0E;border:1px solid #EAB308;border-radius:.35rem;padding:.1rem .4rem;font-size:.66rem;font-weight:700;white-space:nowrap}
-.quickbtn{display:inline-flex;align-items:center;gap:.25rem;font-size:.64rem;font-weight:600;color:var(--primary);background:#EFF6FF;border:1px solid #BFDBFE;border-radius:.4rem;padding:.18rem .42rem;cursor:pointer;text-transform:none;letter-spacing:normal;white-space:nowrap}
-.quickbtn:hover{background:#DBEAFE}
-.quickbtn svg{width:.9em;height:.9em}
+/* ===== Modal นำเข้าไฟล์ (Stage 2) ===== */
+.modal-ov{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:200;padding:1.5rem;animation:ovin .15s ease}
+@keyframes ovin{from{opacity:0}to{opacity:1}}
+.modal{background:var(--surface);border-radius:1rem;box-shadow:0 1.5rem 3.5rem rgba(15,23,42,.3);width:100%;max-width:34rem;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;animation:modin .18s ease}
+@keyframes modin{from{transform:translateY(.6rem) scale(.98);opacity:0}to{transform:none;opacity:1}}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)}
+.modal-title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;color:var(--ink)}
+.modal-title svg{width:1.2em;height:1.2em;stroke:var(--primary);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.modal-x{width:2rem;height:2rem;border:none;background:transparent;border-radius:.5rem;color:var(--ink-3);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.modal-x:hover{background:var(--hover);color:var(--ink)}
+.modal-x svg{width:1.1em;height:1.1em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.modal-body{padding:1.25rem;overflow-y:auto}
+.modal-foot{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.1rem}
+/* dropzone */
+.importdrop{display:flex;flex-direction:column;align-items:center;gap:.5rem;padding:2.2rem 1rem;border:1.5px dashed #CBD5E1;border-radius:.85rem;cursor:pointer;text-align:center;color:var(--ink-2);transition:border-color .12s,background .12s}
+.importdrop:hover,.importdrop.over{border-color:var(--primary);background:#F5F9FF}
+.importdrop svg{width:2rem;height:2rem;stroke:var(--primary);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.importdrop .idt{font-weight:600;color:var(--ink)}
+.importdrop .ids{font-size:.78rem;color:var(--ink-3)}
+.importnote{margin-top:.85rem;font-size:.76rem;color:var(--ink-3);line-height:1.6}
+/* loading / error state */
+.importstate{display:flex;align-items:center;gap:.6rem;padding:1.6rem .4rem;color:var(--ink-2);font-size:.9rem}
+.importstate.err{color:#B91C1C}
+.importstate svg{width:1.2rem;height:1.2rem;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.spin{width:1.2rem;height:1.2rem;border:2.5px solid #DBEAFE;border-top-color:var(--primary);border-radius:50%;flex:none;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* preview */
+.ifile{display:flex;align-items:center;gap:.45rem;font-weight:600;color:var(--ink);margin-bottom:.35rem;word-break:break-all}
+.ifile svg{width:1.05em;height:1.05em;stroke:#059669;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.iline{font-size:.85rem;color:var(--ink-2);margin-bottom:.9rem}
+.istats{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:1rem}
+.istat{background:var(--bg);border:1px solid var(--border);border-radius:.7rem;padding:.7rem .5rem;text-align:center}
+.istat .iv{font-size:1.35rem;font-weight:700;line-height:1.1}
+.istat .il{font-size:.72rem;color:var(--ink-3);margin-top:.2rem}
+.istat.blue .iv{color:var(--primary)}
+.istat.green .iv{color:#059669}
+.ibox{border-radius:.7rem;padding:.75rem .85rem;margin-bottom:.85rem;font-size:.85rem}
+.ibox.err{background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;display:flex;flex-direction:column;gap:.4rem}
+.ibox.err>svg{width:1.1em;height:1.1em;stroke:currentColor;fill:none;stroke-width:2;flex:none}
+.ibh{display:flex;align-items:center;gap:.4rem;font-weight:600}
+.ibh svg{width:1.05em;height:1.05em;stroke:currentColor;fill:none;stroke-width:2;flex:none}
+.ilist{font-size:.78rem;line-height:1.6;max-height:11rem;overflow-y:auto;color:var(--ink-2)}
+.ilist .more{color:var(--ink-3);font-style:italic}
+.icollapse{border:1px solid var(--border);border-radius:.6rem;margin-bottom:.6rem;overflow:hidden}
+.icollapse summary{padding:.55rem .8rem;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--ink-2);background:var(--bg);user-select:none}
+.icollapse summary:hover{background:var(--hover)}
+.icollapse .ilist{padding:.55rem .8rem}
+.modal-foot .btn:disabled{opacity:.5;cursor:not-allowed}
 /* สถานะ loading / ว่าง */
 .state{padding:2.5rem 1rem;text-align:center;color:var(--ink-3);font-size:.85rem}
 .state.err{color:#B91C1C}

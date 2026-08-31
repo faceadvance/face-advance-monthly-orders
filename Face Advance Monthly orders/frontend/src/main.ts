@@ -1,7 +1,8 @@
 import "./style.css";
-import { fetchMonths, fetchOrders, authLogout } from "./api";
+import { fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName } from "./session";
+import { parseWorkbook, type ImportRow, type ParseResult } from "./import";
 import type { Order, OrdersResponse, Kpi, Daily } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
@@ -41,6 +42,7 @@ let currentVisible: Order[] = [];
 const tickEls = new Map<number, HTMLElement>();
 let copyBarEl: HTMLElement | null = null;
 let headHHEl: HTMLElement | null = null;
+let headTickEl: HTMLElement | null = null;
 
 // ---------- helpers ----------
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -271,10 +273,11 @@ function buildTh(col: Column): HTMLElement {
   hh.append(funnel);
   th.append(hh);
 
-  // คอลัมน์เลขแทร็ค: แถบก๊อป (โผล่เมื่อเลือก ≥1)
+  // คอลัมน์เลขแทร็ค: ช่องติ๊กหัวตาราง (เลือกทั้งคอลัม/ล้าง) + แถบก๊อป (โผล่เมื่อเลือก ≥1)
   if (col.key === "tracking_no") {
     headHHEl = hh;
-    hh.insertBefore(makeQuickBtn(), hh.lastElementChild); // ปุ่มเลือกเร็ว ก่อน funnel
+    headTickEl = makeHeaderTick();
+    hh.insertBefore(headTickEl, hh.lastElementChild); // ช่องติ๊กอยู่ขวา (หน้ากรวยตัวกรอง)
     const bar = el("div", { class: "copybar" });
     bar.hidden = true;
     copyBarEl = bar;
@@ -341,19 +344,32 @@ function toggleTick(id: number) {
   updateSelectionUI();
 }
 
-// เลือกเร็ว: เลือกรายการที่โชว์บนสุด (มีเลขแทร็ค) เติมจนครบ 30 — ตาม filter ปัจจุบัน
+// รายการที่แสดงอยู่และมีเลขแทร็ค (เลือกได้)
+function selectableVisible(): Order[] {
+  return currentVisible.filter((o) => o.tracking_no);
+}
+
+// เลือกเร็ว: เติมรายการที่โชว์ (มีเลขแทร็ค) จนครบ 30 — ตาม filter ปัจจุบัน
 function quickSelect() {
   for (const o of currentVisible) {
     if (state.selected.size >= MAX_SELECT) break;
     if (o.tracking_no && !state.selected.has(o.id)) state.selected.add(o.id);
   }
+}
+
+// ช่องติ๊กหัวตาราง: ติ๊ก = เลือกทั้งคอลัม (สูงสุด 30) · ติ๊กซ้ำ (เต็ม/เลือกครบแล้ว) = ล้าง
+function onHeaderTick() {
+  const sel = selectableVisible();
+  const allSel = sel.length > 0 && sel.every((o) => state.selected.has(o.id));
+  if (allSel || state.selected.size >= MAX_SELECT) clearSelection();
+  else quickSelect();
   updateSelectionUI();
 }
 
-function makeQuickBtn(): HTMLElement {
-  const b = el("span", { class: "quickbtn", title: "เลือกรายการที่โชว์บนสุด (สูงสุด 30)" }, icon("i-bolt"), "เลือกเร็ว");
-  b.addEventListener("click", (e) => { e.stopPropagation(); quickSelect(); });
-  return b;
+function makeHeaderTick(): HTMLElement {
+  const t = el("span", { class: "tick headtick", title: "เลือกเลขแทร็คที่แสดงทั้งหมด (สูงสุด 30) · ติ๊กซ้ำเพื่อล้าง" }, icon("i-tick"));
+  t.addEventListener("click", (e) => { e.stopPropagation(); onHeaderTick(); });
+  return t;
 }
 
 function clearSelection() {
@@ -369,6 +385,16 @@ function updateSelectionUI() {
     tick.classList.toggle("on", on);
     tick.classList.toggle("disabled", full && !on);
   }
+  // สถานะช่องติ๊กหัวตาราง (on = เลือกครบทุกอันที่แสดง, partial = เลือกบางส่วน)
+  const sel = selectableVisible();
+  const allSel = sel.length > 0 && sel.every((o) => state.selected.has(o.id));
+  const styleHead = (t: HTMLElement | null) => {
+    if (!t) return;
+    t.classList.toggle("on", count > 0 && allSel);
+    t.classList.toggle("partial", count > 0 && !allSel);
+  };
+  styleHead(headTickEl);
+
   // แถบก๊อปในหัวคอลัมน์
   if (!copyBarEl || !headHHEl) return;
   if (count === 0) {
@@ -379,12 +405,13 @@ function updateSelectionUI() {
   headHHEl.hidden = true;
   copyBarEl.hidden = false;
   copyBarEl.textContent = "";
+  const cbTick = makeHeaderTick();
+  styleHead(cbTick);
+  copyBarEl.append(cbTick);
   const btn = el("button", { class: "copybtn" }, icon("i-copy"), "คัดลอก");
   btn.append(el("span", { class: "cnt" }, String(count)));
   btn.addEventListener("click", doCopy);
   copyBarEl.append(btn);
-  if (!full) copyBarEl.append(makeQuickBtn());
-  if (full) copyBarEl.append(el("span", { class: "maxbadge" }, "เลือกครบ 30 แล้ว"));
   const x = el("span", { class: "copyx", title: "ยกเลิกการเลือก" }, icon("i-close"));
   x.addEventListener("click", () => { clearSelection(); updateSelectionUI(); });
   copyBarEl.append(x);
@@ -469,8 +496,8 @@ function openFilter(th: HTMLElement, col: Column) {
 
   // sort
   const sortSec = el("div", { class: "sec fsort" });
-  const asc = el("a", { class: state.sort?.col === col.key && state.sort.dir === "asc" ? "act" : "" }, icon("i-sortaz"), "เรียง ก → ฮ");
-  const desc = el("a", { class: state.sort?.col === col.key && state.sort.dir === "desc" ? "act" : "" }, icon("i-sortza"), "เรียง ฮ → ก");
+  const asc = el("a", { class: state.sort?.col === col.key && state.sort.dir === "asc" ? "act" : "" }, icon("i-sortaz"), "เรียง A → Z");
+  const desc = el("a", { class: state.sort?.col === col.key && state.sort.dir === "desc" ? "act" : "" }, icon("i-sortza"), "เรียง Z → A");
   asc.addEventListener("click", () => { state.sort = { col: col.key, dir: "asc" }; closeDrop(); renderTable(); });
   desc.addEventListener("click", () => { state.sort = { col: col.key, dir: "desc" }; closeDrop(); renderTable(); });
   sortSec.append(asc, desc);
@@ -664,8 +691,8 @@ async function bootstrap() {
     if (state.data) renderTable();
   });
 
-  // ปุ่มนำเข้า (Stage 2)
-  $("#importBtn").addEventListener("click", () => toast("หน้านำเข้าไฟล์ยังไม่เปิดใช้ (Stage 2)", false));
+  // ปุ่มนำเข้าไฟล์ (Stage 2)
+  $("#importBtn").addEventListener("click", () => openImportModal());
 
   // logout
   $("#logoutBtn").addEventListener("click", async () => {
@@ -673,6 +700,9 @@ async function bootstrap() {
     if (t) await authLogout(t);
     toLogin();
   });
+
+  // idle-timeout: ออกจากระบบอัตโนมัติถ้าไม่มีการใช้งานเกิน 90 นาที (ตรงกับฝั่ง DB)
+  setupIdleTracking();
 
   // ปิด dropdown/picker เมื่อคลิกนอก
   document.addEventListener("click", (e) => {
@@ -694,6 +724,7 @@ async function startApp() {
     if (!m.authorized) { toLogin(); return; }
     document.body.classList.add("authed");
     document.body.classList.add("ready");
+    resetIdle();                       // เริ่มนับ idle-timeout เมื่อเข้าแอป
     updateUserDisplay();
     const months = m.months ?? [];
     state.monthsWithData = new Set(months);
@@ -706,6 +737,8 @@ async function startApp() {
 
 function toLogin() {
   clearSession();
+  window.clearTimeout(idleTimer);     // หยุดนับ idle เมื่อออกจากระบบ
+  closeImportModal();
   document.body.classList.remove("authed");
   renderLogin(() => { void startApp(); });
   document.body.classList.add("ready");
@@ -717,6 +750,204 @@ function updateUserDisplay() {
   const nm = document.querySelector("#userName") as HTMLElement | null;
   if (av) av.textContent = (name[0] || "U").toUpperCase();
   if (nm) nm.textContent = name;
+}
+
+// ======================================================
+//  Idle-timeout — auto logout 90 นาทีหลัง action ล่าสุด (ตรงกับ DB)
+// ======================================================
+const IDLE_MS = 90 * 60 * 1000;
+let idleTimer: number | undefined;
+let lastIdleReset = 0;
+
+function resetIdle() {
+  if (!document.body.classList.contains("authed")) return;
+  window.clearTimeout(idleTimer);
+  idleTimer = window.setTimeout(onIdleExpire, IDLE_MS);
+}
+function onIdleExpire() {
+  const t = getToken();
+  if (t) void authLogout(t);
+  toLogin();
+  toast("ไม่มีการใช้งานเกิน 90 นาที — ออกจากระบบอัตโนมัติ", false);
+}
+function setupIdleTracking() {
+  const onActivity = () => {
+    const now = Date.now();
+    if (now - lastIdleReset > 30000) { lastIdleReset = now; resetIdle(); } // throttle 30 วิ
+  };
+  for (const ev of ["mousemove", "keydown", "click", "scroll", "touchstart"]) {
+    document.addEventListener(ev, onActivity, { passive: true });
+  }
+}
+
+// ======================================================
+//  นำเข้าไฟล์ (Stage 2)
+// ======================================================
+let importOv: HTMLElement | null = null;
+let importRows: ImportRow[] = [];
+
+function closeImportModal() {
+  if (importOv) { importOv.remove(); importOv = null; }
+  importRows = [];
+}
+
+function openImportModal() {
+  closeImportModal();
+  const ov = el("div", { class: "modal-ov" });
+  const modal = el("div", { class: "modal" });
+  const head = el("div", { class: "modal-head" },
+    el("div", { class: "modal-title" }, icon("i-upload"), "นำเข้าไฟล์ออเดอร์"));
+  const closeX = el("button", { class: "modal-x", title: "ปิด" }, icon("i-close"));
+  closeX.addEventListener("click", closeImportModal);
+  head.append(closeX);
+  const body = el("div", { class: "modal-body" });
+  modal.append(head, body);
+  ov.append(modal);
+  document.body.append(ov);
+  importOv = ov;
+  ov.addEventListener("click", (e) => { if (e.target === ov) closeImportModal(); });
+  showImportPick(body);
+}
+
+function showImportPick(body: HTMLElement) {
+  body.textContent = "";
+  const drop = el("label", { class: "importdrop" });
+  const inp = el("input", { type: "file", accept: ".xlsx", hidden: "" }) as HTMLInputElement;
+  drop.append(
+    icon("i-upload"),
+    el("div", { class: "idt" }, "เลือกไฟล์ Export Orders (.xlsx) จาก GoSell"),
+    el("div", { class: "ids" }, "คลิกเพื่อเลือก หรือลากไฟล์มาวาง"),
+    inp);
+  inp.addEventListener("change", () => { if (inp.files?.[0]) void handleImportFile(inp.files[0], body); });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault(); drop.classList.remove("over");
+    const f = e.dataTransfer?.files?.[0];
+    if (f) void handleImportFile(f, body);
+  });
+  body.append(drop,
+    el("div", { class: "importnote" }, "ระบบจะข้ามออเดอร์ที่ยกเลิก · ตรวจวันซ้ำ/แบรนด์ · ให้ยืนยันก่อนบันทึกจริง"));
+}
+
+function importLoading(body: HTMLElement, msg: string) {
+  body.textContent = "";
+  body.append(el("div", { class: "importstate" }, el("span", { class: "spin" }), msg));
+}
+function importError(body: HTMLElement, msg: string) {
+  body.textContent = "";
+  body.append(el("div", { class: "importstate err" }, icon("i-x"), msg));
+  const again = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
+  again.addEventListener("click", () => showImportPick(body));
+  body.append(el("div", { class: "modal-foot" }, again));
+}
+
+async function handleImportFile(file: File, body: HTMLElement) {
+  if (!/\.xlsx$/i.test(file.name)) { importError(body, "รองรับเฉพาะไฟล์ .xlsx เท่านั้น"); return; }
+  importLoading(body, `กำลังอ่านไฟล์ "${file.name}"...`);
+  let parsed: ParseResult;
+  try {
+    parsed = parseWorkbook(await file.arrayBuffer());
+  } catch (e: any) {
+    importError(body, e?.message ?? "อ่านไฟล์ไม่สำเร็จ");
+    return;
+  }
+  if (parsed.rows.length === 0) {
+    importError(body, "ไม่พบออเดอร์ที่นำเข้าได้ในไฟล์นี้" + (parsed.skipped.length ? ` (ข้าม ${parsed.skipped.length} รายการ)` : ""));
+    return;
+  }
+  importRows = parsed.rows;
+  importLoading(body, "กำลังตรวจสอบข้อมูล...");
+  let pre: ImportResp;
+  try {
+    pre = await importOrders(parsed.rows, "preflight");
+  } catch (e: any) {
+    importError(body, "ตรวจสอบข้อมูลไม่สำเร็จ: " + (e?.message ?? e));
+    return;
+  }
+  if (!pre.authorized) { closeImportModal(); toLogin(); return; }
+  showImportPreview(body, file.name, parsed, pre);
+}
+
+function istat(val: string, label: string, tone: string): HTMLElement {
+  return el("div", { class: `istat ${tone}` }, el("div", { class: "iv num" }, val), el("div", { class: "il" }, label));
+}
+function collapsible(title: string, items: string[]): HTMLElement {
+  const wrap = el("details", { class: "icollapse" });
+  wrap.append(el("summary", {}, title));
+  const list = el("div", { class: "ilist" });
+  for (const it of items.slice(0, 100)) list.append(el("div", {}, it));
+  if (items.length > 100) list.append(el("div", { class: "more" }, `…และอีก ${items.length - 100} รายการ`));
+  wrap.append(list);
+  return wrap;
+}
+
+function showImportPreview(body: HTMLElement, fname: string, parsed: ParseResult, pre: ImportResp) {
+  body.textContent = "";
+  const canConfirm = !!pre.ok && (pre.orders_ok ?? 0) > 0;
+  const dates = pre.dates ?? [];
+  const dateLabel = dates.length ? dates.map(dmy).join(", ") : "—";
+
+  body.append(el("div", { class: "ifile" }, icon("i-check"), fname));
+  body.append(el("div", { class: "iline" }, "วันที่ในไฟล์: ", el("b", {}, dateLabel)));
+  body.append(el("div", { class: "istats" },
+    istat(nf(pre.orders_ok ?? 0), "ออเดอร์จะนำเข้า", "blue"),
+    istat("฿" + nf(pre.total_sales ?? 0), "ยอดขายรวม", "green"),
+    istat(nf(pre.new_customers ?? 0), "ลูกค้าใหม่", "plain")));
+
+  if (pre.error) body.append(el("div", { class: "ibox err" }, icon("i-x"), pre.error));
+
+  const problems = pre.problems ?? [];
+  if (problems.length) {
+    const box = el("div", { class: "ibox err" });
+    box.append(el("div", { class: "ibh" }, icon("i-x"), `มี ${problems.length} ออเดอร์ที่นำเข้าไม่ได้ (ต้องแก้ไฟล์ก่อน)`));
+    const list = el("div", { class: "ilist" });
+    for (const p of problems.slice(0, 20)) list.append(el("div", {}, `#${p.order_no} — ${p.reason}`));
+    if (problems.length > 20) list.append(el("div", { class: "more" }, `…และอีก ${problems.length - 20} รายการ`));
+    box.append(list);
+    body.append(box);
+  }
+
+  if (parsed.skipped.length) body.append(collapsible(`ข้ามอัตโนมัติ ${parsed.skipped.length} รายการ`, parsed.skipped));
+  const warns = [...parsed.warnings, ...(pre.warnings ?? []).map((w) => `สินค้าไม่พบในระบบ: ${w}`)];
+  if (warns.length) body.append(collapsible(`หมายเหตุ ${warns.length} รายการ`, warns));
+
+  const foot = el("div", { class: "modal-foot" });
+  const cancel = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
+  cancel.addEventListener("click", () => showImportPick(body));
+  const confirm = el("button", { class: "btn" }, icon("i-upload"), `ยืนยันนำเข้า ${nf(pre.orders_ok ?? 0)} ออเดอร์`) as HTMLButtonElement;
+  confirm.disabled = !canConfirm;
+  confirm.addEventListener("click", () => void doImportConfirm(body));
+  foot.append(cancel, confirm);
+  body.append(foot);
+}
+
+async function doImportConfirm(body: HTMLElement) {
+  importLoading(body, "กำลังนำเข้าข้อมูล...");
+  let res: ImportResp;
+  try {
+    res = await importOrders(importRows, "confirm");
+  } catch (e: any) {
+    importError(body, "นำเข้าไม่สำเร็จ: " + (e?.message ?? e));
+    return;
+  }
+  if (!res.authorized) { closeImportModal(); toLogin(); return; }
+  if (!res.ok) { importError(body, res.error ?? "นำเข้าไม่สำเร็จ (ข้อมูลไม่ผ่านการตรวจสอบ)"); return; }
+  const importedMonth = (res.dates?.[0] ?? "").slice(0, 7);
+  closeImportModal();
+  toast(`นำเข้าสำเร็จ ${nf(res.inserted ?? 0)} ออเดอร์`);
+  await refreshAfterImport(importedMonth);
+}
+
+async function refreshAfterImport(month: string) {
+  try {
+    const m = await fetchMonths();
+    if (!m.authorized) { toLogin(); return; }
+    state.monthsWithData = new Set(m.months ?? []);
+    const target = /^\d{4}-\d{2}$/.test(month) ? month : (state.month || (m.months ?? [])[0]);
+    if (target) await loadMonth(target);
+    else buildMonthPicker();
+  } catch { /* นำเข้าแล้ว refresh พลาดไม่ร้ายแรง */ }
 }
 
 bootstrap();

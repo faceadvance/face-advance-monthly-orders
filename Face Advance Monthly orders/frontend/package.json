@@ -11,5 +11,8 @@
   "devDependencies": {
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
+  },
+  "dependencies": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
