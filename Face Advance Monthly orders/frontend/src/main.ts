@@ -274,6 +274,7 @@ function buildTh(col: Column): HTMLElement {
   // คอลัมน์เลขแทร็ค: แถบก๊อป (โผล่เมื่อเลือก ≥1)
   if (col.key === "tracking_no") {
     headHHEl = hh;
+    hh.insertBefore(makeQuickBtn(), hh.lastElementChild); // ปุ่มเลือกเร็ว ก่อน funnel
     const bar = el("div", { class: "copybar" });
     bar.hidden = true;
     copyBarEl = bar;
@@ -340,6 +341,21 @@ function toggleTick(id: number) {
   updateSelectionUI();
 }
 
+// เลือกเร็ว: เลือกรายการที่โชว์บนสุด (มีเลขแทร็ค) เติมจนครบ 30 — ตาม filter ปัจจุบัน
+function quickSelect() {
+  for (const o of currentVisible) {
+    if (state.selected.size >= MAX_SELECT) break;
+    if (o.tracking_no && !state.selected.has(o.id)) state.selected.add(o.id);
+  }
+  updateSelectionUI();
+}
+
+function makeQuickBtn(): HTMLElement {
+  const b = el("span", { class: "quickbtn", title: "เลือกรายการที่โชว์บนสุด (สูงสุด 30)" }, icon("i-bolt"), "เลือกเร็ว");
+  b.addEventListener("click", (e) => { e.stopPropagation(); quickSelect(); });
+  return b;
+}
+
 function clearSelection() {
   if (state.selected.size) state.selected.clear();
 }
@@ -367,6 +383,7 @@ function updateSelectionUI() {
   btn.append(el("span", { class: "cnt" }, String(count)));
   btn.addEventListener("click", doCopy);
   copyBarEl.append(btn);
+  if (!full) copyBarEl.append(makeQuickBtn());
   if (full) copyBarEl.append(el("span", { class: "maxbadge" }, "เลือกครบ 30 แล้ว"));
   const x = el("span", { class: "copyx", title: "ยกเลิกการเลือก" }, icon("i-close"));
   x.addEventListener("click", () => { clearSelection(); updateSelectionUI(); });
@@ -374,8 +391,9 @@ function updateSelectionUI() {
 }
 
 async function doCopy() {
-  // เรียงตามลำดับที่เห็นในตาราง (currentVisible)
-  const nums = currentVisible
+  // ก๊อปทุกอันที่เลือก (รวมที่ถูก filter ซ่อน) เรียงตามลำดับข้อมูลเต็ม (เก่า→ใหม่)
+  const src = state.data?.orders ?? currentVisible;
+  const nums = src
     .filter((o) => state.selected.has(o.id) && o.tracking_no)
     .map((o) => o.tracking_no);
   if (nums.length === 0) return;
@@ -508,9 +526,8 @@ function openFilter(th: HTMLElement, col: Column) {
     // ครบทุกค่า = ไม่กรอง
     if (temp.size === values.length) state.filters.delete(col.key);
     else state.filters.set(col.key, new Set(temp));
-    clearSelection();          // กรอง → ล้างการเลือก
     closeDrop();
-    renderTable();
+    renderTable();             // การเลือกไม่หาย (persist ข้ามการกรอง)
   });
   actions.append(cancel, apply);
   drop.append(actions);
@@ -529,11 +546,11 @@ function renderActiveFilters() {
     const label = COLUMNS.find((c) => c.key === col)!.label;
     const vals = [...set].map((v) => (v === "" ? "(ว่าง)" : v)).join(", ");
     const chip = el("span", { class: "chip" }, `${label}: ${vals.length > 40 ? vals.slice(0, 40) + "…" : vals}`, icon("i-x", "width:.85em"));
-    chip.addEventListener("click", () => { state.filters.delete(col); clearSelection(); renderTable(); });
+    chip.addEventListener("click", () => { state.filters.delete(col); renderTable(); });
     root.append(chip);
   }
   const clall = el("span", { class: "clearall" }, "ล้างทั้งหมด");
-  clall.addEventListener("click", () => { state.filters.clear(); clearSelection(); renderTable(); });
+  clall.addEventListener("click", () => { state.filters.clear(); renderTable(); });
   root.append(clall);
 }
 
@@ -644,7 +661,6 @@ async function bootstrap() {
   const si = $("#searchInput") as HTMLInputElement;
   si.addEventListener("input", () => {
     state.search = si.value;
-    clearSelection();
     if (state.data) renderTable();
   });
 

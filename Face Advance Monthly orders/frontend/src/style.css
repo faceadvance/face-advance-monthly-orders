@@ -85,6 +85,7 @@ svg.ic{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:2;s
 table{width:100%;border-collapse:separate;border-spacing:0}
 thead th{position:sticky;top:0;z-index:20;background:var(--header);text-align:left;color:var(--ink-2);font-weight:600;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;padding:.5rem .85rem;border-bottom:1px solid var(--border);white-space:nowrap;box-shadow:0 1px 0 var(--border)}
 thead th .hh{display:flex;align-items:center;gap:.35rem;justify-content:space-between}
+thead th .hh[hidden]{display:none}
 .funnel{color:var(--ink-3);cursor:pointer;border-radius:.25rem;padding:.05rem .15rem;display:inline-flex}
 .funnel:hover{color:var(--ink-2);background:var(--hover)}
 .funnel.on{color:var(--primary);background:#e6eefc}
@@ -159,6 +160,9 @@ th.rcol .hh{justify-content:flex-end}
 .copyx{width:1.4rem;height:1.4rem;border:1px solid var(--border);border-radius:.4rem;background:#fff;color:var(--ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .copyx:hover{background:var(--hover);color:var(--ink)}
 .maxbadge{background:#FEF08A;color:#854D0E;border:1px solid #EAB308;border-radius:.35rem;padding:.1rem .4rem;font-size:.66rem;font-weight:700;white-space:nowrap}
+.quickbtn{display:inline-flex;align-items:center;gap:.25rem;font-size:.64rem;font-weight:600;color:var(--primary);background:#EFF6FF;border:1px solid #BFDBFE;border-radius:.4rem;padding:.18rem .42rem;cursor:pointer;text-transform:none;letter-spacing:normal;white-space:nowrap}
+.quickbtn:hover{background:#DBEAFE}
+.quickbtn svg{width:.9em;height:.9em}
 /* สถานะ loading / ว่าง */
 .state{padding:2.5rem 1rem;text-align:center;color:var(--ink-3);font-size:.85rem}
 .state.err{color:#B91C1C}
