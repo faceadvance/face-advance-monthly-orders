@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Template — Flex OTP Login (พนักงานเข้าระบบ)</title>
+<!--
+  ============================================================
+  Template Flex Message : OTP เข้าสู่ระบบ (พนักงาน login)
+  แยกออกมาจากฟังก์ชันจริง sendLoginOtpViaLine() ใน "line engine.js"
+  ไฟล์นี้ = พรีวิวหน้าตาที่ LINE เรนเดอร์ + โค้ด Flex JSON ต้นฉบับ (ก๊อปไปใช้ได้)
+  ค่าที่โชว์เป็น "ตัวอย่าง" — ของจริงถูกแทนที่ตอนส่ง: empPic / empCode / empName / otpCode / refCode
+  ============================================================
+-->
+<style>
+  :root{
+    --line-bg:#8fb4d9;          /* พื้นหลังห้องแชท LINE */
+    --slate-900:#0F172A;        /* header bg */
+    --slate-800:#1E293B;        /* body bg */
+    --slate-700:#334155;        /* separator */
+    --blue-500:#3B82F6;         /* LOGIN SYSTEM / border รูป */
+    --blue-400:#60A5FA;         /* empCode */
+    --slate-200:#E2E8F0;        /* empName */
+    --slate-400:#94A3B8;        /* label หมดอายุ */
+    --amber-500:#F59E0B;        /* เลข OTP */
+    --slate-500:#64748B;        /* Ref */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Sarabun","Helvetica Neue",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:#eef2f6;color:#1e293b;
+    min-height:100vh;padding:32px 16px;
+    display:flex;flex-direction:column;align-items:center;gap:28px;
+  }
+  h1{font-size:20px;font-weight:700;color:#0f172a;text-align:center}
+  .sub{font-size:13px;color:#64748b;text-align:center;max-width:520px;line-height:1.6;margin-top:-16px}
+  .code-ref{background:#e2e8f0;border-radius:5px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+
+  /* ===== จำลองห้องแชท LINE ===== */
+  .chat{
+    width:100%;max-width:380px;background:var(--line-bg);
+    border-radius:18px;padding:22px 16px;
+    box-shadow:0 12px 40px rgba(15,23,42,.18);
+  }
+  .chat-row{display:flex;align-items:flex-end;gap:8px}
+  .bot-ava{
+    width:34px;height:34px;border-radius:50%;flex:0 0 auto;
+    background:#fff;display:grid;place-items:center;overflow:hidden;
+    box-shadow:0 2px 6px rgba(0,0,0,.15)
+  }
+  .bot-ava img{width:26px;height:auto}
+  .bubble-wrap{display:flex;flex-direction:column;gap:3px}
+  .bot-name{font-size:11px;color:#3d566e;margin-left:4px}
+
+  /* ===== Flex bubble (size: kilo ≈ 260px) ===== */
+  .flex{
+    width:260px;border-radius:14px;overflow:hidden;
+    box-shadow:0 6px 18px rgba(0,0,0,.25);
+    font-size:13px;line-height:1.35;
+  }
+  .flex-header{background:var(--slate-900);padding:15px}
+  .tag{color:var(--blue-500);font-size:10px;font-weight:700;letter-spacing:.3px}
+  .title{color:#fff;font-size:17px;font-weight:700;margin-top:6px}
+
+  .flex-body{background:var(--slate-800);padding:15px;display:flex;flex-direction:column}
+  .emp-row{display:flex;align-items:center;gap:11px}
+  .emp-pic{
+    width:44px;height:44px;border-radius:50%;flex:0 0 auto;overflow:hidden;
+    border:2px solid var(--blue-500);
+  }
+  .emp-pic img{width:100%;height:100%;object-fit:cover;display:block}
+  .emp-code{color:var(--blue-400);font-weight:700;font-size:15px}
+  .emp-name{color:var(--slate-200);font-size:13px}
+
+  .sep{height:1px;background:var(--slate-700);margin:15px 0 0}
+  .otp-label{color:var(--slate-400);font-size:11px;text-align:center;margin-top:15px}
+  .otp-code{
+    color:var(--amber-500);font-weight:700;font-size:34px;text-align:center;
+    margin-top:10px;letter-spacing:3px;
+  }
+  .otp-ref{color:var(--slate-500);font-size:10px;text-align:center;margin-top:10px;word-break:break-all}
+
+  /* ===== ตาราง field mapping + JSON ===== */
+  .panel{width:100%;max-width:640px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+  .panel h2{font-size:14px;font-weight:700;padding:13px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;color:#0f172a}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{padding:9px 16px;text-align:left;border-bottom:1px solid #f1f5f9}
+  th{background:#f8fafc;color:#475569;font-weight:600;font-size:12px}
+  td.k{font-family:ui-monospace,Menlo,monospace;color:#7c3aed;white-space:nowrap}
+  pre{margin:0;padding:16px;background:#0f172a;color:#e2e8f0;font-size:11.5px;line-height:1.55;
+      overflow-x:auto;font-family:ui-monospace,Menlo,monospace}
+  .k-json{color:#7dd3fc}.s-json{color:#86efac}.c-json{color:#64748b}
+  .copybtn{float:right;font-size:11px;font-weight:600;background:#3B82F6;color:#fff;border:none;
+           border-radius:6px;padding:5px 12px;cursor:pointer;margin:-2px 0}
+  .copybtn:active{transform:translateY(1px)}
+  footer{font-size:12px;color:#94a3b8;text-align:center;max-width:520px;line-height:1.6}
+</style>
+</head>
+<body>
+
+  <h1>🔐 Template — Flex OTP เข้าสู่ระบบ (พนักงาน login)</h1>
+  <p class="sub">แยกจากฟังก์ชันจริง <span class="code-ref">sendLoginOtpViaLine()</span> ใน <span class="code-ref">line engine.js</span> ·
+  ค่าที่โชว์เป็นตัวอย่าง (ของจริงถูกแทนตอนส่ง)</p>
+
+  <!-- ============ พรีวิวใน LINE ============ -->
+  <div class="chat">
+    <div class="chat-row">
+      <div class="bot-ava"><img src="../supabase/รายงานส่วนตัว/assets/fmark.png" alt="bot" onerror="this.style.display='none'"></div>
+      <div class="bubble-wrap">
+        <span class="bot-name">CRM Bot</span>
+        <div class="flex">
+          <div class="flex-header">
+            <div class="tag">LOGIN SYSTEM</div>
+            <div class="title">OTP VERIFICATION</div>
+          </div>
+          <div class="flex-body">
+            <div class="emp-row">
+              <div class="emp-pic">
+                <img src="https://lh3.googleusercontent.com/d/1aPPUpEegIqHb3AzNV11YRlMMj6LIv7_3=w120" referrerpolicy="no-referrer"
+                     onerror="this.parentNode.style.background='#334155'" alt="">
+              </div>
+              <div>
+                <div class="emp-code">C210</div>
+                <div class="emp-name">เป๊ล วิชุตา</div>
+              </div>
+            </div>
+            <div class="sep"></div>
+            <div class="otp-label">รหัสผ่านเข้าสู่ระบบ (หมดอายุใน 2 นาที)</div>
+            <div class="otp-code">483920</div>
+            <div class="otp-ref">Ref: A1B2-C3D4</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ field mapping ============ -->
+  <div class="panel">
+    <h2>ช่องที่ถูกแทนค่าตอนส่ง (พารามิเตอร์ของฟังก์ชัน)</h2>
+    <table>
+      <tr><th>ตำแหน่งในการ์ด</th><th>ตัวแปร</th><th>ตัวอย่าง</th></tr>
+      <tr><td>รูปโปรไฟล์วงกลม</td><td class="k">empPic</td><td>รูปพนักงาน (ถ้าว่าง → รูปสำรองสีเทา)</td></tr>
+      <tr><td>รหัสพนักงาน (ฟ้า)</td><td class="k">empCode</td><td>C210</td></tr>
+      <tr><td>ชื่อพนักงาน</td><td class="k">empName</td><td>เป๊ล วิชุตา</td></tr>
+      <tr><td>เลข OTP (ส้มตัวใหญ่)</td><td class="k">otpCode</td><td>483920</td></tr>
+      <tr><td>Ref ด้านล่าง</td><td class="k">refCode</td><td>A1B2-C3D4</td></tr>
+      <tr><td>ปลายทาง (ไม่โชว์ในการ์ด)</td><td class="k">targetUserId</td><td>LINE userId ของพนักงาน</td></tr>
+    </table>
+  </div>
+
+  <!-- ============ Flex JSON ต้นฉบับ ============ -->
+  <div class="panel">
+    <h2>Flex JSON (template) <button class="copybtn" onclick="copyJson()">คัดลอก JSON</button></h2>
+    <pre id="json"><span class="c-json">// altText: 🔐 รหัส OTP เข้าสู่ระบบ: {{otpCode}}</span>
+{
+  <span class="k-json">"type"</span>: <span class="s-json">"bubble"</span>,
+  <span class="k-json">"size"</span>: <span class="s-json">"kilo"</span>,
+  <span class="k-json">"header"</span>: {
+    <span class="k-json">"type"</span>: <span class="s-json">"box"</span>, <span class="k-json">"layout"</span>: <span class="s-json">"vertical"</span>,
+    <span class="k-json">"backgroundColor"</span>: <span class="s-json">"#0F172A"</span>, <span class="k-json">"paddingAll"</span>: <span class="s-json">"15px"</span>,
+    <span class="k-json">"contents"</span>: [
+      { <span class="k-json">"type"</span>: <span class="s-json">"box"</span>, <span class="k-json">"layout"</span>: <span class="s-json">"horizontal"</span>, <span class="k-json">"contents"</span>: [
+        { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"LOGIN SYSTEM"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#3B82F6"</span>, <span class="k-json">"size"</span>: <span class="s-json">"xxs"</span>, <span class="k-json">"weight"</span>: <span class="s-json">"bold"</span>, <span class="k-json">"flex"</span>: 0 }
+      ]},
+      { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"OTP VERIFICATION"</span>, <span class="k-json">"weight"</span>: <span class="s-json">"bold"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#FFFFFF"</span>, <span class="k-json">"size"</span>: <span class="s-json">"lg"</span>, <span class="k-json">"margin"</span>: <span class="s-json">"sm"</span> }
+    ]
+  },
+  <span class="k-json">"body"</span>: {
+    <span class="k-json">"type"</span>: <span class="s-json">"box"</span>, <span class="k-json">"layout"</span>: <span class="s-json">"vertical"</span>,
+    <span class="k-json">"backgroundColor"</span>: <span class="s-json">"#1E293B"</span>, <span class="k-json">"paddingAll"</span>: <span class="s-json">"15px"</span>,
+    <span class="k-json">"contents"</span>: [
+      { <span class="k-json">"type"</span>: <span class="s-json">"box"</span>, <span class="k-json">"layout"</span>: <span class="s-json">"horizontal"</span>, <span class="k-json">"spacing"</span>: <span class="s-json">"md"</span>, <span class="k-json">"alignItems"</span>: <span class="s-json">"center"</span>, <span class="k-json">"contents"</span>: [
+        { <span class="k-json">"type"</span>: <span class="s-json">"box"</span>, <span class="k-json">"layout"</span>: <span class="s-json">"vertical"</span>, <span class="k-json">"flex"</span>: 0, <span class="k-json">"cornerRadius"</span>: <span class="s-json">"100px"</span>, <span class="k-json">"borderWidth"</span>: <span class="s-json">"2px"</span>, <span class="k-json">"borderColor"</span>: <span class="s-json">"#3B82F6"</span>, <span class="k-json">"contents"</span>: [
+          { <span class="k-json">"type"</span>: <span class="s-json">"image"</span>, <span class="k-json">"url"</span>: <span class="s-json">"{{empPic}}"</span>, <span class="k-json">"size"</span>: <span class="s-json">"xs"</span>, <span class="k-json">"aspectRatio"</span>: <span class="s-json">"1:1"</span>, <span class="k-json">"aspectMode"</span>: <span class="s-json">"cover"</span> }
+        ]},
+        { <span class="k-json">"type"</span>: <span class="s-json">"box"</span>, <span class="k-json">"layout"</span>: <span class="s-json">"vertical"</span>, <span class="k-json">"contents"</span>: [
+          { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"{{empCode}}"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#60A5FA"</span>, <span class="k-json">"weight"</span>: <span class="s-json">"bold"</span>, <span class="k-json">"size"</span>: <span class="s-json">"md"</span> },
+          { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"{{empName}}"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#E2E8F0"</span>, <span class="k-json">"size"</span>: <span class="s-json">"sm"</span>, <span class="k-json">"wrap"</span>: true }
+        ]}
+      ]},
+      { <span class="k-json">"type"</span>: <span class="s-json">"separator"</span>, <span class="k-json">"margin"</span>: <span class="s-json">"lg"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#334155"</span> },
+      { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"รหัสผ่านเข้าสู่ระบบ (หมดอายุใน 2 นาที)"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#94A3B8"</span>, <span class="k-json">"size"</span>: <span class="s-json">"xs"</span>, <span class="k-json">"margin"</span>: <span class="s-json">"lg"</span>, <span class="k-json">"align"</span>: <span class="s-json">"center"</span> },
+      { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"{{otpCode}}"</span>, <span class="k-json">"weight"</span>: <span class="s-json">"bold"</span>, <span class="k-json">"size"</span>: <span class="s-json">"3xl"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#F59E0B"</span>, <span class="k-json">"align"</span>: <span class="s-json">"center"</span>, <span class="k-json">"margin"</span>: <span class="s-json">"md"</span> },
+      { <span class="k-json">"type"</span>: <span class="s-json">"text"</span>, <span class="k-json">"text"</span>: <span class="s-json">"Ref: {{refCode}}"</span>, <span class="k-json">"color"</span>: <span class="s-json">"#64748B"</span>, <span class="k-json">"size"</span>: <span class="s-json">"xxs"</span>, <span class="k-json">"align"</span>: <span class="s-json">"center"</span>, <span class="k-json">"margin"</span>: <span class="s-json">"md"</span>, <span class="k-json">"wrap"</span>: true }
+    ]
+  }
+}</pre>
+  </div>
+
+  <footer>💡 หน้าตานี้ตรงกับที่ LINE เรนเดอร์จริง (bubble ขนาด <b>kilo</b>) · เปลี่ยนดีไซน์ = แก้ที่ <b>line engine.js</b> ฟังก์ชัน <b>sendLoginOtpViaLine()</b> แล้วอัปเดตไฟล์นี้ตาม</footer>
+
+<script>
+// Flex JSON ต้นฉบับ (plain text — สำหรับปุ่มคัดลอก)
+const FLEX_JSON = {
+  "type": "flex",
+  "altText": "🔐 รหัส OTP เข้าสู่ระบบ: {{otpCode}}",
+  "contents": {
+    "type": "bubble",
+    "size": "kilo",
+    "header": {
+      "type": "box", "layout": "vertical", "backgroundColor": "#0F172A", "paddingAll": "15px",
+      "contents": [
+        { "type": "box", "layout": "horizontal", "contents": [
+          { "type": "text", "text": "LOGIN SYSTEM", "color": "#3B82F6", "size": "xxs", "weight": "bold", "flex": 0 }
+        ]},
+        { "type": "text", "text": "OTP VERIFICATION", "weight": "bold", "color": "#FFFFFF", "size": "lg", "margin": "sm" }
+      ]
+    },
+    "body": {
+      "type": "box", "layout": "vertical", "backgroundColor": "#1E293B", "paddingAll": "15px",
+      "contents": [
+        { "type": "box", "layout": "horizontal", "spacing": "md", "alignItems": "center", "contents": [
+          { "type": "box", "layout": "vertical", "flex": 0, "cornerRadius": "100px", "borderWidth": "2px", "borderColor": "#3B82F6", "contents": [
+            { "type": "image", "url": "{{empPic}}", "size": "xs", "aspectRatio": "1:1", "aspectMode": "cover" }
+          ]},
+          { "type": "box", "layout": "vertical", "contents": [
+            { "type": "text", "text": "{{empCode}}", "color": "#60A5FA", "weight": "bold", "size": "md" },
+            { "type": "text", "text": "{{empName}}", "color": "#E2E8F0", "size": "sm", "wrap": true }
+          ]}
+        ]},
+        { "type": "separator", "margin": "lg", "color": "#334155" },
+        { "type": "text", "text": "รหัสผ่านเข้าสู่ระบบ (หมดอายุใน 2 นาที)", "color": "#94A3B8", "size": "xs", "margin": "lg", "align": "center" },
+        { "type": "text", "text": "{{otpCode}}", "weight": "bold", "size": "3xl", "color": "#F59E0B", "align": "center", "margin": "md" },
+        { "type": "text", "text": "Ref: {{refCode}}", "color": "#64748B", "size": "xxs", "align": "center", "margin": "md", "wrap": true }
+      ]
+    }
+  }
+};
+function copyJson(){
+  navigator.clipboard.writeText(JSON.stringify(FLEX_JSON, null, 2)).then(()=>{
+    const b=document.querySelector('.copybtn'); const t=b.textContent;
+    b.textContent='คัดลอกแล้ว ✓'; setTimeout(()=>b.textContent=t,1400);
+  });
+}
+</script>
+</body>
+</html>

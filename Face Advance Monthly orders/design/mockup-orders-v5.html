@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face Advance — ออเดอร์ v5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F8FAFC;--surface:#FFFFFF;--header:#F8FAFC;--hover:#F1F5F9;--border:#E2E8F0;
+    --ink:#0F172A;--ink-2:#475569;--ink-3:#94A3B8;--primary:#2563EB;--primary-700:#1D4ED8;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans Thai","Inter",system-ui,sans-serif;font-size:.875rem;line-height:1.5}
+  html{font-size:16px}
+  .num,.mono{font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums}
+  /* icon system: SVG stroke = currentColor → ปรับสี/ขนาดได้ */
+  svg.ic{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .top{display:flex;align-items:center;justify-content:space-between;background:var(--surface);border-bottom:1px solid var(--border);padding:.7rem 1.5rem}
+  .brand{display:flex;align-items:center;gap:.6rem;font-weight:600;font-size:.95rem}
+  .brand .dot{width:1.6rem;height:1.6rem;border-radius:.45rem;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center}
+  .slash{color:var(--ink-3);font-weight:500}
+  .controls{display:flex;align-items:center;gap:.6rem}
+  .pill{border:1px solid var(--border);background:#fff;border-radius:.5rem;padding:.5rem .7rem;font-size:.8rem;color:var(--ink-2);display:flex;align-items:center;gap:.45rem;cursor:pointer}
+  .pill:hover{background:var(--hover)}.search{min-width:15rem;color:var(--ink-3)}
+  .zoom{display:flex;align-items:center;border:1px solid var(--border);border-radius:.5rem;overflow:hidden;background:#fff}
+  .zoom button{border:none;background:#fff;color:var(--ink-2);font-family:inherit;font-size:.85rem;font-weight:600;padding:.4rem .55rem;cursor:pointer}
+  .zoom button:hover{background:var(--hover)}
+  .zoom .lvl{font-size:.72rem;color:var(--ink-2);padding:0 .35rem;min-width:2.6rem;text-align:center;border-left:1px solid var(--border);border-right:1px solid var(--border)}
+  .btn{background:var(--primary);color:#fff;border:none;border-radius:.5rem;padding:.5rem .85rem;font-weight:600;font-size:.8rem;font-family:inherit;display:flex;align-items:center;gap:.4rem;cursor:pointer}
+  .btn:hover{background:var(--primary-700)}
+  .user{color:var(--ink-2);font-size:.8rem;display:flex;align-items:center;gap:.4rem;cursor:pointer}
+  .avatar{width:1.75rem;height:1.75rem;border-radius:50%;background:#EFF6FF;color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:.8rem}
+  .page{padding:.9rem 1.5rem;max-width:95rem;margin:0 auto}
+  .h1{font-size:1.15rem;font-weight:600;margin:0 0 .05rem}
+  .sub{color:var(--ink-3);font-size:.78rem;margin-bottom:.7rem}
+  /* KPI 3 กลุ่ม กระชับ */
+  .krow{display:grid;grid-template-columns:.85fr 1.35fr 1.15fr;gap:.9rem;margin-bottom:.9rem}
+  .kcard{background:var(--surface);border:1px solid var(--border);border-radius:.8rem;padding:.75rem 1rem;box-shadow:0 1px 2px rgba(15,23,42,.04);display:flex;flex-direction:column;justify-content:center}
+  .khead{display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem}
+  .kicon{width:1.8rem;height:1.8rem;border-radius:.5rem;display:flex;align-items:center;justify-content:center;flex:none}
+  .kicon svg{width:1rem;height:1rem}
+  .kicon.blue{background:#EFF6FF;color:#2563EB}.kicon.green{background:#ECFDF5;color:#059669}.kicon.red{background:#FEF2F2;color:#DC2626}
+  .ktitle{font-size:.78rem;font-weight:600;color:var(--ink-2)}
+  .kbig{font-size:1.65rem;font-weight:700;line-height:1.1;letter-spacing:-.02em;color:var(--ink)}
+  .kbig small{font-size:.9rem;font-weight:600;color:var(--ink-2)}
+  .kunit{font-size:.68rem;color:var(--ink-3);margin-top:.15rem}
+  .bar{height:.4rem;border-radius:999px;background:#EEF2F6;overflow:hidden;display:flex;margin-top:.5rem}
+  .bar>span{display:block;height:100%}
+  .legend{display:flex;gap:1.1rem;margin-top:.4rem;font-size:.7rem;color:var(--ink-2)}
+  .legend b{font-weight:600;color:var(--ink)}
+  .ldot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.3rem;vertical-align:middle}
+  .ksub{display:flex;gap:1.4rem;margin-top:.35rem}
+  .ksub .sv{font-size:.95rem;font-weight:700;color:var(--ink)}.ksub .l{font-size:.68rem;color:var(--ink-3)}
+  .activefilters{display:flex;gap:.5rem;align-items:center;margin-bottom:.7rem;font-size:.78rem;color:var(--ink-2)}
+  .chip{border:1px solid #BFDBFE;background:#EFF6FF;color:#1E40AF;border-radius:.5rem;padding:.3rem .55rem;font-size:.75rem;font-weight:500;display:inline-flex;gap:.4rem;align-items:center;cursor:pointer}
+  /* table */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;position:relative}
+  .card-top{display:flex;align-items:center;justify-content:space-between;padding:.7rem 1rem;border-bottom:1px solid var(--border)}
+  .card-top .t{font-weight:600;font-size:.9rem}.card-top .meta{color:var(--ink-3);font-size:.75rem}
+  table{width:100%;border-collapse:collapse}
+  thead th{position:relative;background:var(--header);text-align:left;color:var(--ink-2);font-weight:600;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;padding:.5rem .85rem;border-bottom:1px solid var(--border);white-space:nowrap}
+  thead th .hh{display:flex;align-items:center;gap:.35rem;justify-content:space-between}
+  .funnel{color:var(--ink-3);cursor:pointer;border-radius:.25rem;padding:.05rem .15rem;display:inline-flex}
+  .funnel.on{color:var(--primary);background:#e6eefc}
+  th.c .hh{justify-content:center}th.r .hh{flex-direction:row-reverse}
+  tbody td{padding:.7rem .85rem;border-bottom:1px solid var(--border);font-size:.84rem}
+  tbody tr:hover{background:var(--hover)}
+  .daygroup td{background:#F1F5F9;color:var(--ink-2);font-weight:600;font-size:.72rem;padding:.4rem .85rem}
+  .name{font-weight:500}.code{color:var(--ink-3);font-weight:400}
+  .addr{color:var(--ink-2);max-width:13rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .amount{text-align:right;font-weight:500}.center{text-align:center}.note{color:var(--ink-3);font-size:.78rem}
+  .badge{display:inline-flex;align-items:center;gap:.28rem;padding:.15rem .55rem;border-radius:.4rem;font-size:.75rem;font-weight:700;white-space:nowrap;border:1.5px solid}
+  .badge svg{width:.85em;height:.85em}
+  .g{color:#065F46;background:#D1FAE5;border-color:#34D399}.a{color:#854D0E;background:#FEF08A;border-color:#EAB308}
+  .b{color:#1E3A8A;background:#BFDBFE;border-color:#3B82F6}.r{color:#fff;background:#DC2626;border-color:#B91C1C}
+  .n{color:#fff;background:#475569;border-color:#334155}
+  /* filter dropdown */
+  .fdrop{position:absolute;top:calc(100% + .25rem);right:0;width:15rem;background:#fff;border:1px solid var(--border);border-radius:.6rem;box-shadow:0 .75rem 2rem rgba(15,23,42,.16);z-index:50;text-transform:none;letter-spacing:normal}
+  .fdrop .sec{padding:.5rem .7rem;border-bottom:1px solid var(--border)}
+  .fsort a{font-size:.8rem;color:var(--ink);padding:.35rem .5rem;border-radius:.35rem;display:flex;gap:.5rem;align-items:center;cursor:pointer;font-weight:400}
+  .fsort a:hover{background:var(--hover)}
+  .fsearch{display:flex;align-items:center;gap:.4rem;border:1px solid var(--border);border-radius:.45rem;padding:.4rem .55rem;color:var(--ink-3);font-size:.8rem}
+  .flinks{display:flex;gap:.6rem;font-size:.72rem;color:var(--primary);padding:.1rem .25rem .3rem}
+  .fvals{max-height:9rem;overflow:auto}
+  .fval{display:flex;align-items:center;gap:.55rem;padding:.35rem .5rem;border-radius:.35rem;font-size:.8rem;color:var(--ink)}
+  .fval:hover{background:var(--hover)}
+  .cbx{width:1rem;height:1rem;border:1.5px solid var(--primary);border-radius:.25rem;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none}
+  .cbx svg{width:.7rem;height:.7rem;stroke-width:3}
+  .cbx.off{background:#fff;border-color:var(--border)}.cbx.off svg{display:none}
+  .factions{display:flex;justify-content:flex-end;gap:.5rem;padding:.5rem .7rem}
+  .fbtn{border:1px solid var(--border);background:#fff;border-radius:.45rem;padding:.35rem .75rem;font-size:.78rem;font-family:inherit;cursor:pointer}
+  .fbtn.p{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}
+</style>
+</head>
+<body>
+  <!-- icon defs -->
+  <svg style="display:none"><defs>
+    <g id="i-cal"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></g>
+    <g id="i-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></g>
+    <g id="i-upload"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></g>
+    <g id="i-logout"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></g>
+    <g id="i-truck"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.6a1 1 0 0 0-.2-.6l-3.5-4.4A1 1 0 0 0 17.5 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></g>
+    <g id="i-wallet"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a2 2 0 0 1-2-2V5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></g>
+    <g id="i-return"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></g>
+    <g id="i-clock"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></g>
+    <g id="i-check"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></g>
+    <g id="i-x"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></g>
+    <g id="i-funnel"><path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3z"/></g>
+    <g id="i-chev"><path d="m6 9 6 6 6-6"/></g>
+    <g id="i-tick"><path d="M20 6 9 17l-5-5"/></g>
+  </defs></svg>
+
+  <div class="top">
+    <div class="brand"><span class="dot"><svg class="ic" viewBox="0 0 24 24" style="width:1rem;height:1rem"><path d="M3 3h18v18H3z" fill="#fff" stroke="none"/><path d="M7 12h10M12 7v10" stroke="#2563EB"/></svg></span> Face Advance <span class="slash">/ ออเดอร์</span></div>
+    <div class="controls">
+      <span class="pill"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cal"/></svg> สิงหาคม 2026 <svg class="ic" viewBox="0 0 24 24" style="width:.9em"><use href="#i-chev"/></svg></span>
+      <span class="pill search"><svg class="ic" viewBox="0 0 24 24"><use href="#i-search"/></svg> ค้นหาทั้งตาราง</span>
+      <div class="zoom" title="ปรับขนาดจอในแอป"><button>A−</button><span class="lvl">100%</span><button>A+</button></div>
+      <button class="btn"><svg class="ic" viewBox="0 0 24 24"><use href="#i-upload"/></svg> นำเข้าไฟล์</button>
+      <span class="user"><span class="avatar">B</span> boss <svg class="ic" viewBox="0 0 24 24" style="width:.9rem;height:.9rem;color:var(--ink-3)"><use href="#i-logout"/></svg></span>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="h1">ออเดอร์ — สิงหาคม 2026</div>
+    <div class="sub">รวมทุกแบรนด์ · เรียงจากวันเก่าไปใหม่ · กรองแต่ละคอลัมน์แบบ Google Sheets · ปรับขนาดจอได้ในแอป</div>
+
+    <div class="krow">
+      <div class="kcard">
+        <div class="khead"><div class="kicon blue"><svg class="ic" viewBox="0 0 24 24"><use href="#i-truck"/></svg></div><div class="ktitle">จำนวนส่งออก</div></div>
+        <div class="kbig num">1,204</div><div class="kunit">ออเดอร์ที่ส่งจริงเดือนนี้</div>
+      </div>
+      <div class="kcard">
+        <div class="khead"><div class="kicon green"><svg class="ic" viewBox="0 0 24 24"><use href="#i-wallet"/></svg></div><div class="ktitle">ยอดขาย</div></div>
+        <div class="kbig num"><small>฿</small> 1,903,500</div><div class="kunit">ยอดขายรวมเดือนนี้</div>
+        <div class="bar"><span style="width:97%;background:#10B981"></span><span style="width:3%;background:#F59E0B"></span></div>
+        <div class="legend"><span><span class="ldot" style="background:#10B981"></span>ชำระแล้ว <b>฿1,842,300</b></span><span><span class="ldot" style="background:#F59E0B"></span>รอชำระ <b>฿61,200</b></span></div>
+      </div>
+      <div class="kcard">
+        <div class="khead"><div class="kicon red"><svg class="ic" viewBox="0 0 24 24"><use href="#i-return"/></svg></div><div class="ktitle">ตีกลับ</div></div>
+        <div class="kbig num" style="color:#DC2626">3.5%</div><div class="kunit">อัตราตีกลับ · เกณฑ์เตือน &gt; 5%</div>
+        <div class="ksub"><div><div class="sv num">42</div><div class="l">จำนวนออเดอร์</div></div><div><div class="sv num">฿78,900</div><div class="l">ยอดตีกลับ</div></div></div>
+      </div>
+    </div>
+
+    <div class="activefilters"><span>ตัวกรอง:</span><span class="chip">สถานะจัดส่ง: รอส่ง, ตีกลับ <svg class="ic" viewBox="0 0 24 24" style="width:.85em"><use href="#i-x"/></svg></span><span style="color:var(--primary);cursor:pointer">ล้างทั้งหมด</span></div>
+
+    <div class="card">
+      <div class="card-top"><div class="t">รายการออเดอร์</div><div class="meta">กรองแล้ว 80 / 1,204 · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง</div></div>
+      <table>
+        <thead><tr>
+          <th><div class="hh">เบอร์โทร <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th><div class="hh">ชื่อลูกค้า <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th><div class="hh">ที่อยู่ <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th><div class="hh">ขนส่ง <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th><div class="hh">เลขแทร็ค <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th class="r"><div class="hh">ยอดขาย <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th class="c">
+            <div class="hh">สถานะจัดส่ง <span class="funnel on"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div>
+            <div class="fdrop">
+              <div class="sec fsort"><a><svg class="ic" viewBox="0 0 24 24" style="width:.9em"><path d="m3 8 4-4 4 4M7 4v16"/></svg> เรียง ก → ฮ</a><a><svg class="ic" viewBox="0 0 24 24" style="width:.9em"><path d="m3 16 4 4 4-4M7 20V4"/></svg> เรียง ฮ → ก</a></div>
+              <div class="sec"><div class="fsearch"><svg class="ic" viewBox="0 0 24 24"><use href="#i-search"/></svg> ค้นหาค่า...</div></div>
+              <div class="sec">
+                <div class="flinks"><a>เลือกทั้งหมด</a> · <a>ล้าง</a></div>
+                <div class="fvals">
+                  <div class="fval"><span class="cbx"><svg viewBox="0 0 24 24"><use href="#i-tick"/></svg></span> รอส่ง <span style="margin-left:auto;color:var(--ink-3)">12</span></div>
+                  <div class="fval"><span class="cbx off"></span> ส่งแล้ว <span style="margin-left:auto;color:var(--ink-3)">986</span></div>
+                  <div class="fval"><span class="cbx off"></span> ส่งสำเร็จ <span style="margin-left:auto;color:var(--ink-3)">164</span></div>
+                  <div class="fval"><span class="cbx"><svg viewBox="0 0 24 24"><use href="#i-tick"/></svg></span> ตีกลับ <span style="margin-left:auto;color:var(--ink-3)">42</span></div>
+                </div>
+              </div>
+              <div class="factions"><button class="fbtn">ยกเลิก</button><button class="fbtn p">ใช้ตัวกรอง</button></div>
+            </div>
+          </th>
+          <th class="c"><div class="hh">สถานะชำระ <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+          <th><div class="hh">หมายเหตุ <span class="funnel"><svg class="ic" viewBox="0 0 24 24"><use href="#i-funnel"/></svg></span></div></th>
+        </tr></thead>
+        <tbody>
+          <tr class="daygroup"><td colspan="9">1 สิงหาคม 2026</td></tr>
+          <tr><td class="mono">0898300501</td><td class="name">คุณนันต์ อินต๊ะสาร <span class="code">C209</span></td><td class="addr">66/43 แกรนวิว ม.3 บ้านฉาง ระยอง 21130</td><td>KEX</td><td class="mono">GOSH0638094515</td><td class="amount num">1,790</td><td class="center"><span class="badge a"><svg class="ic" viewBox="0 0 24 24"><use href="#i-clock"/></svg>รอส่ง</span></td><td class="center"><span class="badge g"><svg class="ic" viewBox="0 0 24 24"><use href="#i-check"/></svg>ชำระแล้ว</span></td><td class="note mono">SO202608-0690</td></tr>
+          <tr><td class="mono">0862911020</td><td class="name">คุณมาเรียม ลูกสะเดา <span class="code">C210</span></td><td class="addr">37 ถ.ท่าพรุ สะเดา สงขลา 90120</td><td>KEX</td><td class="mono">GOSH06380947A2</td><td class="amount num">1,480</td><td class="center"><span class="badge r"><svg class="ic" viewBox="0 0 24 24"><use href="#i-return"/></svg>ตีกลับ</span></td><td class="center"><span class="badge n"><svg class="ic" viewBox="0 0 24 24"><use href="#i-x"/></svg>ยกเลิก</span></td><td class="note">—</td></tr>
+          <tr><td class="mono">0655945832</td><td class="name">คุณอัชราพร ปานเปียม <span class="code">C004</span></td><td class="addr">261 ม.1 ทุ่งขนาน สอยดาว จันทบุรี 22180</td><td>KEX</td><td class="mono">GOSH06380949AF</td><td class="amount num">1,790</td><td class="center"><span class="badge a"><svg class="ic" viewBox="0 0 24 24"><use href="#i-clock"/></svg>รอส่ง</span></td><td class="center"><span class="badge a"><svg class="ic" viewBox="0 0 24 24"><use href="#i-clock"/></svg>รอชำระ</span></td><td class="note">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

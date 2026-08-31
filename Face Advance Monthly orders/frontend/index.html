@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face Advance — ออเดอร์</title>
+<link rel="icon" href="fmark.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* critical: กัน FOUC (dev) — ซ่อนหน้าไว้ก่อน แล้ว fade เข้ามาตอนแอปพร้อม */
+  html{background:#0E1728}
+  body{margin:0;opacity:0;transition:opacity .2s ease}
+  body.ready{opacity:1}
+  svg[style*="display:none"]{display:none!important}
+</style>
+</head>
+<body>
+  <!-- icon defs (Lucide-style) -->
+  <svg style="display:none"><defs>
+    <g id="i-cal"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></g>
+    <g id="i-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></g>
+    <g id="i-upload"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></g>
+    <g id="i-logout"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></g>
+    <g id="i-truck"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.6a1 1 0 0 0-.2-.6l-3.5-4.4A1 1 0 0 0 17.5 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></g>
+    <g id="i-wallet"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a2 2 0 0 1-2-2V5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></g>
+    <g id="i-return"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></g>
+    <g id="i-clock"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></g>
+    <g id="i-check"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></g>
+    <g id="i-x"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></g>
+    <g id="i-funnel"><path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3z"/></g>
+    <g id="i-chev"><path d="m6 9 6 6 6-6"/></g>
+    <g id="i-tick"><path d="M20 6 9 17l-5-5"/></g>
+    <g id="i-copy"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></g>
+    <g id="i-close"><path d="M18 6 6 18M6 6l12 12"/></g>
+    <g id="i-sortaz"><path d="m3 8 4-4 4 4M7 4v16"/></g>
+    <g id="i-sortza"><path d="m3 16 4 4 4-4M7 20V4"/></g>
+    <g id="i-chev-l"><path d="m15 18-6-6 6-6"/></g>
+    <g id="i-chev-r"><path d="m9 18 6-6-6-6"/></g>
+    <g id="i-user"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></g>
+    <g id="i-lock"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+    <g id="i-eye"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></g>
+    <g id="i-login"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5M15 12H3"/></g>
+    <g id="i-shield"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></g>
+    <g id="i-back"><path d="m12 19-7-7 7-7M5 12h14"/></g>
+  </defs></svg>
+  <div id="authRoot"></div>
+
+  <div class="top">
+    <div class="brand">
+      <img class="dot" src="fmark.png" alt="Face Advance" width="26" height="26">
+      <span>Face Advance</span><span class="slash">/</span><span id="pageTitle">ออเดอร์</span>
+    </div>
+    <div class="controls">
+      <div class="monthsel" id="monthsel">
+        <span class="pill" id="monthPill"><svg class="ic" viewBox="0 0 24 24"><use href="#i-cal"/></svg> <span id="monthLabel">—</span> <svg class="ic" viewBox="0 0 24 24" style="width:.9em"><use href="#i-chev"/></svg></span>
+        <div class="mpick" id="monthPick" hidden></div>
+      </div>
+      <span class="pill search" id="searchWrap"><svg class="ic" viewBox="0 0 24 24"><use href="#i-search"/></svg> <input id="searchInput" placeholder="ค้นหาทั้งตาราง" autocomplete="off"></span>
+      <div class="zoom" title="ปรับขนาดจอในแอป"><button id="zoomOut">A−</button><span class="lvl" id="zoomLvl">100%</span><button id="zoomIn">A+</button></div>
+      <button class="btn" id="importBtn" title="ยังไม่เปิดใช้ (Stage 2)"><svg class="ic" viewBox="0 0 24 24"><use href="#i-upload"/></svg> นำเข้าไฟล์</button>
+      <span class="user"><span class="avatar" id="userAvatar">U</span> <span id="userName">—</span></span>
+      <button class="logoutbtn" id="logoutBtn" title="ออกจากระบบ"><svg class="ic" viewBox="0 0 24 24"><use href="#i-logout"/></svg></button>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="krow" id="kpi"></div>
+    <div class="activefilters" id="activefilters" hidden></div>
+    <div class="card">
+      <div class="card-top"><div class="t">รายการออเดอร์</div><div class="meta" id="tableMeta"></div></div>
+      <div id="tableWrap"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

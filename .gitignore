@@ -1,0 +1,46 @@
+# ===== ข้อมูลจริง (ลูกค้า/พนักงาน) — ห้ามขึ้น GitHub เด็ดขาด =====
+*.xlsx
+*.xls
+*.csv
+database/seed/sellers_seed.sql
+database/seed/products_seed_01.tsv
+database/seed/stg_insert.sql
+database/seed/*_seed.sql
+**/import_orders.sql
+/tmp/import_orders.sql
+
+# ===== secrets (กันเผลอ) =====
+.env
+.env.*
+*.pem
+*.key
+secrets.env
+**/secrets.env
+
+# ===== build / dependencies =====
+node_modules/
+dist/
+build/
+.vite/
+**/.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# ===== OS / editor =====
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ===== artifacts ภายใน (ไม่ต้องขึ้น repo) =====
+.superpowers/
+file-backups/
+*.log
+
+# ===== หมายเหตุ: anon key ใน frontend/src/config.ts = public โดยออกแบบ (ปลอดภัย) =====
+# service key / DB url / LINE token อยู่แค่ Supabase secrets + ~/.claude/secrets.env — ไม่มีในโค้ด
