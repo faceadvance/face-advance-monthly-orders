@@ -130,6 +130,7 @@ tr.aopen .addrtoggle{transform:rotate(180deg)}
 .items{color:var(--ink-2);max-width:15rem;vertical-align:top}
 .iln0{display:flex;align-items:center;gap:.35rem}
 .iln0 .itxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.iln0 .itemtoggle{margin-left:auto}  /* สามเหลี่ยมชิดขวา ตำแหน่งตรงกันทุกแถว */
 .itemtoggle{cursor:pointer;color:var(--ink-3);flex:none;display:inline-flex;transition:transform .15s}
 .itemtoggle:hover{color:var(--primary)}
 .itemtoggle svg{width:1.2em;height:1.2em;fill:currentColor;stroke:none}
@@ -171,7 +172,7 @@ th.rcol .hh{justify-content:flex-end}
 .fbtn.p:hover{background:var(--primary-700)}
 /* ===== ฟีเจอร์เลือกเลขแทร็คคัดลอก ===== */
 .trackcell{display:flex;align-items:center;gap:.45rem;justify-content:flex-start}
-.tick{width:1.15rem;height:1.15rem;border:1.5px solid var(--border);border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;color:#fff;transition:background .1s,border-color .1s}
+.tick{width:1.15rem;height:1.15rem;border:1.5px solid var(--ink-3);border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;color:#fff;transition:background .1s,border-color .1s}
 .tick svg{width:.7rem;height:.7rem;stroke-width:3;opacity:0}
 .tick.on{background:var(--primary);border-color:var(--primary)}
 .tick.on svg{opacity:1}
