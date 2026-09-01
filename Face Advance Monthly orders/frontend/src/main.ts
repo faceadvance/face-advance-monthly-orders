@@ -830,7 +830,7 @@ function updateUserDisplay() {
 // ======================================================
 //  Idle-timeout — auto logout 90 นาทีหลัง action ล่าสุด (ตรงกับ DB)
 // ======================================================
-const IDLE_MS = 3 * 60 * 1000;   // ⚠️ ชั่วคราวสำหรับเทส (ปกติ 90*60*1000)
+const IDLE_MS = 30 * 60 * 1000;   // idle-timeout 30 นาที (ตรงกับ DB app_session_uid)
 let idleTimer: number | undefined;
 let lastIdleReset = 0;
 
@@ -843,7 +843,7 @@ function onIdleExpire() {
   const t = getToken();
   if (t) void authLogout(t);
   toLogin();
-  toast("ไม่มีการใช้งานเกิน 3 นาที — ออกจากระบบอัตโนมัติ", false);
+  toast("ไม่มีการใช้งานเกิน 30 นาที — ออกจากระบบอัตโนมัติ", false);
 }
 function setupIdleTracking() {
   const onActivity = () => {
