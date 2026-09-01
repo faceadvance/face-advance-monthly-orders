@@ -3,10 +3,10 @@ import { fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp } f
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName } from "./session";
 import { parseWorkbook, type ImportRow, type ParseResult } from "./import";
-import type { Order, OrdersResponse, Kpi, Daily } from "./types";
+import type { Order, OrderItem, OrdersResponse, Kpi, Daily } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
-  cellValue, searchBlob, paymentMethodLabel, itemsLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
+  cellValue, searchBlob, paymentMethodLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
 } from "./util";
 
 const MAX_SELECT = 30;
@@ -18,7 +18,7 @@ const COLUMNS: Column[] = [
   { key: "customer_name", label: "ชื่อลูกค้า" },
   { key: "address", label: "ที่อยู่" },
   { key: "items", label: "รายการสินค้า" },
-  { key: "payment_method", label: "ช่องทางชำระ", align: "right" },
+  { key: "payment_method", label: "ชำระ", align: "right" },
   { key: "total_sales", label: "ยอดขาย", align: "right" },
   { key: "carrier", label: "ขนส่ง" },
   { key: "tracking_no", label: "เลขแทร็ค" },
@@ -304,9 +304,8 @@ function buildRow(o: Order): HTMLElement {
   tr.append(tdName);
   // ที่อยู่
   tr.append(el("td", { class: "addr", title: o.address }, o.address || "—"));
-  // รายการสินค้า
-  const itemsTxt = itemsLabel(o.items);
-  tr.append(el("td", { class: "items", title: itemsTxt }, itemsTxt || "—"));
+  // รายการสินค้า (โชว์บรรทัดแรก · มี ≥2 → ปุ่มสามเหลี่ยมขยายทั้งแถว)
+  tr.append(buildItemsCell(o, tr));
   // ช่องทางชำระ (COD ย่อจาก เก็บเงินปลายทาง) — ชิดขวา
   tr.append(el("td", { class: "tar" }, paymentMethodLabel(o.payment_method) || "—"));
   // ยอดขาย
@@ -327,6 +326,25 @@ function buildRow(o: Order): HTMLElement {
   // หมายเหตุ
   tr.append(el("td", { class: o.note ? "note mono" : "note" }, o.note || "—"));
   return tr;
+}
+
+function buildItemsCell(o: Order, tr: HTMLElement): HTMLElement {
+  const td = el("td", { class: "items" });
+  const items = o.items || [];
+  if (items.length === 0) { td.append("—"); return td; }
+  const line = (it: OrderItem) => `${it.name} ×${it.qty}`;
+  const first = el("div", { class: "iln0" }, el("span", { class: "itxt", title: line(items[0]) }, line(items[0])));
+  if (items.length > 1) {
+    const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายการทั้งหมด" }, icon("i-chev"));
+    tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
+    first.append(tog);
+    const rest = el("div", { class: "itemrest" });
+    for (let i = 1; i < items.length; i++) rest.append(el("div", { class: "iln", title: line(items[i]) }, line(items[i])));
+    td.append(first, rest);
+  } else {
+    td.append(first);
+  }
+  return td;
 }
 
 function buildTrackCell(o: Order): HTMLElement {
