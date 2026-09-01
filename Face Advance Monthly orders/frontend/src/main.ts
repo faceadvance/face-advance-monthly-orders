@@ -156,7 +156,7 @@ function renderKpi(d: OrdersResponse) {
 
   const cap2 = el("div", { class: "kcap" });
   cap2.append("ยอดขายเฉลี่ยต่อวัน ", el("b", {}, `฿${nf(avgSales)}`), " (รวมยอดที่ยังไม่ชำระ)");
-  root.append(kcardSplit("green", "i-wallet", "ยอดขาย", mainPaid, detail2, chart2, cap2));
+  root.append(kcardSplit("green", "i-coin", "ยอดขาย", mainPaid, detail2, chart2, cap2));
 
   // --- การ์ด 3: ตีกลับ ---
   const ret = d.daily.returned;
@@ -339,9 +339,9 @@ function buildNameCell(o: Order, tr: HTMLElement): HTMLElement {
   const line = el("div", { class: "nameline" });
   const txt = el("span", { class: "ntxt name", title: o.customer_name }, name || "—");
   if (code) txt.append(" ", el("span", { class: "code" }, code));
-  const tog = el("span", { class: "itemtoggle nametoggle", title: "ดู/ซ่อนชื่อเต็ม" }, icon("i-caret"));
+  const tog = el("span", { class: "itemtoggle nametoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่ชื่อล้น (เช็ค overflow หลัง render)
-  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("nopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
   line.append(txt, tog);
   td.append(line);
   return td;
@@ -353,11 +353,11 @@ function buildAddrCell(o: Order, tr: HTMLElement): HTMLElement {
   const txt = el("span", { class: "atxt", title: o.address }, o.address || "—");
   // ตอนขยาย: แยกส่วนย่อย (รายละเอียด/ตำบล/อำเภอ/จังหวัด/ไปรษณีย์) บรรทัดละส่วน (ยาว→wrap ปกติ)
   const parts = el("div", { class: "addrparts" });
-  const ap = o.address_parts?.length ? o.address_parts : (o.address ? [o.address] : []);
+  const ap = o.address_parts?.length ? o.address_parts : [o.address || "—"];
   for (const p of ap) parts.append(el("div", { class: "apart" }, p));
-  const tog = el("span", { class: "itemtoggle addrtoggle", title: "ดู/ซ่อนที่อยู่เต็ม" }, icon("i-caret"));
+  const tog = el("span", { class: "itemtoggle addrtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่ที่อยู่ล้น (เช็ค overflow หลัง render)
-  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("aopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
   wrap.append(txt, parts, tog);
   td.append(wrap);
   return td;
@@ -370,7 +370,7 @@ function buildItemsCell(o: Order, tr: HTMLElement): HTMLElement {
   const line = (it: OrderItem) => `${it.name} ×${it.qty}`;
   const first = el("div", { class: "iln0" }, el("span", { class: "itxt", title: line(items[0]) }, line(items[0])));
   if (items.length > 1) {
-    const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายการทั้งหมด" }, icon("i-caret"));
+    const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
     tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
     first.append(tog);
     const rest = el("div", { class: "itemrest" });
