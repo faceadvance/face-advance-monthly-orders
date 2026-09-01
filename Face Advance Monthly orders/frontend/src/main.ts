@@ -256,6 +256,14 @@ function renderTable() {
   table.append(thead, tbody);
   wrap.append(table);
 
+  // โชว์ปุ่มขยายที่อยู่เฉพาะแถวที่ข้อความล้น (อ่าน scrollWidth หลัง append = 1 reflow)
+  for (const at of wrap.querySelectorAll<HTMLElement>(".atxt")) {
+    if (at.scrollWidth > at.clientWidth + 1) {
+      const tog = at.nextElementSibling as HTMLElement | null;
+      if (tog) tog.style.display = "";
+    }
+  }
+
   $("#tableMeta").textContent =
     `${nf(rows.length)} / ${nf(d.orders.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
 
@@ -302,8 +310,8 @@ function buildRow(o: Order): HTMLElement {
   const tdName = el("td", { class: "name" }, name || "—");
   if (code) tdName.append(" ", el("span", { class: "code" }, code));
   tr.append(tdName);
-  // ที่อยู่
-  tr.append(el("td", { class: "addr", title: o.address }, o.address || "—"));
+  // ที่อยู่ (โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม)
+  tr.append(buildAddrCell(o, tr));
   // รายการสินค้า (โชว์บรรทัดแรก · มี ≥2 → ปุ่มสามเหลี่ยมขยายทั้งแถว)
   tr.append(buildItemsCell(o, tr));
   // ช่องทางชำระ (COD ย่อจาก เก็บเงินปลายทาง) — ชิดขวา
@@ -328,6 +336,18 @@ function buildRow(o: Order): HTMLElement {
   return tr;
 }
 
+function buildAddrCell(o: Order, tr: HTMLElement): HTMLElement {
+  const td = el("td", { class: "addr-cell" });
+  const wrap = el("div", { class: "addrline" });
+  const txt = el("span", { class: "atxt", title: o.address }, o.address || "—");
+  const tog = el("span", { class: "itemtoggle addrtoggle", title: "ดู/ซ่อนที่อยู่เต็ม" }, icon("i-caret"));
+  tog.style.display = "none"; // โชว์เฉพาะแถวที่ที่อยู่ล้น (เช็ค overflow หลัง render)
+  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("aopen"); });
+  wrap.append(txt, tog);
+  td.append(wrap);
+  return td;
+}
+
 function buildItemsCell(o: Order, tr: HTMLElement): HTMLElement {
   const td = el("td", { class: "items" });
   const items = o.items || [];
@@ -335,7 +355,7 @@ function buildItemsCell(o: Order, tr: HTMLElement): HTMLElement {
   const line = (it: OrderItem) => `${it.name} ×${it.qty}`;
   const first = el("div", { class: "iln0" }, el("span", { class: "itxt", title: line(items[0]) }, line(items[0])));
   if (items.length > 1) {
-    const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายการทั้งหมด" }, icon("i-chev"));
+    const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายการทั้งหมด" }, icon("i-caret"));
     tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
     first.append(tog);
     const rest = el("div", { class: "itemrest" });

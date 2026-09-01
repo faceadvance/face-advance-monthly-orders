@@ -114,20 +114,25 @@ thead th.filtered{background:var(--primary);color:#fff}
 thead th.filtered .funnel,thead th.filtered .funnel.on{color:#fff;opacity:1;background:transparent}
 thead th.filtered .hh{color:#fff}
 .name{font-weight:500}.code{color:var(--ink-3);font-weight:400}
-.addr{color:var(--ink-2);max-width:9.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* รายการสินค้า: โชว์บรรทัดแรก + ปุ่มขยาย (▾) เมื่อมี ≥2 · กดขยาย = โชว์ครบ (เว้นบรรทัดคั่น) */
+/* ที่อยู่: โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม (ตัดบรรทัด) แบบเดียวกับรายการสินค้า */
+.addr-cell{color:var(--ink-2);max-width:9.75rem;vertical-align:top}
+.addrline{display:flex;align-items:center;gap:.35rem}
+.addrline .atxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr.aopen .atxt{white-space:normal;overflow:visible;word-break:break-word}
+tr.aopen .addrtoggle{transform:rotate(180deg)}
+/* รายการสินค้า: โชว์บรรทัดแรก + ปุ่มสามเหลี่ยมทึบ (▼) เมื่อมี ≥2 · กดขยาย = โชว์ครบ (เว้นบรรทัดคั่น) */
 .items{color:var(--ink-2);max-width:15rem;vertical-align:top}
 .iln0{display:flex;align-items:center;gap:.35rem}
 .iln0 .itxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .itemtoggle{cursor:pointer;color:var(--ink-3);flex:none;display:inline-flex;transition:transform .15s}
 .itemtoggle:hover{color:var(--primary)}
-.itemtoggle svg{width:1.05em;height:1.05em}
+.itemtoggle svg{width:.95em;height:.95em;fill:currentColor;stroke:none}
 .itemrest{display:none}
 .itemrest .iln{margin-top:.9rem;white-space:normal;word-break:break-word}
 tr.rowopen .itemrest{display:block}
 tr.rowopen .iln0 .itxt{white-space:normal;overflow:visible;word-break:break-word}
 tr.rowopen .itemtoggle{transform:rotate(180deg)}
-tr.rowopen td{vertical-align:top}
+tr.rowopen td,tr.aopen td{vertical-align:top}
 .amount{text-align:right;font-weight:500}.center{text-align:center}.tar{text-align:right}.note{color:var(--ink-3);font-size:.78rem}
 th.rcol .hh{justify-content:flex-end}
 .badge{display:inline-flex;align-items:center;gap:.28rem;padding:.15rem .55rem;border-radius:.4rem;font-size:.75rem;font-weight:700;white-space:nowrap;border:1.5px solid}
