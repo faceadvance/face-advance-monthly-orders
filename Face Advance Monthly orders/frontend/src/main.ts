@@ -260,13 +260,16 @@ function renderTable() {
   table.append(thead, tbody);
   wrap.append(table);
 
-  // โชว์ปุ่มขยาย (ที่อยู่/ชื่อ) เฉพาะแถวที่ข้อความล้น (อ่าน scrollWidth หลัง append = 1 reflow)
+  // โชว์ปุ่มขยาย (ที่อยู่/ชื่อ) เฉพาะแถวที่ข้อความล้น
+  // แยก read (scrollWidth) กับ write (display) เป็น 2 เฟส กัน layout thrashing (สำคัญมากตอนแถวเยอะ)
+  const toShow: HTMLElement[] = [];
   for (const tx of wrap.querySelectorAll<HTMLElement>(".atxt, .ntxt")) {
     if (tx.scrollWidth > tx.clientWidth + 1) {
       const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
-      if (tog) tog.style.display = "";
+      if (tog) toShow.push(tog);
     }
   }
+  for (const tog of toShow) tog.style.display = "";
 
   $("#tableMeta").textContent =
     `${nf(rows.length)} / ${nf(d.orders.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
@@ -756,9 +759,11 @@ async function bootstrap() {
 
   // ค้นหา
   const si = $("#searchInput") as HTMLInputElement;
+  let searchTimer: number | undefined;
   si.addEventListener("input", () => {
     state.search = si.value;
-    if (state.data) renderTable();
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => { if (state.data) renderTable(); }, 160); // debounce กันค้าง
   });
 
   // ปุ่มนำเข้าไฟล์ (Stage 2)
