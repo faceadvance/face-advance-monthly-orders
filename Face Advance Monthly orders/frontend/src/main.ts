@@ -1,9 +1,12 @@
 import "./style.css";
-import { fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp } from "./api";
+import {
+  fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
+  saveOrderTracking, getOrderTracking, type SaveTrackingArgs,
+} from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName } from "./session";
 import { parseWorkbook, type ImportRow, type ParseResult } from "./import";
-import type { Order, OrderItem, OrdersResponse, Kpi, Daily } from "./types";
+import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
   cellValue, searchBlob, paymentMethodLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
@@ -141,7 +144,7 @@ function renderKpi(d: OrdersResponse) {
     if (upH > 0) bar.append(el("i", { class: "up", style: `height:${upH}%` }));
     chart2.append(bar);
   }
-  const avgSales = Math.round(d.kpi.sales_total / days);
+  const avgSales = daysWithData ? Math.round(d.kpi.sales_total / daysWithData) : 0;   // หารด้วยวันที่มีข้อมูล (ให้ตรงกับการ์ดจำนวนส่งออก)
   // hero = ยอดที่ชำระแล้ว (เขียว) · ยอดขายรวม + รอชำระ ไปอยู่ขวาล่าง
   const mainPaid = el("div", { class: "kmain" });
   const bigPaid = el("div", { class: "kbig num", style: "color:#059669" });
@@ -247,11 +250,12 @@ function renderTable() {
   const thead = el("thead");
   const tr = el("tr");
   for (const col of COLUMNS) tr.append(buildTh(col));
+  tr.append(el("th", { class: "acthead c" }, "อัพเดต"));
   thead.append(tr);
 
   const tbody = el("tbody");
   if (rows.length === 0) {
-    const td = el("td", { colspan: String(COLUMNS.length) });
+    const td = el("td", { colspan: String(COLUMNS.length + 1) });
     td.append(el("div", { class: "state" }, d.orders.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ยังไม่มีออเดอร์ในเดือนนี้"));
     tbody.append(el("tr", {}, td));
   } else {
@@ -326,10 +330,10 @@ function buildRow(o: Order): HTMLElement {
   tr.append(el("td", {}, o.carrier || "—"));
   // เลขแทร็ค + ปุ่มติ๊ก
   tr.append(buildTrackCell(o));
-  // สถานะจัดส่ง
-  tr.append(el("td", { class: "center" }, badge(deliveryBadge(o.delivery_status), o.delivery_status)));
-  // สถานะชำระ
-  tr.append(el("td", { class: "center" }, badge(paymentBadge(o.payment_status), o.payment_status)));
+  // สถานะจัดส่ง (badge + ดินสอแก้ inline)
+  tr.append(buildStatusCell(o, "delivery"));
+  // สถานะชำระ (badge + ดินสอแก้ inline)
+  tr.append(buildStatusCell(o, "payment"));
   // ตีกลับถึงแล้ว (ลอจิกเฟสถัดไป — ตอนนี้ "-" หรือ "ถึงแล้ว")
   const raCell = el("td", { class: "center" });
   if (o.return_arrived) raCell.append(badge({ cls: "r", icon: "i-return" }, "ถึงแล้ว"));
@@ -337,7 +341,26 @@ function buildRow(o: Order): HTMLElement {
   tr.append(raCell);
   // หมายเหตุ
   tr.append(el("td", { class: o.note ? "note mono" : "note" }, o.note || "—"));
+  // แก้ไข (เปิด sidebar)
+  const actCell = el("td", { class: "actcell" });
+  const editBtn = el("button", { class: "rowedit", title: "อัพเดต / บันทึกติดตาม" }, icon("i-editbox"));
+  editBtn.addEventListener("click", (e) => { e.stopPropagation(); openSidebar(o); });
+  actCell.append(editBtn);
+  tr.append(actCell);
   return tr;
+}
+
+// สถานะ (จัดส่ง/ชำระ) + ดินสอแก้ inline → popup เลือก → ยืนยัน
+function buildStatusCell(o: Order, field: "delivery" | "payment"): HTMLElement {
+  const td = el("td", { class: "center statuscell" });
+  const val = field === "delivery" ? o.delivery_status : o.payment_status;
+  const b = field === "delivery" ? deliveryBadge(val) : paymentBadge(val);
+  const wrap = el("div", { class: "stwrap" }, badge(b, val));
+  const pen = el("span", { class: "stedit", title: "แก้สถานะ" }, icon("i-edit"));
+  pen.addEventListener("click", (e) => { e.stopPropagation(); openStatusPopup(pen, o, field); });
+  wrap.append(pen);
+  td.append(wrap);
+  return td;
 }
 
 function buildNameCell(o: Order, tr: HTMLElement): HTMLElement {
@@ -536,6 +559,474 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 // ======================================================
+//  การบันทึกติดตาม (Stage 5): แก้สถานะ inline + sidebar
+// ======================================================
+const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
+const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก"];
+const RETURN_REASONS = [
+  "ไม่สามารถติดต่อลูกค้าได้",
+  "ลูกค้าไม่สะดวกรับในรอบการจัดส่ง",
+  "ลูกค้าไม่ได้สั่ง",
+  "ลูกค้ายกเลิก เนื่องจาก",
+  "ลูกค้าต้องการเปลี่ยนสินค้า",
+  "ร้านค้าส่งของผิด",
+  "จัดส่งนานเกินไป",
+  "ขนส่งบริการไม่ดี",
+  "ขนส่งไม่นำส่งให้ลูกค้า",
+  "อื่นๆ ระบุเพิ่มเติม",
+];
+const REASONS_WITH_EXTRA = new Set(["ลูกค้ายกเลิก เนื่องจาก", "อื่นๆ ระบุเพิ่มเติม"]);
+
+function trackErrMsg(err?: string): string {
+  switch (err) {
+    case "return_reason_required": return "กรุณาเลือกเหตุผลตีกลับ";
+    case "status_detail_required": return "กรุณากรอกรายละเอียดปัญหา";
+    case "order_not_found":        return "ไม่พบออเดอร์นี้แล้ว";
+    case "bad_delivery_status":
+    case "bad_payment_status":     return "สถานะไม่ถูกต้อง";
+    default:                       return "บันทึกไม่สำเร็จ";
+  }
+}
+
+// อัปเดต order ใน state จาก response แล้ว re-render (KPI ตีกลับเปลี่ยนตามด้วย)
+function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_status?: string; return_reason?: string; status_detail?: string }) {
+  if (r.delivery_status) o.delivery_status = r.delivery_status;
+  if (r.payment_status) o.payment_status = r.payment_status;
+  o.return_reason = r.return_reason ?? "";
+  o.status_detail = r.status_detail ?? "";
+  computeKpiDaily(state.data!);
+  renderKpi(state.data!);
+  renderTable();
+}
+
+// ---- แก้สถานะ inline: ดินสอ → popup เลือก → ยืนยัน ----
+function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "payment") {
+  closeDrop();
+  const cur = field === "delivery" ? o.delivery_status : o.payment_status;
+  const opts = field === "delivery" ? DELIVERY_STATUSES : PAYMENT_STATUSES;
+  let sel = cur;
+
+  const pop = el("div", { class: "stpop" });
+  openDrop = pop;
+  const list = el("div", { class: "stlist" });
+  const rowEls = new Map<string, HTMLElement>();
+  for (const s of opts) {
+    const b = field === "delivery" ? deliveryBadge(s) : paymentBadge(s);
+    const row = el("div", { class: "stopt" + (s === sel ? " sel" : "") }, badge(b, s), el("span", { class: "sttick" }, icon("i-tick")));
+    row.addEventListener("click", () => {
+      sel = s;
+      for (const [k, elx] of rowEls) elx.classList.toggle("sel", k === s);
+    });
+    rowEls.set(s, row);
+    list.append(row);
+  }
+  pop.append(list);
+
+  const actions = el("div", { class: "stactions" });
+  const cancel = el("button", { class: "btncancel" }, "ยกเลิก");
+  const ok = el("button", { class: "fbtn p" }, "ยืนยัน");
+  cancel.addEventListener("click", closeDrop);
+  ok.addEventListener("click", async () => {
+    if (sel === cur) { closeDrop(); return; }
+    // ตีกลับ/มีปัญหา ต้องมีเหตุผล → เด้งเปิด sidebar ให้กรอก
+    if (field === "delivery" && (sel === "ตีกลับ" || sel === "มีปัญหา")) {
+      closeDrop();
+      openSidebar(o, { presetDelivery: sel });
+      return;
+    }
+    closeDrop();
+    const args: SaveTrackingArgs = field === "delivery" ? { delivery_status: sel } : { payment_status: sel };
+    try {
+      const r = await saveOrderTracking(o.id, args);
+      if (!r.authorized) { toLogin(); return; }
+      if (!r.ok) { toast(trackErrMsg(r.error), false); return; }
+      applyOrderUpdate(o, r);
+      toast("อัปเดตสถานะแล้ว");
+    } catch { toast("บันทึกไม่สำเร็จ", false); }
+  });
+  actions.append(cancel, ok);
+  pop.append(actions);
+
+  // วางใน td (position:relative) ใต้ดินสอ
+  const td = anchor.closest("td")!;
+  td.append(pop);
+  const r = pop.getBoundingClientRect();
+  if (r.right > window.innerWidth - 8) { pop.style.right = "auto"; pop.style.left = "0"; }
+  if (r.bottom > window.innerHeight - 8) { pop.style.top = "auto"; pop.style.bottom = "calc(100% + .25rem)"; }
+}
+
+// ---- sidebar: ตัวแก้ไขหลัก + ไทม์ไลน์ ----
+let sidebarEl: HTMLElement | null = null;
+function closeSidebar() { if (sidebarEl) { sidebarEl.remove(); sidebarEl = null; } }
+
+function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
+  closeSidebar();
+  const root = el("div", { class: "sboverlay" });   // พื้นหลังทึบ — คลิกนอกไม่ปิด (ตามสเปก)
+  const panel = el("div", { class: "sbpanel" });
+  root.append(panel);
+  sidebarEl = root;
+
+  // header
+  const head = el("div", { class: "sbhead" });
+  head.append(el("div", { class: "sbtitle" }, "รายละเอียด / บันทึกติดตาม"));
+  // ปุ่มปิดแบบ widget ลอยทับขอบซ้าย ตรงเส้นล่าง header (hover แดง)
+  const closeW = el("button", { class: "sbclosew", type: "button", title: "ปิด" }, icon("i-close"));
+  closeW.addEventListener("click", () => requestClose());
+  head.append(closeW);
+  panel.append(head);
+
+  const body = el("div", { class: "sbbody" });
+  panel.append(body);
+
+  // ---- ส่วนแสดงข้อมูล (อ่านอย่างเดียว) — กริดกระชับ เห็นครบ ----
+  const itemsNode = el("span", { class: "sbitems" });
+  const its = o.items || [];
+  if (its.length) its.forEach((it, i) => { if (i) itemsNode.append(el("br")); itemsNode.append(`${it.name} ×${it.qty}`); });
+  else itemsNode.append("—");
+  const seller = o.seller_code || o.seller_name
+    ? `${o.seller_code || "—"}${o.seller_name ? " · " + o.seller_name : ""}` : "ไม่ระบุ";
+
+  const infoC = infoCard("i-user", "ico-blue", "ข้อมูลออเดอร์");
+  infoC.card.querySelector(".sbcardhd")!.append(el("span", { class: "sbheaddate" }, dmy(o.date)));
+  // hero: ชื่อลูกค้าเด่น + เบอร์โทร
+  const { name: custName, code: custCode } = splitNameCode(o.customer_name);
+  const nameEl = el("div", { class: "sbname" }, custName || "—");
+  if (custCode) nameEl.append(" ", el("span", { class: "sbnamecode" }, custCode));
+  const heroL = el("div", { class: "sbherol" }, nameEl, el("div", { class: "sbphone" }, fmtPhone(o.phone) || "—"));
+  // ยอดขาย + ช่องทางชำระ อยู่แถวเดียวกับชื่อ/เบอร์ (ชิดขวา) — ช่องทางชำระบน, ยอดตัวเลขล่าง (ไม่มี label "ยอดขาย")
+  // สียอดขายตามสถานะชำระ: ชำระแล้ว=เขียว · ยกเลิก=แดง · รอชำระ=ส้ม (เฉดเดียวกับการ์ด KPI)
+  const payColor = o.payment_status === "ชำระแล้ว" ? "#059669" : o.payment_status === "ยกเลิก" ? "#DC2626" : "#EA580C";
+  const heroR = el("div", { class: "sbheror" },
+    el("div", { class: "sbpay" }, paymentMethodLabel(o.payment_method) || "—"),
+    el("div", { class: "sbmoneyval", style: "color:" + payColor }, "฿" + nf(o.total_sales)));
+  infoC.body.append(el("div", { class: "sbhero" }, heroL, heroR));
+  // meta กริด (สั้น) + บล็อกยาว
+  // ที่อยู่ (บนสุดของบล็อกล่าง) — อยู่เหนือแถวขนส่ง/เลขแทร็ก/ผู้ขาย
+  infoC.body.append(gridField("ที่อยู่", o.address, true));
+  // ขนส่ง · เลขแทร็ก · ผู้ขาย — 3 ช่องระดับเดียวกัน
+  // KEX → เลขแทร็กกดได้ เปิดลิงก์ติดตามแท็บใหม่
+  let trackNode: Node | string = "—";
+  if (o.tracking_no) {
+    if ((o.carrier || "").trim().toUpperCase() === "KEX") {
+      trackNode = el("a", {
+        class: "trackbox mono tracklink",
+        href: "https://th.kex-express.com/th/track/?track=" + encodeURIComponent(o.tracking_no),
+        target: "_blank", rel: "noopener noreferrer", title: "ติดตามพัสดุ KEX",
+      }, o.tracking_no);
+    } else {
+      trackNode = el("span", { class: "trackbox mono" }, o.tracking_no);
+    }
+  }
+  const meta = el("div", { class: "sbgrid sbgrid3" });
+  meta.append(
+    gridField("ขนส่ง", o.carrier),
+    gridField("เลขแทร็ก", trackNode),
+    gridField("ผู้ขาย", seller),
+  );
+  infoC.body.append(meta);
+  infoC.body.append(gridField("รายการสินค้า", itemsNode, true));
+  if (o.note) infoC.body.append(gridField("หมายเหตุ", o.note, true));
+  // เหตุผล/รายละเอียดสถานะปัจจุบัน (ถ้ามี)
+  if (o.return_reason || o.status_detail) {
+    const extra = el("div", { class: "sbextra" });
+    if (o.return_reason) extra.append(el("div", {}, el("b", {}, "เหตุผลตีกลับ: "), o.return_reason));
+    if (o.status_detail) extra.append(el("div", {}, el("b", {}, "รายละเอียด: "), o.status_detail));
+    infoC.body.append(extra);
+  }
+  body.append(infoC.card);
+
+  // ---- ส่วนแก้ไขสถานะ (chip เห็นทันที ไม่ใช่ dropdown) ----
+  const editC = infoCard("i-editbox", "ico-indigo", "แก้ไขสถานะ");
+  let selDelivery = opts?.presetDelivery ?? o.delivery_status;
+  let selPayment = o.payment_status;
+  let selReason = "";
+
+  const delGroup = chipGroup(DELIVERY_STATUSES, selDelivery, deliveryBadge, (v) => { selDelivery = v; syncCond(); updateSaveState(); });
+
+  const reasonBlock = el("div", { class: "sbcond" });
+  const reasonG = chipList(RETURN_REASONS, "", (v) => { selReason = v; syncCond(); updateSaveState(); });
+  const reasonExtra = el("textarea", { class: "sbtextarea", rows: "2", placeholder: "ระบุเพิ่มเติม…" }) as HTMLTextAreaElement;
+  const reasonExtraWrap = el("div", { class: "sbcond" }, reasonExtra);
+  reasonBlock.append(el("div", { class: "sbsublabel" }, "เหตุผลที่ตีกลับ"), reasonG.el, reasonExtraWrap);
+
+  const problemBlock = el("div", { class: "sbcond" });
+  const problemTa = el("textarea", { class: "sbtextarea", rows: "3", placeholder: "รายละเอียดปัญหา…" }) as HTMLTextAreaElement;
+  problemBlock.append(el("div", { class: "sbsublabel" }, "รายละเอียดปัญหา"), problemTa);
+
+  // prefill จากค่าเดิม (สถานะเดิมเป็นตีกลับ/มีปัญหา และไม่ได้ preset ทับ)
+  if (o.delivery_status === "ตีกลับ" && !opts?.presetDelivery) {
+    selReason = o.return_reason || ""; reasonG.set(selReason); reasonExtra.value = o.status_detail || "";
+  } else if (o.delivery_status === "มีปัญหา" && !opts?.presetDelivery) {
+    problemTa.value = o.status_detail || "";
+  }
+
+  const payGroup = chipGroup(PAYMENT_STATUSES, selPayment, paymentBadge, (v) => { selPayment = v; updateSaveState(); });
+
+  editC.body.append(
+    el("div", { class: "sbfld" }, "สถานะจัดส่ง"), delGroup.el,
+    reasonBlock, problemBlock,
+    el("div", { class: "sbfld sbfld-gap" }, "สถานะชำระเงิน"), payGroup.el,
+  );
+  // (editC ต่อท้าย "บันทึกการติดตาม" ด้านล่าง ตามที่เจ้านายสั่ง)
+
+  function syncCond() {
+    reasonBlock.style.display = selDelivery === "ตีกลับ" ? "" : "none";
+    problemBlock.style.display = selDelivery === "มีปัญหา" ? "" : "none";
+    reasonExtraWrap.style.display = selDelivery === "ตีกลับ" && REASONS_WITH_EXTRA.has(selReason) ? "" : "none";
+  }
+  syncCond();
+
+  // มีการแก้ไขหรือยัง (เทียบกับค่าเดิมของออเดอร์)
+  function hasChanges() {
+    const noteT = noteTa.value.trim();
+    let changed = selDelivery !== o.delivery_status || selPayment !== o.payment_status || noteT !== "";
+    if (selDelivery === "ตีกลับ") changed = changed || selReason !== (o.return_reason || "") || reasonExtra.value.trim() !== (o.status_detail || "");
+    if (selDelivery === "มีปัญหา") changed = changed || problemTa.value.trim() !== (o.status_detail || "");
+    return changed;
+  }
+  // เปิด/ปิดปุ่มยืนยันบันทึก: ต้องมีการแก้ไข + ฟิลด์จำเป็นครบ
+  function updateSaveState() {
+    let ok = true;
+    if (selDelivery === "ตีกลับ") {
+      if (!selReason) ok = false;
+      else if (REASONS_WITH_EXTRA.has(selReason) && !reasonExtra.value.trim()) ok = false;
+    } else if (selDelivery === "มีปัญหา") {
+      if (!problemTa.value.trim()) ok = false;
+    }
+    saveBtn.disabled = !(hasChanges() && ok);
+  }
+  // ปิด sidebar: ถ้ามีการแก้ไข → เตือนก่อน (custom popup ไม่ใช้ native confirm)
+  function requestClose() {
+    if (!hasChanges()) { closeSidebar(); return; }
+    const cf = el("div", { class: "sbconfirm" });
+    const cancelB = el("button", { class: "btncancel" }, "ยกเลิก");
+    cancelB.addEventListener("click", () => cf.remove());
+    const okB = el("button", { class: "fbtn p" }, "ยืนยัน");
+    okB.addEventListener("click", closeSidebar);
+    cf.append(el("div", { class: "sbconfirmbox" },
+      el("div", { class: "sbconfirmtitle" }, "มีการแก้ไขที่ยังไม่บันทึก"),
+      el("div", { class: "sbconfirmmsg" }, "ต้องการปิดโดยไม่บันทึกการแก้ไขหรือไม่?"),
+      el("div", { class: "sbconfirmact" }, cancelB, okB)));
+    panel.append(cf);
+  }
+
+  // ---- บันทึกการติดตาม: ประวัติโน้ต (บน) + ช่องเพิ่ม (ล่าง) — การ์ดหลัก ----
+  const trackC = infoCard("i-msg", "ico-amber", "บันทึกการติดตาม");
+  const noteCount = el("span", { class: "sbcount" });
+  const noteBox = el("div", { class: "sbnotes" }, el("div", { class: "tlempty" }, "กำลังโหลด…"));
+  const noteTa = el("textarea", { class: "sbtextarea", rows: "3", placeholder: "พิมพ์บันทึกการติดตาม…" }) as HTMLTextAreaElement;
+  trackC.body.append(
+    el("div", { class: "sbsublabel" }, "ประวัติโน้ต ", noteCount), noteBox,
+    el("div", { class: "sbfld sbfld-gap" }, "เพิ่มบันทึก"), noteTa,
+  );
+  body.append(trackC.card);
+  body.append(editC.card);   // แก้ไขสถานะ อยู่ล่างบันทึกการติดตาม
+
+  // ---- ประวัติการเปลี่ยนสถานะ (ซ่อนในปุ่ม toggle, ปิดไว้ก่อน) ----
+  const logBox = el("div", { class: "sbtimeline" }, el("div", { class: "tlempty" }, "กำลังโหลด…"));
+  const logBody = el("div", { class: "sbcardbody" }, logBox);
+  logBody.style.display = "none";
+  const logHd = el("button", { class: "sbcardhd sbtoggle", type: "button" },
+    el("span", { class: "sbico ico-indigo" }, icon("i-clock")),
+    el("span", { class: "sbcardt" }, "ประวัติการเปลี่ยนสถานะ"),
+    el("span", { class: "sbtogcaret" }, icon("i-caret")));
+  logHd.addEventListener("click", () => {
+    const open = logBody.style.display === "none";
+    logBody.style.display = open ? "" : "none";
+    logHd.classList.toggle("open", open);
+  });
+  body.append(el("div", { class: "sbcard" }, logHd, logBody));
+
+  void loadTimeline(o.id, noteBox, logBox, noteCount);
+
+  // ---- footer ----
+  const foot = el("div", { class: "sbfoot" });
+  const closeBtn = el("button", { class: "btncancel" }, "ปิด");
+  const saveBtn = el("button", { class: "fbtn p" }, "ยืนยันบันทึก");
+  for (const t of [reasonExtra, problemTa, noteTa]) t.addEventListener("input", updateSaveState);
+  updateSaveState();   // เริ่มต้น: disable (ยังไม่แก้)
+  closeBtn.addEventListener("click", () => requestClose());
+  saveBtn.addEventListener("click", async () => {
+    const newDelivery = selDelivery;
+    const newPayment = selPayment;
+    const note = noteTa.value.trim();
+    let reason: string | undefined;
+    let detail: string | undefined;
+    if (newDelivery === "ตีกลับ") {
+      reason = selReason;
+      if (!reason) { toast("กรุณาเลือกเหตุผลตีกลับ", false); return; }
+      if (REASONS_WITH_EXTRA.has(reason)) {
+        detail = reasonExtra.value.trim();
+        if (!detail) { toast("กรุณาระบุเหตุผลเพิ่มเติม", false); return; }
+      }
+    } else if (newDelivery === "มีปัญหา") {
+      detail = problemTa.value.trim();
+      if (!detail) { toast("กรุณากรอกรายละเอียดปัญหา", false); return; }
+    }
+    const args: SaveTrackingArgs = {
+      delivery_status: newDelivery,
+      payment_status: newPayment,
+      return_reason: reason,
+      status_detail: detail,
+      note: note || undefined,
+    };
+    saveBtn.setAttribute("disabled", "1");
+    try {
+      const r = await saveOrderTracking(o.id, args);
+      if (!r.authorized) { toLogin(); return; }
+      if (!r.ok) { toast(trackErrMsg(r.error), false); saveBtn.removeAttribute("disabled"); return; }
+      applyOrderUpdate(o, r);
+      toast(r.noop ? "ไม่มีการเปลี่ยนแปลง" : "บันทึกแล้ว");
+      closeSidebar();
+    } catch { toast("บันทึกไม่สำเร็จ", false); saveBtn.removeAttribute("disabled"); }
+  });
+  foot.append(closeBtn, saveBtn);
+  panel.append(foot);
+
+  // ตัวบอกว่ายังเลื่อนดูด้านล่างได้อีก (ซ่อนเมื่อเลื่อนสุด) — กดเพื่อเลื่อนลง
+  const scrollHint = el("button", { class: "sbscrollhint", type: "button", title: "เลื่อนดูเพิ่ม" }, icon("i-chev"));
+  scrollHint.addEventListener("click", () => body.scrollBy({ top: Math.round(body.clientHeight * 0.75), behavior: "smooth" }));
+  panel.append(scrollHint);
+  const updateScrollHint = () => {
+    scrollHint.classList.toggle("show", body.scrollTop + body.clientHeight < body.scrollHeight - 8);
+  };
+  body.addEventListener("scroll", updateScrollHint);
+  window.setTimeout(updateScrollHint, 250);
+  window.setTimeout(updateScrollHint, 700);   // อีกครั้งหลังไทม์ไลน์โหลด (ความสูงเปลี่ยน)
+
+  document.body.append(root);
+  requestAnimationFrame(() => root.classList.add("show"));   // trigger slide-in
+  // เด้งจากตาราง (ตีกลับ/มีปัญหา) → เลื่อนไปการ์ดแก้ไขสถานะให้กรอกเหตุผลได้ทันที
+  if (opts?.presetDelivery) {
+    window.setTimeout(() => editC.card.scrollIntoView({ behavior: "smooth", block: "start" }), 330);
+  }
+}
+
+// การ์ดหมวด: หัวการ์ดมี icon-box สีพาสเทล + ชื่อหมวด
+function infoCard(iconId: string, tint: string, title: string): { card: HTMLElement; body: HTMLElement } {
+  const body = el("div", { class: "sbcardbody" });
+  const card = el("div", { class: "sbcard" },
+    el("div", { class: "sbcardhd" }, el("span", { class: "sbico " + tint }, icon(iconId)), el("span", { class: "sbcardt" }, title)),
+    body);
+  return { card, body };
+}
+
+// ช่องข้อมูลในกริด (label เล็กด้านบน + value) · full = เต็มความกว้าง
+function gridField(label: string, value: string | Node, full = false): HTMLElement {
+  return el("div", { class: "sbgi" + (full ? " full" : "") },
+    el("span", { class: "sbgl" }, label),
+    el("span", { class: "sbgv" }, typeof value === "string" ? (value || "—") : value));
+}
+
+// chip สถานะ: แต่ละตัวเลือกเห็นทันที (คลิกเลือก) — สีตาม badge
+function chipGroup(options: string[], initial: string, badgeFn: (s: string) => { cls: string; icon: string },
+  onChange: (v: string) => void): { el: HTMLElement; set: (v: string) => void } {
+  let val = initial;
+  const wrap = el("div", { class: "stchiprow" });
+  const chips = new Map<string, HTMLElement>();
+  const paint = () => { for (const [k, c] of chips) c.classList.toggle("sel", k === val); };
+  for (const s of options) {
+    const c = el("button", { class: "stchip", type: "button" }, badge(badgeFn(s), s));
+    c.addEventListener("click", () => { val = s; paint(); onChange(s); });
+    chips.set(s, c); wrap.append(c);
+  }
+  paint();
+  return { el: wrap, set: (v: string) => { val = v; paint(); } };
+}
+
+// รายการตัวเลือกแนวตั้ง (radio) — เห็นทุกตัวเลือกทันที เช่น เหตุผลตีกลับ
+function chipList(options: string[], initial: string, onChange: (v: string) => void): { el: HTMLElement; set: (v: string) => void } {
+  let val = initial;
+  const wrap = el("div", { class: "rlist" });
+  const rows = new Map<string, HTMLElement>();
+  const paint = () => { for (const [k, r] of rows) r.classList.toggle("sel", k === val); };
+  for (const s of options) {
+    const r = el("button", { class: "ritem", type: "button" }, el("span", { class: "rdot" }), el("span", {}, s));
+    r.addEventListener("click", () => { val = s; paint(); onChange(s); });
+    rows.set(s, r); wrap.append(r);
+  }
+  paint();
+  return { el: wrap, set: (v: string) => { val = v; paint(); } };
+}
+
+async function loadTimeline(orderId: number, noteBox: HTMLElement, logBox: HTMLElement, noteCount?: HTMLElement) {
+  try {
+    const r = await getOrderTracking(orderId);
+    if (!r.authorized) { toLogin(); return; }
+    const all = r.timeline ?? [];
+    const notes = all.filter((e) => e.type === "note");
+    if (noteCount) noteCount.textContent = notes.length ? `(${notes.length})` : "";
+    renderNotes(noteBox, notes);
+    renderTimeline(logBox, all.filter((e) => e.type !== "note"));
+  } catch {
+    for (const b of [noteBox, logBox]) { b.textContent = ""; b.append(el("div", { class: "tlempty err" }, "โหลดไม่สำเร็จ")); }
+  }
+}
+
+// ประวัติโน้ต (แยก) — บับเบิลครีม
+function renderNotes(box: HTMLElement, notes: TrackingEntry[]) {
+  box.textContent = "";
+  if (notes.length === 0) { box.append(el("div", { class: "tlempty" }, "ยังไม่มีโน้ต")); return; }
+  for (const e of notes) {
+    const item = el("div", { class: "notecard" });
+    item.append(el("div", { class: "tlhead" },
+      el("span", { class: "tldate" }, trackTime(e.at)), el("span", { class: "tlby" }, e.by || "—")));
+    item.append(el("div", { class: "notebody" }, e.note ?? ""));
+    box.append(item);
+  }
+}
+
+// เบอร์โทรใส่ขีด (เฉพาะ sidebar): 10 หลัก→089-772-7171, 9 หลัก→02-XXX-XXXX
+function fmtPhone(p: string): string {
+  const d = (p || "").replace(/\D/g, "");
+  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 9) return `${d.slice(0, 2)}-${d.slice(2, 5)}-${d.slice(5)}`;
+  return p || "";
+}
+
+function trackTime(at: string): string {
+  const [d, t] = at.split("T");
+  const [y, m, day] = d.split("-").map(Number);
+  return `${day}/${m}/${y} - ${(t || "00:00:00").slice(0, 5)}`;
+}
+
+function tlNode(type: TrackingEntry["type"]): { iconId: string; cls: string } {
+  if (type === "delivery_change") return { iconId: "i-truck", cls: "nd-blue" };
+  if (type === "payment_change") return { iconId: "i-coin", cls: "nd-green" };
+  return { iconId: "i-msg", cls: "nd-amber" };
+}
+
+function tlContent(e: TrackingEntry): (Node | string)[] {
+  if (e.type === "note") return [e.note ?? ""];
+  const bfn = e.type === "delivery_change" ? deliveryBadge : paymentBadge;
+  const parts: (Node | string)[] = [
+    badge(bfn(e.old ?? ""), e.old ?? "—"),
+    el("span", { class: "tlarrow" }, icon("i-chev-r", "width:.85em")),
+    badge(bfn(e.new ?? ""), e.new ?? "—"),
+  ];
+  if (e.detail) parts.push(el("div", { class: "tldetail" }, e.detail));
+  return parts;
+}
+
+function renderTimeline(box: HTMLElement, entries: TrackingEntry[]) {
+  box.textContent = "";
+  if (entries.length === 0) { box.append(el("div", { class: "tlempty" }, "ยังไม่มีประวัติการติดตาม")); return; }
+  const wrap = el("div", { class: "tlwrap" });
+  for (const e of entries) {
+    const n = tlNode(e.type);
+    const row = el("div", { class: "tlrow " + e.type });
+    row.append(el("span", { class: "tlnode " + n.cls }, icon(n.iconId)));
+    const main = el("div", { class: "tlmain" });
+    main.append(el("div", { class: "tlhead" },
+      el("span", { class: "tldate" }, trackTime(e.at)), el("span", { class: "tlby" }, e.by || "—")));
+    main.append(el("div", { class: "tlbody" + (e.type === "note" ? " tlnote" : "") }, ...tlContent(e)));
+    row.append(main);
+    wrap.append(row);
+  }
+  box.append(wrap);
+}
+
+// ======================================================
 //  ตัวกรองแบบ Google Sheets
 // ======================================================
 let openDrop: HTMLElement | null = null;
@@ -619,7 +1110,7 @@ function openFilter(th: HTMLElement, col: Column) {
 
   // actions
   const actions = el("div", { class: "factions" });
-  const cancel = el("button", { class: "fbtn" }, "ยกเลิก");
+  const cancel = el("button", { class: "btncancel" }, "ยกเลิก");
   const apply = el("button", { class: "fbtn p" }, "ใช้ตัวกรอง");
   cancel.addEventListener("click", closeDrop);
   apply.addEventListener("click", () => {
@@ -787,7 +1278,7 @@ async function bootstrap() {
   // ปิด dropdown/picker เมื่อคลิกนอก
   document.addEventListener("click", (e) => {
     const t = e.target as Node;
-    if (openDrop && !openDrop.contains(t) && !(t as HTMLElement).closest?.(".funnel")) closeDrop();
+    if (openDrop && !openDrop.contains(t) && !(t as HTMLElement).closest?.(".funnel") && !(t as HTMLElement).closest?.(".stedit")) closeDrop();
     const pick = $("#monthPick");
     if (!pick.hidden && !$("#monthsel").contains(t)) pick.hidden = true;
   });
@@ -819,6 +1310,7 @@ function toLogin() {
   clearSession();
   window.clearTimeout(idleTimer);     // หยุดนับ idle เมื่อออกจากระบบ
   closeImportModal();
+  closeSidebar();
   document.body.classList.remove("authed");
   renderLogin(() => { void startApp(); });
   document.body.classList.add("ready");

@@ -1,6 +1,6 @@
 import { SUPABASE_URL, ANON_KEY, FUNCTIONS_URL } from "./config";
 import { getToken } from "./session";
-import type { OrdersResponse } from "./types";
+import type { OrdersResponse, TrackingEntry } from "./types";
 
 // ---- data: เรียก RPC ตรงด้วย anon key + session token (RPC ตรวจ token ในตัว) ----
 async function restRpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
@@ -44,6 +44,41 @@ export interface ImportResp {
 }
 export function importOrders(rows: unknown[], mode: "preflight" | "confirm"): Promise<ImportResp> {
   return restRpc<ImportResp>("app_import_orders", { p_token: getToken(), p_rows: rows, p_mode: mode });
+}
+
+// ---- tracking (Stage 5): แก้สถานะ + โน้ตติดตาม ----
+export interface SaveTrackingArgs {
+  delivery_status?: string;
+  payment_status?: string;
+  return_reason?: string;
+  status_detail?: string;
+  note?: string;
+}
+export interface TrackingResp {
+  authorized: boolean;
+  ok?: boolean;
+  noop?: boolean;
+  error?: string;
+  delivery_status?: string;
+  payment_status?: string;
+  return_reason?: string;
+  status_detail?: string;
+  timeline?: TrackingEntry[];
+}
+export function saveOrderTracking(orderId: number, a: SaveTrackingArgs): Promise<TrackingResp> {
+  return restRpc<TrackingResp>("app_save_order_tracking", {
+    p_token: getToken(),
+    p_order_id: orderId,
+    p_delivery_status: a.delivery_status ?? null,
+    p_payment_status: a.payment_status ?? null,
+    p_return_reason: a.return_reason ?? null,
+    p_status_detail: a.status_detail ?? null,
+    p_note: a.note ?? null,
+  });
+}
+export interface GetTrackingResp { authorized: boolean; timeline?: TrackingEntry[]; }
+export function getOrderTracking(orderId: number): Promise<GetTrackingResp> {
+  return restRpc<GetTrackingResp>("app_get_order_tracking", { p_token: getToken(), p_order_id: orderId });
 }
 
 // ---- auth: Edge Function ----

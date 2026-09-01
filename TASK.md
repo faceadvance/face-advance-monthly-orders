@@ -41,4 +41,20 @@
 ### Stage 4 — deploy GitHub Pages (ทีหลัง)
 - [ ] push frontend ขึ้น GitHub Pages (Edge Functions อยู่ Supabase แล้ว = ไม่ต้องทำ backend เพิ่ม)
 
+### Stage 5 — การบันทึกติดตาม (order tracking v2) — เริ่ม 2026-09-01
+> สเปก: `Face Advance Monthly orders/docs/specs/2026-09-01-order-tracking-design.md` (อนุมัติแล้ว)
+> ฟรายเดย์เขียนเองทั้งหมด · ไม่เปิด review gate · verify เองทุกสเต็ป
+- [x] DB: ตาราง `order_tracking` (append-only) + index (order_id, created_at desc) + RLS — verify ผ่าน
+- [x] DB: `orders` เพิ่มคอลัมน์ `return_reason`, `status_detail`
+- [x] DB: RPC `app_save_order_tracking` (atomic: diff สถานะ+โน้ต, บังคับเหตุผล server-side, log timeline+audit) — verify negatives+happy+clear-on-exit ผ่านใน tx/rollback
+- [x] DB: RPC `app_get_order_tracking` (ดึงไทม์ไลน์ lazy)
+- [x] DB: แก้ `get_orders` เพิ่ม seller_code, seller_name, return_reason, status_detail
+- [x] FE: types.ts + api.ts (ฟิลด์ใหม่ + saveOrderTracking + getOrderTracking)
+- [x] FE: inline edit — ดินสอ ✏ บน badge จัดส่ง/ชำระ → popup เลือก → ยืนยัน (ตีกลับ/มีปัญหา → เด้ง sidebar + เลื่อนไปการ์ดแก้ไข)
+- [x] FE: คอลัมน์ "อัพเดต" (sticky ขวา) + ปุ่มเปิด sidebar
+- [x] FE: sidebar — การ์ดข้อมูล(กริด+ยอดขายสีตามสถานะ+เบอร์มีขีด+KEXลิงก์) · บันทึกติดตาม(โน้ต+ประวัติ) · แก้ไขสถานะ(chip+เหตุผล) · ประวัติเปลี่ยนสถานะ(พับได้) · scroll indicator · ขอบมนซ้าย · ปิด widget+footer มี popup เตือนถ้าแก้ไข · ปุ่มยืนยัน disable อัจฉริยะ
+- [x] FE fix: ยอดขายเฉลี่ยต่อวัน หารด้วยวันที่มีข้อมูล (เดิมหาร 31 ผิด)
+- [x] verify: เปิดจริงในเบราว์เซอร์ครบ flow + เจ้านายลองเอง หลายรอบ · revert ข้อมูลเทสสะอาด
+- [x] deploy: push ขึ้น GitHub (2026-09-01)
+
 ## แจ้ง LINE ตอน build stage เสร็จ (boss confirm แล้ว)
