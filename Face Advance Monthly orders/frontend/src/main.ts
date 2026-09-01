@@ -176,7 +176,7 @@ function renderKpi(d: OrdersResponse) {
   bigRet.append(el("small", {}, "฿"), " " + nf(d.kpi.returned_amount));
   // ยอดจากสถานะ: เท่ากับยอดถึงแล้ว = เทา (ตีกลับกลับมาครบ) · ไม่เท่า = แดงอ่อน (ยังไม่ครบ)
   const retMatched = d.kpi.returned_amount === d.kpi.returned_amount_status;
-  bigRet.append(el("span", { class: "retsub" + (retMatched ? " done" : "") }, ` / ฿${nf(d.kpi.returned_amount_status)}`));
+  bigRet.append(el("span", { class: "retsub" + (retMatched ? " done" : "") }, ` / ${nf(d.kpi.returned_amount_status)}`));
   const mainRed = el("div", { class: "kmain" }, bigRet,
     el("div", { class: "kunit" }, "ตีกลับถึงแล้ว / จากสถานะตีกลับ"));
   root.append(kcardSplit("red", "i-return", "ตีกลับ", mainRed,
