@@ -116,7 +116,7 @@ thead th.filtered .hh{color:#fff}
 .name{font-weight:500}.code{color:var(--ink-3);font-weight:400}
 /* ชื่อลูกค้า: โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม (ลด 20% จาก ~13rem) */
 .name-cell{max-width:10.4rem;vertical-align:top}
-.nameline{display:flex;align-items:center;gap:.35rem}
+.nameline{display:flex;align-items:flex-start;gap:.35rem}
 .nameline .ntxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .ntxt{white-space:normal;overflow:visible;word-break:break-word}
 /* ที่อยู่: โชว์บรรทัดเดียว · ล้น → ปุ่มขยาย · ตอนขยายแยกส่วน (รายละเอียด/ตำบล/อำเภอ/จังหวัด/ไปรษณีย์) บรรทัดละส่วน */
@@ -129,7 +129,7 @@ tr.rowopen .atxt{display:none}
 tr.rowopen .addrparts{display:block}
 /* รายการสินค้า: โชว์บรรทัดแรก + ปุ่มสามเหลี่ยมทึบ (▼) เมื่อมี ≥2 · กดขยาย = โชว์ครบ (เว้นบรรทัดคั่น) */
 .items{color:var(--ink-2);max-width:15rem;vertical-align:top}
-.iln0{display:flex;align-items:center;gap:.35rem}
+.iln0{display:flex;align-items:flex-start;gap:.35rem}
 .iln0 .itxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .itemtoggle{cursor:pointer;color:var(--ink-3);flex:none;display:inline-flex;transition:transform .15s;margin-left:auto}  /* ชิดขวาทุกคอลัม ตำแหน่งคงที่ (ไม่ขยับตอนขยาย) */
 .itemtoggle:hover{color:var(--primary)}
