@@ -1,3 +1,5 @@
+export interface OrderItem { name: string; qty: number; }
+
 export interface Order {
   id: number;
   date: string;          // YYYY-MM-DD (เวลาไทย)
@@ -11,6 +13,8 @@ export interface Order {
   total_sales: number;
   delivery_status: string;
   payment_status: string;
+  return_arrived: boolean;   // ตีกลับถึงแล้ว (ลอจิกเฟสถัดไป)
+  items: OrderItem[];        // รายการสินค้าในออเดอร์
   note: string;
 }
 

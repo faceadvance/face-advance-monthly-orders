@@ -6,7 +6,7 @@ import { parseWorkbook, type ImportRow, type ParseResult } from "./import";
 import type { Order, OrdersResponse, Kpi, Daily } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
-  cellValue, searchBlob, paymentMethodLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
+  cellValue, searchBlob, paymentMethodLabel, itemsLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
 } from "./util";
 
 const MAX_SELECT = 30;
@@ -17,12 +17,14 @@ const COLUMNS: Column[] = [
   { key: "phone", label: "เบอร์โทร" },
   { key: "customer_name", label: "ชื่อลูกค้า" },
   { key: "address", label: "ที่อยู่" },
-  { key: "carrier", label: "ขนส่ง" },
-  { key: "tracking_no", label: "เลขแทร็ค" },
+  { key: "items", label: "รายการสินค้า" },
   { key: "payment_method", label: "ช่องทางชำระ", align: "right" },
   { key: "total_sales", label: "ยอดขาย", align: "right" },
+  { key: "carrier", label: "ขนส่ง" },
+  { key: "tracking_no", label: "เลขแทร็ค" },
   { key: "delivery_status", label: "สถานะจัดส่ง", align: "center" },
   { key: "payment_status", label: "สถานะชำระ", align: "center" },
+  { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
   { key: "note", label: "หมายเหตุ" },
 ];
 
@@ -85,7 +87,10 @@ function computeKpiDaily(d: OrdersResponse) {
     if (inRange) daily.exported[idx]++;
     if (o.payment_status === "ชำระแล้ว") { kpi.sales_paid += amt; if (inRange) daily.sales_paid[idx] += amt; }
     else if (o.payment_status === "รอชำระ") { kpi.sales_unpaid += amt; if (inRange) daily.sales_unpaid[idx] += amt; }
-    if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; kpi.returned_amount += amt; if (inRange) daily.returned[idx]++; }
+    // จำนวน/อัตรา/กราฟ ตีกลับ = ใช้สถานะจัดส่ง "ตีกลับ" (เหมือนเดิม)
+    if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; if (inRange) daily.returned[idx]++; }
+    // ยอดตีกลับ (hero) = ผลรวมเฉพาะออเดอร์ที่ "ตีกลับถึงแล้ว" (ยืนยัน boss 2026-09-01)
+    if (o.return_arrived) kpi.returned_amount += amt;
   }
   d.kpi = kpi;
   d.daily = daily;
@@ -299,18 +304,26 @@ function buildRow(o: Order): HTMLElement {
   tr.append(tdName);
   // ที่อยู่
   tr.append(el("td", { class: "addr", title: o.address }, o.address || "—"));
-  // ขนส่ง
-  tr.append(el("td", {}, o.carrier || "—"));
-  // เลขแทร็ค + ปุ่มติ๊ก
-  tr.append(buildTrackCell(o));
+  // รายการสินค้า
+  const itemsTxt = itemsLabel(o.items);
+  tr.append(el("td", { class: "items", title: itemsTxt }, itemsTxt || "—"));
   // ช่องทางชำระ (COD ย่อจาก เก็บเงินปลายทาง) — ชิดขวา
   tr.append(el("td", { class: "tar" }, paymentMethodLabel(o.payment_method) || "—"));
   // ยอดขาย
   tr.append(el("td", { class: "amount num" }, nf(o.total_sales)));
+  // ขนส่ง
+  tr.append(el("td", {}, o.carrier || "—"));
+  // เลขแทร็ค + ปุ่มติ๊ก
+  tr.append(buildTrackCell(o));
   // สถานะจัดส่ง
   tr.append(el("td", { class: "center" }, badge(deliveryBadge(o.delivery_status), o.delivery_status)));
   // สถานะชำระ
   tr.append(el("td", { class: "center" }, badge(paymentBadge(o.payment_status), o.payment_status)));
+  // ตีกลับถึงแล้ว (ลอจิกเฟสถัดไป — ตอนนี้ "-" หรือ "ถึงแล้ว")
+  const raCell = el("td", { class: "center" });
+  if (o.return_arrived) raCell.append(badge({ cls: "r", icon: "i-return" }, "ถึงแล้ว"));
+  else raCell.append("—");
+  tr.append(raCell);
   // หมายเหตุ
   tr.append(el("td", { class: o.note ? "note mono" : "note" }, o.note || "—"));
   return tr;

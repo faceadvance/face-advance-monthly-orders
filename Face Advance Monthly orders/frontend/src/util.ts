@@ -1,4 +1,4 @@
-import type { Order } from "./types";
+import type { Order, OrderItem } from "./types";
 
 export const THAI_MONTHS_FULL = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -78,13 +78,24 @@ export function paymentBadge(s: string): { cls: string; icon: string } {
 
 /** ค่าที่ใช้ค้นหา/กรองของแต่ละคอลัมน์ */
 export type ColKey =
-  | "date" | "phone" | "customer_name" | "address"
+  | "date" | "phone" | "customer_name" | "address" | "items"
   | "carrier" | "tracking_no" | "payment_method" | "total_sales"
-  | "delivery_status" | "payment_status" | "note";
+  | "delivery_status" | "payment_status" | "return_arrived" | "note";
 
 /** ช่องทางชำระ: ย่อ "เก็บเงินปลายทาง" → "COD" ให้สั้น (ค่าใน DB คงเดิม) */
 export function paymentMethodLabel(v: string): string {
   return v === "เก็บเงินปลายทาง" ? "COD" : v;
+}
+
+/** รายการสินค้า → "ชื่อ ×2, ชื่อ ×1" */
+export function itemsLabel(items: OrderItem[]): string {
+  if (!items || items.length === 0) return "";
+  return items.map((it) => `${it.name} ×${it.qty}`).join(", ");
+}
+
+/** ตีกลับถึงแล้ว → "ถึงแล้ว" / "-" */
+export function returnArrivedLabel(v: boolean): string {
+  return v ? "ถึงแล้ว" : "-";
 }
 
 export function cellValue(o: Order, col: ColKey): string {
@@ -92,12 +103,14 @@ export function cellValue(o: Order, col: ColKey): string {
     case "date": return dmy(o.date);
     case "total_sales": return String(o.total_sales);
     case "payment_method": return paymentMethodLabel(o.payment_method || "");
+    case "items": return itemsLabel(o.items);
+    case "return_arrived": return returnArrivedLabel(o.return_arrived);
     default: return (o[col] ?? "") as string;
   }
 }
 
 /** ข้อความที่ใช้จับ search รวมทุกช่อง */
 export function searchBlob(o: Order): string {
-  return [o.phone, o.customer_name, o.tracking_no, o.address, o.note]
+  return [o.phone, o.customer_name, o.tracking_no, o.address, o.note, itemsLabel(o.items)]
     .join(" ").toLowerCase();
 }

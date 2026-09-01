@@ -111,10 +111,11 @@ th.datehead .hh{justify-content:flex-end}
 /* หัวคอลัมน์ที่กรอง = น้ำเงิน */
 /* คอลัมน์ที่ถูกกรอง: พื้น primary ตัวอักษร+ไอคอนขาว (เห็นชัดว่ากรองอยู่) */
 thead th.filtered{background:var(--primary);color:#fff}
-thead th.filtered .funnel,thead th.filtered .funnel.on{color:#fff;opacity:1}
+thead th.filtered .funnel,thead th.filtered .funnel.on{color:#fff;opacity:1;background:transparent}
 thead th.filtered .hh{color:#fff}
 .name{font-weight:500}.code{color:var(--ink-3);font-weight:400}
 .addr{color:var(--ink-2);max-width:13rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.items{color:var(--ink-2);max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .amount{text-align:right;font-weight:500}.center{text-align:center}.tar{text-align:right}.note{color:var(--ink-3);font-size:.78rem}
 th.rcol .hh{justify-content:flex-end}
 .badge{display:inline-flex;align-items:center;gap:.28rem;padding:.15rem .55rem;border-radius:.4rem;font-size:.75rem;font-weight:700;white-space:nowrap;border:1.5px solid}
