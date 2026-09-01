@@ -63,6 +63,7 @@ export function deliveryBadge(s: string): { cls: string; icon: string } {
     case "ส่งแล้ว":   return { cls: "b", icon: "i-truck" };
     case "รอส่ง":     return { cls: "a", icon: "i-clock" };
     case "ตีกลับ":    return { cls: "r", icon: "i-return" };
+    case "มีปัญหา":   return { cls: "w", icon: "i-alert" };
     case "ยกเลิก":    return { cls: "n", icon: "i-x" };
     default:          return { cls: "n", icon: "i-x" };
   }

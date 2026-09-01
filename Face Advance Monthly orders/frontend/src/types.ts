@@ -25,7 +25,8 @@ export interface Kpi {
   sales_paid: number;
   sales_unpaid: number;
   returned_count: number;
-  returned_amount: number;
+  returned_amount: number;          // ยอดที่ตีกลับถึงแล้ว (return_arrived)
+  returned_amount_status: number;   // ยอดตีกลับจากสถานะจัดส่ง = ตีกลับ
 }
 
 export interface Daily {

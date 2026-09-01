@@ -77,7 +77,7 @@ function computeKpiDaily(d: OrdersResponse) {
     sales_unpaid: new Array(days).fill(0),
     returned: new Array(days).fill(0),
   };
-  const kpi: Kpi = { exported_count: 0, sales_total: 0, sales_paid: 0, sales_unpaid: 0, returned_count: 0, returned_amount: 0 };
+  const kpi: Kpi = { exported_count: 0, sales_total: 0, sales_paid: 0, sales_unpaid: 0, returned_count: 0, returned_amount: 0, returned_amount_status: 0 };
   for (const o of d.orders) {
     const idx = Number(o.date.slice(8, 10)) - 1;
     const amt = o.total_sales || 0;
@@ -87,9 +87,9 @@ function computeKpiDaily(d: OrdersResponse) {
     if (inRange) daily.exported[idx]++;
     if (o.payment_status === "ชำระแล้ว") { kpi.sales_paid += amt; if (inRange) daily.sales_paid[idx] += amt; }
     else if (o.payment_status === "รอชำระ") { kpi.sales_unpaid += amt; if (inRange) daily.sales_unpaid[idx] += amt; }
-    // จำนวน/อัตรา/กราฟ ตีกลับ = ใช้สถานะจัดส่ง "ตีกลับ" (เหมือนเดิม)
-    if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; if (inRange) daily.returned[idx]++; }
-    // ยอดตีกลับ (hero) = ผลรวมเฉพาะออเดอร์ที่ "ตีกลับถึงแล้ว" (ยืนยัน boss 2026-09-01)
+    // จำนวน/อัตรา/กราฟ + ยอดตีกลับจากสถานะ = ใช้สถานะจัดส่ง "ตีกลับ"
+    if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; kpi.returned_amount_status += amt; if (inRange) daily.returned[idx]++; }
+    // ยอดที่ตีกลับถึงแล้ว = ผลรวมเฉพาะออเดอร์ที่ return_arrived
     if (o.return_arrived) kpi.returned_amount += amt;
   }
   d.kpi = kpi;
@@ -172,9 +172,13 @@ function renderKpi(d: OrdersResponse) {
   const ksub = el("div", { class: "ksub" },
     el("div", {}, el("div", { class: "sv num" }, nf(d.kpi.returned_count)), el("div", { class: "l" }, "จำนวนออเดอร์")),
     el("div", {}, el("div", { class: "sv num", style: "color:#DC2626" }, `${rate.toFixed(1)}%`), el("div", { class: "l" }, "อัตราตีกลับ")));
-  const mainRed = el("div", { class: "kmain" },
-    (() => { const b = el("div", { class: "kbig num", style: "color:#DC2626" }); b.append(el("small", {}, "฿"), " " + nf(d.kpi.returned_amount)); return b; })(),
-    el("div", { class: "kunit" }, "ยอดตีกลับเดือนนี้"));
+  const bigRet = el("div", { class: "kbig num", style: "color:#DC2626" });
+  bigRet.append(el("small", {}, "฿"), " " + nf(d.kpi.returned_amount));
+  // ยอดจากสถานะ: เท่ากับยอดถึงแล้ว = เทา (ตีกลับกลับมาครบ) · ไม่เท่า = แดงอ่อน (ยังไม่ครบ)
+  const retMatched = d.kpi.returned_amount === d.kpi.returned_amount_status;
+  bigRet.append(el("span", { class: "retsub" + (retMatched ? " done" : "") }, ` / ฿${nf(d.kpi.returned_amount_status)}`));
+  const mainRed = el("div", { class: "kmain" }, bigRet,
+    el("div", { class: "kunit" }, "ตีกลับถึงแล้ว / จากสถานะตีกลับ"));
   root.append(kcardSplit("red", "i-return", "ตีกลับ", mainRed,
     el("div", { class: "kdetail" }, ksub), chart3, el("div", { class: "kcap", "aria-hidden": "true" }, " ")));
 }

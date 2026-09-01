@@ -70,6 +70,8 @@ svg.ic{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:2;s
 .ktitle{font-size:.78rem;font-weight:600;color:var(--ink-2)}
 .kbig{font-size:1.65rem;font-weight:700;line-height:1.1;letter-spacing:-.02em;color:var(--ink)}
 .kbig small{font-size:.9rem;font-weight:600;color:var(--ink-2)}
+.retsub{font-size:.62em;font-weight:600;color:#F87171}  /* ยอดตีกลับจากสถานะ = เล็กกว่า แดงอ่อน */
+.retsub.done{color:var(--ink-3)}  /* เท่ากับยอดถึงแล้ว = เทา (ตรงแล้ว) */
 .kunit{font-size:.68rem;color:var(--ink-3);margin-top:.4rem}
 .ksub{display:flex;gap:1.4rem;margin-top:.5rem}
 .ksub .sv{font-size:.95rem;font-weight:700;color:var(--ink)}.ksub .l{font-size:.68rem;color:var(--ink-3)}
@@ -147,6 +149,7 @@ th.rcol .hh{justify-content:flex-end}
 .g{color:#065F46;background:#D1FAE5;border-color:#34D399}.a{color:#854D0E;background:#FEF08A;border-color:#EAB308}
 .b{color:#1E3A8A;background:#BFDBFE;border-color:#3B82F6}.r{color:#fff;background:#DC2626;border-color:#B91C1C}
 .n{color:#fff;background:#475569;border-color:#334155}
+.w{color:#fff;background:#EA580C;border-color:#C2410C}
 /* filter dropdown */
 .fdrop{position:absolute;top:calc(100% + .25rem);right:0;width:15rem;background:#fff;border:1px solid var(--border);border-radius:.6rem;box-shadow:0 .75rem 2rem rgba(15,23,42,.16);z-index:50;text-transform:none;letter-spacing:normal}
 .fdrop[hidden]{display:none}
