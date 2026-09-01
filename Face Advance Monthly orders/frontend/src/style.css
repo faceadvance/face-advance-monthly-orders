@@ -120,11 +120,14 @@ thead th.filtered .hh{color:#fff}
 .nameline .ntxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.nopen .ntxt{white-space:normal;overflow:visible;word-break:break-word}
 tr.nopen .nametoggle{transform:rotate(180deg)}
-/* ที่อยู่: โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม (ตัดบรรทัด) แบบเดียวกับรายการสินค้า */
+/* ที่อยู่: โชว์บรรทัดเดียว · ล้น → ปุ่มขยาย · ตอนขยายแยกส่วน (รายละเอียด/ตำบล/อำเภอ/จังหวัด/ไปรษณีย์) บรรทัดละส่วน */
 .addr-cell{color:var(--ink-2);max-width:9.75rem;vertical-align:top}
-.addrline{display:flex;align-items:center;gap:.35rem}
-.addrline .atxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-tr.aopen .atxt{white-space:normal;overflow:visible;word-break:break-word}
+.addrline{display:flex;align-items:flex-start;gap:.35rem}
+.addrline .atxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.addrparts{display:none;min-width:0}
+.addrparts .apart{white-space:normal;word-break:break-word}
+tr.aopen .atxt{display:none}
+tr.aopen .addrparts{display:block}
 tr.aopen .addrtoggle{transform:rotate(180deg)}
 /* รายการสินค้า: โชว์บรรทัดแรก + ปุ่มสามเหลี่ยมทึบ (▼) เมื่อมี ≥2 · กดขยาย = โชว์ครบ (เว้นบรรทัดคั่น) */
 .items{color:var(--ink-2);max-width:15rem;vertical-align:top}

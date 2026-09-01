@@ -7,6 +7,7 @@ export interface Order {
   phone: string;
   customer_name: string;
   address: string;
+  address_parts: string[];   // ส่วนย่อยที่อยู่ [รายละเอียด, ตำบล, อำเภอ, จังหวัด, ไปรษณีย์] (ตอนขยายแยกบรรทัด)
   carrier: string;
   tracking_no: string;
   payment_method: string;

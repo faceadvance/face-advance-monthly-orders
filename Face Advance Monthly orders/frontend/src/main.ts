@@ -259,7 +259,7 @@ function renderTable() {
   // โชว์ปุ่มขยาย (ที่อยู่/ชื่อ) เฉพาะแถวที่ข้อความล้น (อ่าน scrollWidth หลัง append = 1 reflow)
   for (const tx of wrap.querySelectorAll<HTMLElement>(".atxt, .ntxt")) {
     if (tx.scrollWidth > tx.clientWidth + 1) {
-      const tog = tx.nextElementSibling as HTMLElement | null;
+      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
       if (tog) tog.style.display = "";
     }
   }
@@ -351,10 +351,14 @@ function buildAddrCell(o: Order, tr: HTMLElement): HTMLElement {
   const td = el("td", { class: "addr-cell" });
   const wrap = el("div", { class: "addrline" });
   const txt = el("span", { class: "atxt", title: o.address }, o.address || "—");
+  // ตอนขยาย: แยกส่วนย่อย (รายละเอียด/ตำบล/อำเภอ/จังหวัด/ไปรษณีย์) บรรทัดละส่วน (ยาว→wrap ปกติ)
+  const parts = el("div", { class: "addrparts" });
+  const ap = o.address_parts?.length ? o.address_parts : (o.address ? [o.address] : []);
+  for (const p of ap) parts.append(el("div", { class: "apart" }, p));
   const tog = el("span", { class: "itemtoggle addrtoggle", title: "ดู/ซ่อนที่อยู่เต็ม" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่ที่อยู่ล้น (เช็ค overflow หลัง render)
   tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("aopen"); });
-  wrap.append(txt, tog);
+  wrap.append(txt, parts, tog);
   td.append(wrap);
   return td;
 }
