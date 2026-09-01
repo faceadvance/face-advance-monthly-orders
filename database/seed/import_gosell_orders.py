@@ -243,8 +243,9 @@ do $$
 declare
   o record; it record;
   v_cust bigint; v_order bigint; v_brand bigint; v_nbrand int; v_seller bigint; v_prod bigint;
-  v_dupdates text;
+  v_dupdates text; v_agent bigint; v_is_agent boolean;
 begin
+  select id into v_agent from public.brands where name = 'ตัวแทน';
   -- ── ยามกันวันซ้ำ: ถ้ามีวัน (เวลาไทย) ที่นำเข้าไปแล้ว → abort ทั้งไฟล์ ──
   select string_agg(x.d::text, ', ' order by x.d) into v_dupdates
   from (select distinct (ordered_at at time zone 'Asia/Bangkok')::date d from stg_ord) x
@@ -258,17 +259,28 @@ begin
   end if;
 
   for o in select * from stg_ord order by k loop
-    -- แบรนด์จากสินค้าในออเดอร์ (ห้ามปนแบรนด์ / สินค้าต้อง match ครบ)
-    select count(distinct b.id), min(b.id) into v_nbrand, v_brand
+    -- ออเดอร์ที่มีสินค้าแบรนด์ "ตัวแทน" (เช่น เอกสาร) → ทั้งออเดอร์เป็น "ตัวแทน" (ข้ามยามปนแบรนด์)
+    select bool_or(b.id = v_agent) into v_is_agent
     from stg_it si
     join public.products p on p.name = si.product_name
     join public.categories c on c.id = p.category_id
     join public.brands b on b.id = c.brand_id
     where si.k = o.k;
-    if v_nbrand is null or v_nbrand = 0 then
-      raise exception 'order k=% (%): สินค้าไม่ match DB เลย', o.k, o.order_no;
-    elsif v_nbrand > 1 then
-      raise exception 'order k=% (%): ปนแบรนด์ % ชนิด', o.k, o.order_no, v_nbrand;
+    if coalesce(v_is_agent, false) then
+      v_brand := v_agent;
+    else
+      -- แบรนด์จากสินค้าในออเดอร์ (ห้ามปนแบรนด์ / สินค้าต้อง match ครบ)
+      select count(distinct b.id), min(b.id) into v_nbrand, v_brand
+      from stg_it si
+      join public.products p on p.name = si.product_name
+      join public.categories c on c.id = p.category_id
+      join public.brands b on b.id = c.brand_id
+      where si.k = o.k;
+      if v_nbrand is null or v_nbrand = 0 then
+        raise exception 'order k=% (%): สินค้าไม่ match DB เลย', o.k, o.order_no;
+      elsif v_nbrand > 1 then
+        raise exception 'order k=% (%): ปนแบรนด์ % ชนิด', o.k, o.order_no, v_nbrand;
+      end if;
     end if;
 
     -- ผู้ขายจากรหัสท้ายชื่อ (active ก่อน)
@@ -299,8 +311,11 @@ begin
 
     for it in select * from stg_it where k = o.k loop
       select id into v_prod from public.products where name = it.product_name limit 1;
-      insert into public.order_items(order_id, product_id, quantity)
-        values (v_order, v_prod, it.quantity);
+      -- สินค้าที่ไม่ match (v_prod null) → ข้าม (order_items.product_id เป็น NOT NULL)
+      if v_prod is not null then
+        insert into public.order_items(order_id, product_id, quantity)
+          values (v_order, v_prod, it.quantity);
+      end if;
     end loop;
   end loop;
 end $$;
