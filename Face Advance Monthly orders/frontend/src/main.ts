@@ -256,10 +256,10 @@ function renderTable() {
   table.append(thead, tbody);
   wrap.append(table);
 
-  // โชว์ปุ่มขยายที่อยู่เฉพาะแถวที่ข้อความล้น (อ่าน scrollWidth หลัง append = 1 reflow)
-  for (const at of wrap.querySelectorAll<HTMLElement>(".atxt")) {
-    if (at.scrollWidth > at.clientWidth + 1) {
-      const tog = at.nextElementSibling as HTMLElement | null;
+  // โชว์ปุ่มขยาย (ที่อยู่/ชื่อ) เฉพาะแถวที่ข้อความล้น (อ่าน scrollWidth หลัง append = 1 reflow)
+  for (const tx of wrap.querySelectorAll<HTMLElement>(".atxt, .ntxt")) {
+    if (tx.scrollWidth > tx.clientWidth + 1) {
+      const tog = tx.nextElementSibling as HTMLElement | null;
       if (tog) tog.style.display = "";
     }
   }
@@ -305,11 +305,8 @@ function buildRow(o: Order): HTMLElement {
   tr.append(el("td", { class: "datecell" }, dmy(o.date)));
   // เบอร์โทร
   tr.append(el("td", { class: "mono" }, o.phone || "—"));
-  // ชื่อลูกค้า (+code)
-  const { name, code } = splitNameCode(o.customer_name);
-  const tdName = el("td", { class: "name" }, name || "—");
-  if (code) tdName.append(" ", el("span", { class: "code" }, code));
-  tr.append(tdName);
+  // ชื่อลูกค้า (+code) — โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม
+  tr.append(buildNameCell(o, tr));
   // ที่อยู่ (โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม)
   tr.append(buildAddrCell(o, tr));
   // รายการสินค้า (โชว์บรรทัดแรก · มี ≥2 → ปุ่มสามเหลี่ยมขยายทั้งแถว)
@@ -334,6 +331,20 @@ function buildRow(o: Order): HTMLElement {
   // หมายเหตุ
   tr.append(el("td", { class: o.note ? "note mono" : "note" }, o.note || "—"));
   return tr;
+}
+
+function buildNameCell(o: Order, tr: HTMLElement): HTMLElement {
+  const td = el("td", { class: "name-cell" });
+  const { name, code } = splitNameCode(o.customer_name);
+  const line = el("div", { class: "nameline" });
+  const txt = el("span", { class: "ntxt name", title: o.customer_name }, name || "—");
+  if (code) txt.append(" ", el("span", { class: "code" }, code));
+  const tog = el("span", { class: "itemtoggle nametoggle", title: "ดู/ซ่อนชื่อเต็ม" }, icon("i-caret"));
+  tog.style.display = "none"; // โชว์เฉพาะแถวที่ชื่อล้น (เช็ค overflow หลัง render)
+  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("nopen"); });
+  line.append(txt, tog);
+  td.append(line);
+  return td;
 }
 
 function buildAddrCell(o: Order, tr: HTMLElement): HTMLElement {
