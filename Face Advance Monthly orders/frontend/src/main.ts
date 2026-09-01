@@ -633,6 +633,11 @@ function openFilter(th: HTMLElement, col: Column) {
   drop.append(actions);
 
   th.append(drop);
+  // กันกล่องล้นขอบจอ: คอลัมน์ซ้ายสุด (วันที่) ที่ right:0 จะยื่นทะลุซ้าย → สลับมาชิดซ้าย
+  if (drop.getBoundingClientRect().left < 8) {
+    drop.style.right = "auto";
+    drop.style.left = "0";
+  }
   inp.focus();
 }
 
