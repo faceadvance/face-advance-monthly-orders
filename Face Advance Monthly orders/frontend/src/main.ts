@@ -5,7 +5,7 @@ import {
   getDetailPresets,
 } from "./api";
 import { renderLogin } from "./auth";
-import { getToken, clearSession, displayName } from "./session";
+import { getToken, clearSession, displayName, getRole, setRole } from "./session";
 import { parseWorkbook, type ImportRow, type ParseResult } from "./import";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
@@ -14,6 +14,13 @@ import {
 } from "./util";
 
 const MAX_SELECT = 30;
+
+// สิทธิ์ผู้ใช้: viewer = ดูอย่างเดียว (แก้/อัพเดต/นำเข้าไม่ได้)
+let currentRole = getRole();
+function requireEditor(): boolean {
+  if (currentRole === "viewer") { toast("ไม่มีสิทธิ์แก้ไขข้อมูล", false); return false; }
+  return true;
+}
 
 interface Column { key: ColKey; label: string; align?: "right" | "center"; thClass?: string; }
 const COLUMNS: Column[] = [
@@ -583,6 +590,7 @@ function trackErrMsg(err?: string): string {
     case "return_reason_required": return "กรุณาเลือกเหตุผลตีกลับ";
     case "status_detail_required": return "กรุณากรอกรายละเอียดปัญหา";
     case "order_not_found":        return "ไม่พบออเดอร์นี้แล้ว";
+    case "forbidden_viewer":       return "ไม่มีสิทธิ์แก้ไขข้อมูล";
     case "bad_delivery_status":
     case "bad_payment_status":     return "สถานะไม่ถูกต้อง";
     default:                       return "บันทึกไม่สำเร็จ";
@@ -602,6 +610,7 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
 
 // ---- แก้สถานะ inline: ดินสอ → popup เลือก → ยืนยัน ----
 function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "payment") {
+  if (!requireEditor()) return;
   closeDrop();
   const cur = field === "delivery" ? o.delivery_status : o.payment_status;
   const opts = field === "delivery" ? DELIVERY_STATUSES : PAYMENT_STATUSES;
@@ -661,6 +670,7 @@ let sidebarEl: HTMLElement | null = null;
 function closeSidebar() { if (sidebarEl) { sidebarEl.remove(); sidebarEl = null; } }
 
 function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
+  if (!requireEditor()) return;
   closeSidebar();
   const root = el("div", { class: "sboverlay" });   // พื้นหลังทึบ — คลิกนอกไม่ปิด (ตามสเปก)
   const panel = el("div", { class: "sbpanel" });
@@ -1440,6 +1450,7 @@ async function loadMonth(month: string) {
   try {
     const data = await fetchOrders(month);
     if (!data.authorized) { toLogin(); return; }
+    currentRole = data.role || currentRole; setRole(currentRole);   // sync สิทธิ์จาก server
     computeKpiDaily(data);            // get_orders คืนแค่ orders → คำนวณ KPI/daily ที่นี่
     state.data = data;
     renderKpi(data);
@@ -1471,7 +1482,7 @@ async function bootstrap() {
   });
 
   // ปุ่มนำเข้าไฟล์ (Stage 2)
-  $("#importBtn").addEventListener("click", () => openImportModal());
+  $("#importBtn").addEventListener("click", () => { if (!requireEditor()) return; openImportModal(); });
 
   // logout
   $("#logoutBtn").addEventListener("click", async () => {

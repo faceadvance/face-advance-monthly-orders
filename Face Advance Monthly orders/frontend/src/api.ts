@@ -92,7 +92,7 @@ export function getDetailPresets(kind = "problem"): Promise<PresetsResp> {
 // ---- auth: Edge Function ----
 export interface AuthResp {
   ok: boolean; message?: string;
-  ticket_id?: string; display_name?: string; session_token?: string;
+  ticket_id?: string; display_name?: string; session_token?: string; role?: string;
 }
 async function authFn(body: Record<string, unknown>): Promise<AuthResp> {
   try {

@@ -122,25 +122,67 @@ function buildFlex(otp: string, username: string, device: string, loc: string, w
   };
 }
 
-async function sendOtpFlex(otp: string, username: string, ip: string, geo: any, device: string): Promise<boolean> {
-  if (!LINE_TOKEN || !LINE_GROUP) return false;
+async function sendOtpFlex(otp: string, username: string, ip: string, geo: any, device: string, to: string): Promise<boolean> {
+  if (!LINE_TOKEN || !to) return false;
   const flex = buildFlex(otp, username, device, locText(ip, geo), whenText(), refStamp(username));
+  const r = await fetch("https://api.line.me/v2/bot/message/push", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${LINE_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ to, messages: [flex] }),
+  });
+  if (!r.ok) { console.error("LINE push failed", r.status, await r.text()); return false; }
+  return true;
+}
+
+// Flex แจ้งเตือนกลุ่มเมื่อกรอก OTP ผิด (>=2 หลัก หรือ >=2 ครั้ง)
+function buildAlertFlex(username: string, device: string, loc: string, when: string, wrongDigits: number, attemptNo: number) {
+  return {
+    type: "flex",
+    altText: `เตือน: กรอก OTP ผิด (${username})`,
+    contents: {
+      type: "bubble", size: "kilo",
+      body: {
+        type: "box", layout: "vertical", backgroundColor: "#2A0F14", paddingAll: "15px", contents: [
+          { type: "box", layout: "horizontal", contents: [
+            { type: "text", text: "แจ้งเตือนความปลอดภัย", color: "#F87171", size: "xxs", weight: "bold", flex: 1 },
+            { type: "text", text: "OTP ผิด", color: "#FCA5A5", size: "xxs", weight: "bold", align: "end" },
+          ] },
+          { type: "text", text: "มีการกรอก OTP ผิด", color: "#FFFFFF", size: "lg", weight: "bold", margin: "sm" },
+          { type: "separator", margin: "lg", color: "#5B2530" },
+          { type: "box", layout: "vertical", margin: "lg", spacing: "sm", contents: [
+            kv("ผู้ใช้", username, "#FCA5A5"),
+            kv("หลักที่ผิด", `${wrongDigits} หลัก`),
+            kv("ครั้งที่", String(attemptNo)),
+            kv("อุปกรณ์", device),
+            kv("ตำแหน่ง (IP)", loc),
+            kv("เวลา", when),
+          ] },
+        ],
+      },
+      styles: { body: { backgroundColor: "#2A0F14" } },
+    },
+  };
+}
+
+async function sendVerifyAlert(username: string, ip: string, geo: any, device: string, wrongDigits: number, attemptNo: number): Promise<void> {
+  if (!LINE_TOKEN || !LINE_GROUP) return;
+  const flex = buildAlertFlex(username, device, locText(ip, geo), whenText(), wrongDigits, attemptNo);
   const r = await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: { Authorization: `Bearer ${LINE_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ to: LINE_GROUP, messages: [flex] }),
   });
-  if (!r.ok) { console.error("LINE push failed", r.status, await r.text()); return false; }
-  return true;
+  if (!r.ok) console.error("LINE alert push failed", r.status, await r.text());
 }
 
 async function doLogin(b: any, ip: string, ua: string): Promise<Response> {
   if (!b.username || !b.password) return json({ ok: false, message: "กรอกข้อมูลไม่ครบ" });
   const rows = await rpc("app_auth_login", { p_username: b.username, p_password: b.password, p_ip: ip, p_ua: ua });
   if (!rows || rows.length === 0) return json({ ok: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (หรือขอรหัสถี่เกินไป)" });
-  const { ticket_id, otp, display_name } = rows[0];
+  const { ticket_id, otp, display_name, line_user_id } = rows[0];
   const geo = await lookupGeo(ip);
-  const sent = await sendOtpFlex(otp, b.username, ip, geo, parseUA(ua));
+  const target = line_user_id || LINE_GROUP;   // OTP → LINE ของ user นั้น (fallback กลุ่มถ้ายังไม่ตั้ง)
+  const sent = await sendOtpFlex(otp, b.username, ip, geo, parseUA(ua), target);
   if (!sent) return json({ ok: false, message: "ส่ง OTP เข้า LINE ไม่สำเร็จ ลองใหม่อีกครั้ง" });
   return json({ ok: true, ticket_id, display_name });
 }
@@ -149,8 +191,15 @@ async function doVerify(b: any, ip: string, ua: string): Promise<Response> {
   if (!b.ticket_id || !b.code) return json({ ok: false, message: "กรอกรหัสไม่ครบ" });
   const geo = await lookupGeo(ip);
   const rows = await rpc("app_auth_verify", { p_ticket: b.ticket_id, p_code: String(b.code), p_ip: ip, p_ua: ua, p_geo: geo });
-  if (!rows || rows.length === 0) return json({ ok: false, message: "รหัส OTP ไม่ถูกต้องหรือหมดอายุ" });
-  return json({ ok: true, session_token: rows[0].session_token, display_name: rows[0].display_name });
+  const r0 = rows && rows.length ? rows[0] : null;
+  if (r0 && r0.session_token) {
+    return json({ ok: true, session_token: r0.session_token, display_name: r0.display_name, role: r0.role });
+  }
+  // รหัสผิด: ถ้าเข้าเงื่อนไข (>=2 หลัก หรือ >=2 ครั้ง) → แจ้งเตือนกลุ่ม
+  if (r0 && r0.alert) {
+    await sendVerifyAlert(r0.username, ip, geo, parseUA(ua), r0.wrong_digits, r0.attempt_no);
+  }
+  return json({ ok: false, message: "รหัส OTP ไม่ถูกต้องหรือหมดอายุ" });
 }
 
 async function doLogout(b: any): Promise<Response> {

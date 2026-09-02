@@ -55,6 +55,7 @@ export interface Daily {
 export interface OrdersResponse {
   authorized: boolean;
   error?: string;
+  role?: string;         // editor | viewer (viewer = ดูอย่างเดียว)
   month: string;         // YYYY-MM
   days_in_month: number;
   today: string;         // YYYY-MM-DD (เวลาไทย)

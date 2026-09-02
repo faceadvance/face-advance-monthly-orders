@@ -57,4 +57,21 @@
 - [x] verify: เปิดจริงในเบราว์เซอร์ครบ flow + เจ้านายลองเอง หลายรอบ · revert ข้อมูลเทสสะอาด
 - [x] deploy: push ขึ้น GitHub (2026-09-01)
 
+### Stage 5.1 — ชิปคำแนะนำ "รายละเอียดปัญหา" + autocomplete — เสร็จ+deploy (2026-09-02)
+> สเปก: `Face Advance Monthly orders/docs/specs/2026-09-02-detail-presets-design.md` · commit 35b8891
+- [x] DB: ตาราง `tracking_detail_presets` (default catalog) + RPC `app_get_detail_presets` · default 5 คำ
+- [x] FE: ชิปคำที่เคยใช้ (default=DB, คำใหม่+ลำดับ+ลบ=localStorage เฉพาะเครื่อง) · กดชิป/ลาก/ลบ(เฉพาะ local)
+- [x] FE: ปุ่มลูกศร ‹ › เลื่อนทีละชิป (โผล่เมื่อล้น) · autocomplete แบบ Sheets (ghost+Enter รับ+เลือกชิป)
+- [x] FE fix: badge ชิดขวา + ดินสอเรียงตรงเป็นคอลัมน์
+- [x] verify: เปิดจริงในเบราว์เซอร์ครบทุกเคส · revert order 219 สะอาด · deploy ผ่าน (Actions success)
+
+### Stage 6 — Auth: LINE OTP รายบุคคล + role + session + OTP-fail alert — เสร็จ (2026-09-02)
+> สเปก: `Face Advance Monthly orders/docs/specs/2026-09-02-auth-lineotp-roles-design.md`
+- [x] DB: app_users +line_user_id/role/session_hours/idle_minutes · auth_login_tickets +otp
+- [x] RPC: login(คืน line_id) · verify(session ต่อ user + role + alert ผิด≥2หลัก/≥2ครั้ง) · session_uid(idle ต่อ user) · get_orders(role) · save(reject viewer) — verify tx/rollback ผ่าน
+- [x] Edge Function `auth` v4: OTP push รายบุคคล (fallback กลุ่ม) + flex เตือนกลุ่มเมื่อ OTP ผิด
+- [x] FE: viewer gating (เตือน "ไม่มีสิทธิ์แก้ไขข้อมูล" + บล็อก sidebar/นำเข้า) · เก็บ role · ลบข้อความ 2FA หน้า login
+- [x] บัญชี: aom(line_id) · friday(editor 24h/1440m) · plug(viewer) — bcrypt
+- [ ] **boss ทดสอบล็อกอินจริง** (OTP เข้า LINE รายบุคคล) — หลัง deploy · ต้องแอดบอทเป็นเพื่อนก่อน
+
 ## แจ้ง LINE ตอน build stage เสร็จ (boss confirm แล้ว)

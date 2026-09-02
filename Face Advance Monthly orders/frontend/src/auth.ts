@@ -91,7 +91,6 @@ export function renderLogin(onSuccess: () => void) {
       field("ชื่อผู้ใช้ (username)", el("div", { class: "authinp" }, icon("i-user"), uInput)),
       field("รหัสผ่าน", el("div", { class: "authinp" }, icon("i-lock"), pInput, eye)),
       btn,
-      el("div", { class: "authnote" }, iconGreen("i-shield"), "ยืนยันตัวตน 2 ชั้นด้วย OTP ผ่าน LINE"),
     );
     root.append(card);
     uInput.focus();
@@ -146,7 +145,7 @@ export function renderLogin(onSuccess: () => void) {
         boxes[0].focus();
         return;
       }
-      setSession(r.session_token!, r.display_name || username);
+      setSession(r.session_token!, r.display_name || username, r.role || "editor");
       onSuccess();
     }
     btn.addEventListener("click", submit);
@@ -195,5 +194,4 @@ export function renderLogin(onSuccess: () => void) {
 function field(label: string, control: HTMLElement): HTMLElement {
   return el("div", { class: "authfield" }, el("span", { class: "authlbl" }, label), control);
 }
-function iconGreen(id: string): SVGSVGElement { const s = icon(id); s.classList.add("g"); return s; }
 function spinner(): HTMLElement { return el("span", { class: "authspin" }); }
