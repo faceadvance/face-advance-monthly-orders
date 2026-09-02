@@ -81,6 +81,14 @@ export function getOrderTracking(orderId: number): Promise<GetTrackingResp> {
   return restRpc<GetTrackingResp>("app_get_order_tracking", { p_token: getToken(), p_order_id: orderId });
 }
 
+// ---- คำ default "รายละเอียดปัญหา" (จาก DB · ชุดกลาง ลบไม่ได้) ----
+// คำใหม่ที่พนักงานพิมพ์เอง + ลำดับชิป เก็บที่ localStorage ฝั่ง main.ts
+export interface DetailPreset { id: number; label: string; use_count: number; }
+export interface PresetsResp { authorized: boolean; ok?: boolean; presets?: DetailPreset[]; }
+export function getDetailPresets(kind = "problem"): Promise<PresetsResp> {
+  return restRpc<PresetsResp>("app_get_detail_presets", { p_token: getToken(), p_kind: kind });
+}
+
 // ---- auth: Edge Function ----
 export interface AuthResp {
   ok: boolean; message?: string;

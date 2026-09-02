@@ -2,6 +2,7 @@ import "./style.css";
 import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs,
+  getDetailPresets,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName } from "./session";
@@ -751,7 +752,8 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
 
   const problemBlock = el("div", { class: "sbcond" });
   const problemTa = el("textarea", { class: "sbtextarea", rows: "3", placeholder: "รายละเอียดปัญหา…" }) as HTMLTextAreaElement;
-  problemBlock.append(el("div", { class: "sbsublabel" }, "รายละเอียดปัญหา"), problemTa);
+  const detailPresets = presetStrip(problemTa, () => updateSaveState());
+  problemBlock.append(el("div", { class: "sbsublabel" }, "รายละเอียดปัญหา"), problemTa, detailPresets.el);
 
   // prefill จากค่าเดิม (สถานะเดิมเป็นตีกลับ/มีปัญหา และไม่ได้ preset ทับ)
   if (o.delivery_status === "ตีกลับ" && !opts?.presetDelivery) {
@@ -875,6 +877,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
       const r = await saveOrderTracking(o.id, args);
       if (!r.authorized) { toLogin(); return; }
       if (!r.ok) { toast(trackErrMsg(r.error), false); saveBtn.removeAttribute("disabled"); return; }
+      if (newDelivery === "มีปัญหา" && !r.noop) detailPresets.commitSaved();   // คำใหม่ → เก็บ localStorage
       applyOrderUpdate(o, r);
       toast(r.noop ? "ไม่มีการเปลี่ยนแปลง" : "บันทึกแล้ว");
       closeSidebar();
@@ -935,6 +938,211 @@ function chipGroup(options: string[], initial: string, badgeFn: (s: string) => {
 }
 
 // รายการตัวเลือกแนวตั้ง (radio) — เห็นทุกตัวเลือกทันที เช่น เหตุผลตีกลับ
+// localStorage: คำใหม่ที่พิมพ์เอง + ลำดับชิป (เฉพาะเครื่องนี้)
+const LS_DETAIL_LOCAL = "fa_detail_local";   // string[] คำที่พนักงานพิมพ์เอง (ลบได้)
+const LS_DETAIL_ORDER = "fa_detail_order";   // string[] ลำดับการแสดงชิป
+function lsGetArr(key: string): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch { return []; }
+}
+function lsSetArr(key: string, val: string[]) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* quota/โหมดส่วนตัว → ข้าม */ }
+}
+
+// ชิปคำแนะนำ "รายละเอียดปัญหา" — default จาก DB (ลบไม่ได้) · คำใหม่+ลำดับ+ลบ อยู่ localStorage
+function presetStrip(ta: HTMLTextAreaElement, onPick: () => void): {
+  el: HTMLElement;
+  commitSaved: () => void;
+  syncFromText: () => void;
+} {
+  let defaults: string[] = [];                  // จาก DB — ลบไม่ได้
+  let locals: string[] = lsGetArr(LS_DETAIL_LOCAL);
+  let order: string[] = lsGetArr(LS_DETAIL_ORDER);
+  let activeLabel: string | null = null;
+  let dragLabel: string | null = null;
+
+  const wrap = el("div", { class: "pstrip" });
+  const row = el("div", { class: "pstriprow" });
+  const prevBtn = el("button", { class: "pnav", type: "button", title: "เลื่อนซ้าย" }, "‹") as HTMLButtonElement;
+  const nextBtn = el("button", { class: "pnav", type: "button", title: "เลื่อนขวา" }, "›") as HTMLButtonElement;
+  const strip = el("div", { class: "pstripwrap" }, prevBtn, row, nextBtn);
+  wrap.append(el("div", { class: "psublabel" }, "เลือกจากที่เคยใช้ ", el("span", { class: "phint" }, "(ลากสลับได้)")), strip);
+
+  // ปุ่มลูกศรเลื่อนแถวชิปทีละชิป (โผล่เฉพาะตอนล้นแถว)
+  function updateNav() {
+    const max = row.scrollWidth - row.clientWidth;
+    const over = max > 1;
+    strip.classList.toggle("scroll", over);
+    prevBtn.disabled = !over || row.scrollLeft <= 1;
+    nextBtn.disabled = !over || row.scrollLeft >= max - 1;
+  }
+  function scrollByChip(dir: number) {
+    const rowLeft = row.getBoundingClientRect().left;
+    const chips = Array.from(row.children) as HTMLElement[];
+    // ใช้ scrollBy แบบ instant — ความลื่นมาจาก CSS scroll-behavior:smooth (behavior:'smooth' ใน JS ไม่ทำงานบน container นี้)
+    if (dir > 0) {
+      const t = chips.find((c) => c.getBoundingClientRect().left > rowLeft + 1);
+      if (t) row.scrollBy({ left: t.getBoundingClientRect().left - rowLeft });
+    } else {
+      const past = chips.filter((c) => c.getBoundingClientRect().left < rowLeft - 1);
+      const t = past[past.length - 1];
+      if (t) row.scrollBy({ left: t.getBoundingClientRect().left - rowLeft });
+    }
+  }
+  prevBtn.addEventListener("click", () => scrollByChip(-1));
+  nextBtn.addEventListener("click", () => scrollByChip(1));
+  row.addEventListener("scroll", updateNav);
+  // จับตอน row เปลี่ยนขนาด (เช่น บล็อกถูกโชว์จาก display:none) → คำนวณ overflow ใหม่
+  new ResizeObserver(() => updateNav()).observe(row);
+
+  const isDefault = (l: string) => defaults.includes(l);
+
+  // รวม default + local (ไม่ซ้ำ) เรียงตาม order ที่บันทึกไว้ · คำที่ยังไม่มีในลำดับต่อท้าย
+  function allLabels(): string[] {
+    const set = new Set<string>();
+    for (const l of defaults) set.add(l);
+    for (const l of locals) set.add(l);
+    const ordered = order.filter((l) => set.has(l));
+    for (const l of set) if (!ordered.includes(l)) ordered.push(l);
+    return ordered;
+  }
+  function saveOrder() { order = allLabels(); lsSetArr(LS_DETAIL_ORDER, order); }
+
+  const paint = () => {
+    for (const c of Array.from(row.children) as HTMLElement[])
+      c.classList.toggle("on", c.dataset.label === activeLabel);
+  };
+  const clearIns = () => { for (const c of Array.from(row.children) as HTMLElement[]) c.classList.remove("insl", "insr"); };
+
+  function pick(label: string) {
+    ta.value = label; activeLabel = label; paint();
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    onPick();
+  }
+  function removeLocal(label: string) {
+    locals = locals.filter((l) => l !== label); lsSetArr(LS_DETAIL_LOCAL, locals);
+    order = order.filter((l) => l !== label); lsSetArr(LS_DETAIL_ORDER, order);
+    if (activeLabel === label) activeLabel = null;
+    render();
+  }
+  function move(from: string, to: string, after: boolean) {
+    if (from === to) return;
+    const arr = allLabels();
+    const fi = arr.indexOf(from); if (fi < 0) return;
+    arr.splice(fi, 1);
+    const ti = arr.indexOf(to); if (ti < 0) return;
+    arr.splice(after ? ti + 1 : ti, 0, from);
+    order = arr; lsSetArr(LS_DETAIL_ORDER, order);
+    render();
+  }
+
+  function render() {
+    row.textContent = "";
+    for (const label of allLabels()) {
+      const chip = el("div", { class: "pchip", draggable: "true" });
+      chip.dataset.label = label;
+      chip.append(el("span", { class: "pchiptext" }, label));
+      chip.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement).closest(".pchipdel")) return;
+        pick(label);
+      });
+      if (!isDefault(label)) {
+        const del = el("button", { class: "pchipdel", type: "button", title: "ลบชิปนี้" }, "×");
+        del.addEventListener("click", (e) => { e.stopPropagation(); removeLocal(label); });
+        chip.append(del);
+      }
+      chip.addEventListener("dragstart", (e) => {
+        dragLabel = label; chip.classList.add("drag");
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
+      chip.addEventListener("dragend", () => { dragLabel = null; chip.classList.remove("drag"); clearIns(); });
+      chip.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (dragLabel === null || dragLabel === label) return;
+        const r = chip.getBoundingClientRect();
+        const after = e.clientX > r.left + r.width / 2;
+        chip.classList.toggle("insr", after);
+        chip.classList.toggle("insl", !after);
+      });
+      chip.addEventListener("dragleave", () => chip.classList.remove("insl", "insr"));
+      chip.addEventListener("drop", (e) => {
+        e.preventDefault();
+        chip.classList.remove("insl", "insr");
+        if (dragLabel === null) return;
+        const r = chip.getBoundingClientRect();
+        move(dragLabel, label, e.clientX > r.left + r.width / 2);
+      });
+      row.append(chip);
+    }
+    paint();
+    requestAnimationFrame(updateNav);   // อัปเดตปุ่มลูกศรหลัง layout
+  }
+
+  // โหลด default จาก DB แล้ว render (ระหว่างรอ แสดง local ไปก่อน)
+  render();
+  void (async () => {
+    try {
+      const r = await getDetailPresets("problem");
+      if (r.authorized && r.ok && r.presets) defaults = r.presets.map((p) => p.label);
+    } catch { /* ไม่มี default ก็ยังใช้ชิป local ได้ */ }
+    saveOrder();   // ผูก default เข้าลำดับด้วย
+    render();
+    const cur = ta.value.trim();
+    if (cur && allLabels().includes(cur)) { activeLabel = cur; paint(); }
+  })();
+
+  // ยกเลิกไฮไลต์ชิปเมื่อพิมพ์แก้จนไม่ขึ้นต้นด้วยคำในชิป
+  function syncActive() {
+    if (activeLabel && !ta.value.startsWith(activeLabel)) { activeLabel = null; paint(); }
+  }
+  // ---- autocomplete แบบ Google Sheets ----
+  // พิมพ์ต่อท้าย → เติมส่วนที่เหลือของ "คำในชิป" ที่ขึ้นต้นตรงกัน (ไฮไลต์เป็น ghost)
+  // ghost คือ selection ท้ายข้อความ → พิมพ์ตัวต่อไปจะทับ ghost เอง · Backspace = ตัด ghost ทิ้ง
+  let ghostLabel: string | null = null;
+  ta.addEventListener("input", (e) => {
+    const ie = e as InputEvent;
+    const it = ie.inputType || "";
+    if (ie.isComposing || it.startsWith("delete") || it === "insertLineBreak") { ghostLabel = null; syncActive(); return; }
+    const typed = ta.value;
+    if (typed && ta.selectionStart === typed.length) {
+      const match = allLabels().find((l) => l.length > typed.length && l.startsWith(typed));
+      if (match) {
+        ta.value = match;
+        ta.setSelectionRange(typed.length, match.length);   // ไฮไลต์เฉพาะส่วนที่เติม
+        ghostLabel = match;
+        syncActive();
+        return;
+      }
+    }
+    ghostLabel = null;
+    syncActive();
+  });
+  // Enter ตอนมี ghost = รับคำนั้น + เลือกชิปอัตโนมัติ (ไม่ขึ้นบรรทัดใหม่)
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && ghostLabel && ta.value === ghostLabel &&
+        ta.selectionStart < ta.selectionEnd && ta.selectionEnd === ta.value.length) {
+      e.preventDefault();
+      const l = ghostLabel; ghostLabel = null;
+      pick(l);   // ตั้ง activeLabel + ไฮไลต์ชิป + วางเคอร์เซอร์ท้าย
+    }
+  });
+
+  return {
+    el: wrap,
+    // เรียกหลังบันทึกสำเร็จ (delivery=มีปัญหา): คำใหม่ที่พิมพ์เอง (ไม่ได้อิงชิป) → เก็บ localStorage
+    commitSaved() {
+      if (activeLabel) return;                       // อิงชิปเดิม = ไม่สร้างใหม่ (คำซ้ำ)
+      const txt = ta.value.trim();
+      if (!txt || allLabels().includes(txt)) return; // ว่าง/มีอยู่แล้ว → ข้าม
+      locals.push(txt); lsSetArr(LS_DETAIL_LOCAL, locals);
+      saveOrder();
+    },
+    syncFromText: syncActive,
+  };
+}
+
 function chipList(options: string[], initial: string, onChange: (v: string) => void): { el: HTMLElement; set: (v: string) => void } {
   let val = initial;
   const wrap = el("div", { class: "rlist" });
