@@ -56,11 +56,8 @@ export function renderLogin(onSuccess: () => void) {
     const err = errBox();
     const uInput = el("input", { autocomplete: "username", value: username }) as HTMLInputElement;
     const pInput = el("input", { type: "password", autocomplete: "current-password" }) as HTMLInputElement;
-
-    const eye = icon("i-eye"); eye.classList.add("autheye");
-    eye.addEventListener("click", () => {
-      pInput.type = pInput.type === "password" ? "text" : "password";
-    });
+    // รหัสผ่าน: เปิดตาดูไม่ได้ (ไม่มีปุ่ม reveal) + คัดลอกไม่ได้
+    for (const ev of ["copy", "cut"]) pInput.addEventListener(ev, (e) => e.preventDefault());
 
     const btn = el("button", { class: "btn authbtn" }, icon("i-login"), "เข้าสู่ระบบ") as HTMLButtonElement;
 
@@ -89,7 +86,7 @@ export function renderLogin(onSuccess: () => void) {
       el("div", { class: "authsub" }, "สำหรับพนักงานที่ได้รับสิทธิ์เท่านั้น"),
       err,
       field("ชื่อผู้ใช้ (username)", el("div", { class: "authinp" }, icon("i-user"), uInput)),
-      field("รหัสผ่าน", el("div", { class: "authinp" }, icon("i-lock"), pInput, eye)),
+      field("รหัสผ่าน", el("div", { class: "authinp" }, icon("i-lock"), pInput)),
       btn,
     );
     root.append(card);

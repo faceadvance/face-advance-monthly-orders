@@ -295,7 +295,18 @@ body:not(.authed) #authRoot{
 .authinp:focus-within{border-color:#3B82F6;box-shadow:0 0 0 3px rgba(59,130,246,.22)}
 .authinp input{border:none;outline:none;background:transparent;font-family:inherit;font-size:.9rem;color:#F1F5F9;width:100%}
 .authinp input::placeholder{color:#64748B}
-.autheye{cursor:pointer;color:#7C8AA3}
+/* Chrome autofill: บังคับให้เข้าธีมมืด (ไม่ให้พื้นเหลือง/ขาว) */
+.authinp input:-webkit-autofill,
+.authinp input:-webkit-autofill:hover,
+.authinp input:-webkit-autofill:focus,
+.authinp input:-webkit-autofill:active{
+  -webkit-text-fill-color:#F1F5F9;
+  -webkit-box-shadow:0 0 0 1000px #0e1626 inset;
+  box-shadow:0 0 0 1000px #0e1626 inset;
+  caret-color:#F1F5F9;
+  font-family:inherit;font-size:.9rem;
+  transition:background-color 9999s ease-in-out 0s;
+}
 .btn.authbtn{width:100%;justify-content:center;padding:.85rem;font-size:.92rem;margin-top:.5rem;border-radius:.7rem;
   background:linear-gradient(180deg,#3B82F6,#2563EB);box-shadow:0 .6rem 1.6rem rgba(37,99,235,.42);
   transition:transform .15s,box-shadow .15s}
