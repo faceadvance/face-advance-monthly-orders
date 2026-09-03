@@ -2,6 +2,8 @@
 *.xlsx
 *.xls
 *.csv
+# ยกเว้น: template COD ในเว็บ (ต้อง deploy · เป็น template เปล่า ไม่ใช่ข้อมูลจริง)
+!Face Advance Monthly orders/frontend/public/templates/*.xlsx
 database/seed/sellers_seed.sql
 database/seed/products_seed_01.tsv
 database/seed/stg_insert.sql
@@ -44,3 +46,7 @@ file-backups/
 
 # ===== หมายเหตุ: anon key ใน frontend/src/config.ts = public โดยออกแบบ (ปลอดภัย) =====
 # service key / DB url / LINE token อยู่แค่ Supabase secrets + ~/.claude/secrets.env — ไม่มีในโค้ด
+
+# เอกสารวางแผนภายใน (repo เป็น public) — เก็บ local ไม่ขึ้น GitHub
+HANDOFF.md
+ROADMAP.md

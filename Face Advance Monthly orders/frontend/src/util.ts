@@ -73,15 +73,20 @@ export function paymentBadge(s: string): { cls: string; icon: string } {
     case "ชำระแล้ว": return { cls: "g", icon: "i-check" };
     case "รอชำระ":   return { cls: "a", icon: "i-clock" };
     case "ยกเลิก":   return { cls: "n", icon: "i-x" };
+    case "error":    return { cls: "w", icon: "i-alert-solid" };   // ยอด COD ไม่ตรง ระบบตั้งเอง
     default:         return { cls: "n", icon: "i-x" };
   }
+}
+/** ป้ายสถานะชำระ: 'error' → "Error" (ยอด COD ไม่ตรง) ค่าอื่นคงเดิม */
+export function paymentStatusLabel(s: string): string {
+  return s === "error" ? "Error" : s;
 }
 
 /** ค่าที่ใช้ค้นหา/กรองของแต่ละคอลัมน์ */
 export type ColKey =
   | "date" | "phone" | "customer_name" | "address" | "items"
   | "carrier" | "tracking_no" | "payment_method" | "total_sales"
-  | "delivery_status" | "payment_status" | "return_arrived" | "note";
+  | "delivery_status" | "problem" | "payment_status" | "return_arrived" | "note";
 
 /** ช่องทางชำระ: ย่อ "เก็บเงินปลายทาง" → "COD" ให้สั้น (ค่าใน DB คงเดิม) */
 export function paymentMethodLabel(v: string): string {
@@ -106,6 +111,7 @@ export function cellValue(o: Order, col: ColKey): string {
     case "payment_method": return paymentMethodLabel(o.payment_method || "");
     case "items": return itemsLabel(o.items);
     case "return_arrived": return returnArrivedLabel(o.return_arrived);
+    case "problem": return o.delivery_status === "มีปัญหา" ? (o.status_detail || "") : "";
     default: return (o[col] ?? "") as string;
   }
 }

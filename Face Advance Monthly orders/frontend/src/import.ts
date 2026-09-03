@@ -212,3 +212,67 @@ export function parseWorkbook(buf: ArrayBuffer): ParseResult {
 
   return { rows, warnings, skipped };
 }
+
+// ===== COD รับเงินแล้ว (.xlsx ตาม template) =====
+const COD_COLS = ["หมายเลขพัสดุ", "จำนวนเงิน", "ได้รับจาก", "หมายเหตุ"] as const;
+
+export interface CodRow {
+  tracking_out: string;
+  amount: number | null;
+  received_from: string | null;
+  note: string | null;
+}
+export interface CodParseResult { rows: CodRow[]; skipped: string[] }
+
+function toNum(v: unknown): number | null {
+  const s = clean(v);
+  if (s === null) return null;
+  const n = Number(s.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+export function parseCodWorkbook(buf: ArrayBuffer): CodParseResult {
+  let wb: XLSX.WorkBook;
+  try {
+    wb = XLSX.read(new Uint8Array(buf), { type: "array" });
+  } catch {
+    throw new Error("เปิดไฟล์ไม่ได้ — ต้องเป็นไฟล์ .xlsx ตาม template COD");
+  }
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error("ไฟล์ไม่มีชีตข้อมูล");
+  const aoa = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, raw: true, defval: null, blankrows: false });
+
+  // หา header row (มี 'หมายเลขพัสดุ') ใน 8 แถวแรก
+  let hdrIdx = -1;
+  let H: any[] = [];
+  for (let r = 0; r < Math.min(8, aoa.length); r++) {
+    if ((aoa[r] || []).includes("หมายเลขพัสดุ")) { hdrIdx = r; H = aoa[r]; break; }
+  }
+  if (hdrIdx < 0) throw new Error("ไฟล์ไม่ตรง template COD — หาหัวตาราง (หมายเลขพัสดุ) ไม่เจอ");
+
+  const ci: Record<string, number> = {};
+  const missing: string[] = [];
+  for (const n of COD_COLS) { const i = H.indexOf(n); ci[n] = i; if (i < 0) missing.push(n); }
+  if (missing.length) throw new Error("ไฟล์ไม่ตรง template COD — ขาดคอลัมน์: " + missing.join(", "));
+
+  const rows: CodRow[] = [];
+  const skipped: string[] = [];
+  for (let r = hdrIdx + 1; r < aoa.length; r++) {
+    const v = aoa[r] || [];
+    if (v.every((x) => x === null || x === undefined || x === "")) continue;   // แถวว่างล้วน
+    const tracking = clean(v[ci["หมายเลขพัสดุ"]]) ?? "";
+    const note = clean(v[ci["หมายเหตุ"]]);
+    // ข้ามแถวตัวอย่างใน template (EX000000001TH / โน้ต "ตัวอย่าง")
+    if (tracking === "EX000000001TH" || (note && note.includes("ตัวอย่าง"))) {
+      skipped.push(`แถวตัวอย่าง (${tracking || "—"})`);
+      continue;
+    }
+    rows.push({
+      tracking_out: tracking,
+      amount: toNum(v[ci["จำนวนเงิน"]]),
+      received_from: clean(v[ci["ได้รับจาก"]]),
+      note,
+    });
+  }
+  return { rows, skipped };
+}

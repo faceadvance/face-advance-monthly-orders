@@ -74,4 +74,12 @@
 - [x] บัญชี: aom(line_id) · friday(editor 24h/1440m) · plug(viewer) — bcrypt
 - [ ] **boss ทดสอบล็อกอินจริง** (OTP เข้า LINE รายบุคคล) — หลัง deploy · ต้องแอดบอทเป็นเพื่อนก่อน
 
+### Stage 7 — Reconciliation (COD รับเงิน + ตีกลับถึงแล้ว) — backend live · FE ยังไม่ deploy (2026-09-03)
+> สเปก: `Face Advance Monthly orders/docs/specs/2026-09-02-reconciliation-cod-returns-design.md` · รายละเอียดใน HANDOFF.md
+- [x] DB: ตาราง recon_returns/recon_cod_payments + orders.recon_conflict + reconcile engine & triggers (2 ทาง) + COD payment lock (server) + get_orders recon fields — verify tx/rollback ผ่าน
+- [x] FE (uncommitted): COD payment ไม่มีไอคอน(กันที่ว่าง) · ถึงแล้วเขียว · ขัดแย้ง=สามเหลี่ยมทึบ+ไฮไลต์ · หมายเหตุ toggle · modal เมนู 2 ประเภท — verify เบราว์เซอร์ครบ
+- [x] **COD Excel upload + ตรวจก่อนนำเข้า** — เสร็จ+verify (2026-09-03) · template + Google Sheet · block(ซ้ำ/ไม่พบ/โอนเงิน/แทร็คว่าง/ได้รับจากผิด) · ยอดไม่ตรง→เลือกแก้/error · ด่านหลักฐาน(Storage+EdgeFn cod-upload) · badge error · สเปก `docs/specs/2026-09-03-cod-upload-validation-design.md`
+- [ ] **ตีกลับถึงแล้ว** = กรอง+บันทึกผ่านระบบ (เฟสถัดๆ)
+- [ ] deploy FE Stage 7 + COD เมื่อ boss สั่ง (+ ลบไฟล์ทดสอบใน bucket cod-evidence)
+
 ## แจ้ง LINE ตอน build stage เสร็จ (boss confirm แล้ว)

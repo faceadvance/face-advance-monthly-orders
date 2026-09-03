@@ -14,9 +14,11 @@ export interface Order {
   total_sales: number;
   delivery_status: string;
   payment_status: string;
-  return_arrived: boolean;   // ตีกลับถึงแล้ว (ลอจิกเฟสถัดไป)
+  return_arrived: boolean;   // ตีกลับถึงแล้ว (ระบบตั้งจากตาราง reconcile)
   return_reason: string;     // เหตุผลตีกลับ (dropdown) — "" ถ้าไม่มี
   status_detail: string;     // ข้อความเพิ่มเติม/รายละเอียดปัญหา — "" ถ้าไม่มี
+  recon_conflict: boolean;   // ขัดแย้ง: มีทั้ง COD รับเงิน และ ตีกลับ (รอคนตรวจ)
+  inspection_result: string; // ผลการตรวจสอบตีกลับ — "" ถ้าไม่มี
   seller_code: string;       // รหัสผู้ขาย (sellers.employee_code) — "" ถ้าไม่ระบุ
   seller_name: string;       // ชื่อผู้ขาย (sellers.name) — "" ถ้าไม่ระบุ
   items: OrderItem[];        // รายการสินค้าในออเดอร์
@@ -37,9 +39,11 @@ export interface TrackingEntry {
 
 export interface Kpi {
   exported_count: number;
+  delivered_count: number;          // ส่งสำเร็จ
   sales_total: number;
   sales_paid: number;
   sales_unpaid: number;
+  sales_error: number;              // ยอด COD ที่ error (รอตรวจสอบ)
   returned_count: number;
   returned_amount: number;          // ยอดที่ตีกลับถึงแล้ว (return_arrived)
   returned_amount_status: number;   // ยอดตีกลับจากสถานะจัดส่ง = ตีกลับ
@@ -50,6 +54,8 @@ export interface Daily {
   sales_paid: number[];
   sales_unpaid: number[];
   returned: number[];
+  returned_amount: number[];          // ยอดตีกลับถึงแล้ว (return_arrived) ต่อวัน
+  returned_amount_status: number[];   // ยอดตีกลับจากสถานะ = ตีกลับ ต่อวัน
 }
 
 export interface OrdersResponse {

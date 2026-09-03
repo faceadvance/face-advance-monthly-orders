@@ -1,16 +1,17 @@
 import "./style.css";
 import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
+  importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs,
   getDetailPresets,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole } from "./session";
-import { parseWorkbook, type ImportRow, type ParseResult } from "./import";
+import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
-  cellValue, searchBlob, paymentMethodLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
+  cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
 } from "./util";
 
 const MAX_SELECT = 30;
@@ -22,7 +23,7 @@ function requireEditor(): boolean {
   return true;
 }
 
-interface Column { key: ColKey; label: string; align?: "right" | "center"; thClass?: string; }
+interface Column { key: ColKey; label: string; align?: "right" | "center"; thClass?: string; headIcon?: string; }
 const COLUMNS: Column[] = [
   { key: "date", label: "วันที่", thClass: "datehead" },
   { key: "phone", label: "เบอร์โทร" },
@@ -34,6 +35,7 @@ const COLUMNS: Column[] = [
   { key: "carrier", label: "ขนส่ง" },
   { key: "tracking_no", label: "เลขแทร็ค" },
   { key: "delivery_status", label: "สถานะจัดส่ง", align: "center" },
+  { key: "problem", label: "รายละเอียดปัญหา", headIcon: "i-info", align: "center", thClass: "probcol" },
   { key: "payment_status", label: "สถานะชำระ", align: "center" },
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
   { key: "note", label: "หมายเหตุ" },
@@ -44,6 +46,9 @@ const state = {
   month: "",
   data: null as OrdersResponse | null,
   monthsWithData: new Set<string>(),
+  monthsWithError: new Set<string>(),   // เดือนที่มีออเดอร์ error → ⚠️
+  monthsDone: new Set<string>(),        // เดือนสมบูรณ์ (ไม่มีรอส่ง/รอชำระ/error · ตีกลับถึงแล้ว) → ✓
+  kpiDay: null as number | null,        // วัน (index) ที่เลือกจากกราฟ → การ์ดโชว์ข้อมูลวันนั้น
   pickerYear: new Date().getFullYear(),
   search: "",
   sort: null as { col: ColKey; dir: "asc" | "desc" } | null,
@@ -66,8 +71,13 @@ function toast(msg: string, ok = true) {
   t.append(icon(ok ? "i-check" : "i-x"), msg);
   t.className = "toast" + (ok ? " ok" : "");
   t.hidden = false;
+  void t.offsetWidth;          // reflow → ให้ transition ตอนเข้าเล่น
+  t.classList.add("show");
   window.clearTimeout((toast as any)._t);
-  (toast as any)._t = window.setTimeout(() => (t.hidden = true), 1800);
+  (toast as any)._t = window.setTimeout(() => {
+    t.classList.remove("show");                                   // เลื่อนลง+จางออก
+    window.setTimeout(() => { if (!t.classList.contains("show")) t.hidden = true; }, 260);
+  }, 1800);
 }
 
 // today (เวลาไทย) → วันปัจจุบันของเดือนที่กำลังดู (ถ้าไม่ใช่เดือนนี้ = ครบทั้งเดือน)
@@ -87,24 +97,75 @@ function computeKpiDaily(d: OrdersResponse) {
     sales_paid: new Array(days).fill(0),
     sales_unpaid: new Array(days).fill(0),
     returned: new Array(days).fill(0),
+    returned_amount: new Array(days).fill(0),
+    returned_amount_status: new Array(days).fill(0),
   };
-  const kpi: Kpi = { exported_count: 0, sales_total: 0, sales_paid: 0, sales_unpaid: 0, returned_count: 0, returned_amount: 0, returned_amount_status: 0 };
+  const kpi: Kpi = { exported_count: 0, delivered_count: 0, sales_total: 0, sales_paid: 0, sales_unpaid: 0, sales_error: 0, returned_count: 0, returned_amount: 0, returned_amount_status: 0 };
   for (const o of d.orders) {
     const idx = Number(o.date.slice(8, 10)) - 1;
     const amt = o.total_sales || 0;
     const inRange = idx >= 0 && idx < days;
     kpi.exported_count++;
+    if (o.delivery_status === "ส่งสำเร็จ") kpi.delivered_count++;
     kpi.sales_total += amt;
     if (inRange) daily.exported[idx]++;
     if (o.payment_status === "ชำระแล้ว") { kpi.sales_paid += amt; if (inRange) daily.sales_paid[idx] += amt; }
     else if (o.payment_status === "รอชำระ") { kpi.sales_unpaid += amt; if (inRange) daily.sales_unpaid[idx] += amt; }
+    else if (o.payment_status === "error") { kpi.sales_error += amt; }
     // จำนวน/อัตรา/กราฟ + ยอดตีกลับจากสถานะ = ใช้สถานะจัดส่ง "ตีกลับ"
-    if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; kpi.returned_amount_status += amt; if (inRange) daily.returned[idx]++; }
+    if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; kpi.returned_amount_status += amt; if (inRange) { daily.returned[idx]++; daily.returned_amount_status[idx] += amt; } }
     // ยอดที่ตีกลับถึงแล้ว = ผลรวมเฉพาะออเดอร์ที่ return_arrived
-    if (o.return_arrived) kpi.returned_amount += amt;
+    if (o.return_arrived) { kpi.returned_amount += amt; if (inRange) daily.returned_amount[idx] += amt; }
   }
   d.kpi = kpi;
   d.daily = daily;
+}
+
+const THAI_DOW = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+const SLOTS = 31;   // ล็อก 31 แท่งทุกเดือน → ตำแหน่งแท่งตรงกัน transition ข้ามเดือนนุ่มนวล
+function dayLabel(d: OrdersResponse, dayIdx: number): string {
+  const y = Number(d.month.slice(0, 4)), m = Number(d.month.slice(5, 7));
+  return `${THAI_DOW[new Date(y, m - 1, dayIdx + 1).getDay()]} ${dayIdx + 1}`;
+}
+
+// tooltip กราฟแท่ง (เด้งทันทีเหนือแท่ง)
+let kpiTipEl: HTMLElement | null = null;
+function showKpiTip(bar: HTMLElement, text: string) {
+  if (!kpiTipEl) { kpiTipEl = el("div", { class: "kpitip" }); document.body.append(kpiTipEl); }
+  kpiTipEl.textContent = text;
+  kpiTipEl.classList.add("on");
+  const r = bar.getBoundingClientRect();
+  kpiTipEl.style.left = `${r.left + r.width / 2}px`;
+  kpiTipEl.style.top = `${r.top - 8}px`;
+}
+function hideKpiTip() { kpiTipEl?.classList.remove("on"); }
+
+// เลขวิ่ง (count-up) — วิ่งจาก from → to · โหลดใหม่ from=0 · อัปเดตในที่ from=ค่าเดิม (นุ่ม)
+let lastKpi: Kpi | null = null;   // KPI ที่ render ล่าสุด (null = โหลดใหม่/เปลี่ยนเดือน → วิ่งจาก 0 + แท่งโต)
+function animNum(value: number, o?: { pct?: boolean; from?: number }): HTMLElement {
+  const s = el("span", { class: "animnum" }) as HTMLElement;
+  const from = o?.from ?? 0;
+  s.dataset.to = String(value);
+  s.dataset.from = String(from);
+  if (o?.pct) s.dataset.pct = "1";
+  s.textContent = o?.pct ? from.toFixed(1) : nf(Math.round(from));
+  return s;
+}
+function animateKpiNums(root: HTMLElement) {
+  const spans = [...root.querySelectorAll<HTMLElement>(".animnum")].filter((s) => s.dataset.from !== s.dataset.to);
+  if (!spans.length) return;
+  const t0 = performance.now(), dur = 650;
+  const step = (now: number) => {
+    const t = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - t, 3);   // easeOutCubic
+    for (const s of spans) {
+      const from = Number(s.dataset.from), to = Number(s.dataset.to);
+      const v = from + (to - from) * e;
+      s.textContent = s.dataset.pct ? v.toFixed(1) : nf(Math.round(v));
+    }
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 
 function renderKpi(d: OrdersResponse) {
@@ -113,94 +174,146 @@ function renderKpi(d: OrdersResponse) {
   const days = d.days_in_month;
   const curDay = currentDayOfMonth(d);
   const isFuture = (i: number) => i + 1 > curDay;
+  const L = lastKpi;   // ค่าเดิม (สำหรับวิ่งเลขจากเดิม→ใหม่ตอนอัปเดต) · null = โหลดใหม่ → วิ่งจาก 0
+  const grow = L === null;   // โหลด/เปลี่ยนเดือน → แท่งโตจาก 0 · อัปเดต → แท่งนิ่ง
+  const oldSuccRate = L && L.exported_count ? (L.delivered_count / L.exported_count) * 100 : undefined;
+  const oldRetRate = L && L.exported_count ? (L.returned_count / L.exported_count) * 100 : undefined;
+  const bars: HTMLElement[] = [];
+  // แท่งกราฟที่คลิกได้ (tooltip วันเด้งทันที + คลิกเลือกวัน)
+  const mkBar = (dayIdx: number, cls: string, hPct: number, upPct: number | null, tip: string): HTMLElement => {
+    const bar = el("span", { class: cls, style: "height:0%" }) as HTMLElement;   // เริ่ม 0 → โตขึ้น (growBars)
+    bar.dataset.h = String(Math.max(hPct, 3));
+    if (upPct != null && upPct > 0) bar.append(el("i", { class: "up", style: `height:${upPct}%` }));
+    bar.dataset.day = String(dayIdx);
+    bar.addEventListener("mouseenter", () => showKpiTip(bar, `${dayLabel(d, dayIdx)} · ${tip}`));
+    bar.addEventListener("mouseleave", hideKpiTip);
+    bar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideKpiTip();
+      state.kpiDay = state.kpiDay === dayIdx ? null : dayIdx;
+      applyDay();
+    });
+    bars.push(bar);
+    return bar;
+  };
 
   // --- การ์ด 1: จำนวนส่งออก ---
   const exp = d.daily.exported;
   const maxExp = Math.max(1, ...exp);
-  const maxIdx = exp.indexOf(Math.max(...exp));
+  const maxExpVal = Math.max(...exp);
+  const maxIdx = exp.indexOf(maxExpVal);
   const daysWithData = exp.filter((v) => v > 0).length;
   const avgExp = daysWithData ? Math.round(d.kpi.exported_count / daysWithData) : 0;
+  const moShort = THAI_MONTHS_SHORT[Number(d.month.slice(5, 7)) - 1];
   const spark = el("div", { class: "spark" });
-  for (let i = 0; i < days; i++) {
-    // วันอนาคต หรือวันที่ไม่มีรายการ = ไม่มีแท่ง
-    if (isFuture(i) || exp[i] === 0) { spark.append(el("span", { class: "empty" })); continue; }
-    const h = Math.round((exp[i] / maxExp) * 100);
-    spark.append(el("span", {
-      class: exp[i] === Math.max(...exp) ? "hi" : "",
-      style: `height:${h}%`,
-    }));
+  for (let i = 0; i < SLOTS; i++) {
+    // เกินจำนวนวันเดือนนี้ / วันอนาคต / ไม่มีรายการ = แท่งว่าง (ตำแหน่งคงที่) · สีเท่ากันทุกแท่ง
+    if (i >= days || isFuture(i) || !exp[i]) { spark.append(el("span", { class: "empty" })); continue; }
+    spark.append(mkBar(i, "", Math.round((exp[i] / maxExp) * 100), null, `ส่งออก ${nf(exp[i])}`));
   }
-  const c1cap = d.kpi.exported_count
-    ? `เฉลี่ย ${avgExp}/วัน · สูงสุด ${exp[maxIdx]} (${maxIdx + 1} ${THAI_MONTHS_SHORT[Number(d.month.slice(5, 7)) - 1]})`
-    : "ยังไม่มีข้อมูลเดือนนี้";
-  root.append(kcard("blue", "i-truck", "จำนวนส่งออก",
-    el("div", {}, el("div", { class: "kbig num" }, nf(d.kpi.exported_count)),
-      el("div", { class: "kunit" }, "ออเดอร์ที่ส่งจริงเดือนนี้")),
-    spark, c1cap));
+  const succRate = d.kpi.exported_count ? (d.kpi.delivered_count / d.kpi.exported_count) * 100 : 0;
+  const main1 = el("div", { class: "kmain" },
+    el("div", { class: "kbig num" }, animNum(d.kpi.exported_count, { from: L?.exported_count })),
+    el("div", { class: "kunit" }, "ออเดอร์ที่ส่งจริงเดือนนี้"));
+  const detail1 = el("div", { class: "kdetail" },
+    el("div", { class: "ksub" },
+      el("div", {}, el("div", { class: "sv num" }, animNum(d.kpi.delivered_count, { from: L?.delivered_count })), el("div", { class: "l" }, "ส่งสำเร็จ")),
+      el("div", {}, el("div", { class: "sv num", style: "color:#059669" }, animNum(succRate, { pct: true, from: oldSuccRate }), "%"), el("div", { class: "l" }, "อัตราสำเร็จ"))));
+  const cap1 = el("div", { class: "kcap" });
+  root.append(kcardSplit("blue", "i-truck", "จำนวนส่งออก", main1, detail1, spark, cap1));
 
   // --- การ์ด 2: ยอดขาย ---
   const totalByDay = d.daily.sales_paid.map((p, i) => p + d.daily.sales_unpaid[i]);
   const maxTotal = Math.max(1, ...totalByDay);
   const chart2 = el("div", { class: "chart" });
-  for (let i = 0; i < days; i++) {
-    const tot = totalByDay[i];
-    // วันอนาคต หรือวันที่ไม่มียอด = ไม่มีแท่ง
-    if (isFuture(i) || tot === 0) { chart2.append(el("span", { class: "dbar empty" })); continue; }
-    const h = Math.round((tot / maxTotal) * 100);
-    const upH = Math.round((d.daily.sales_unpaid[i] / tot) * 100);
-    const bar = el("span", { class: "dbar", style: `height:${Math.max(h, 3)}%` });
-    if (upH > 0) bar.append(el("i", { class: "up", style: `height:${upH}%` }));
-    chart2.append(bar);
+  for (let i = 0; i < SLOTS; i++) {
+    const tot = totalByDay[i] || 0;
+    // เกินวันเดือนนี้ / วันอนาคต / ไม่มียอด = แท่งว่าง (ตำแหน่งคงที่)
+    if (i >= days || isFuture(i) || tot === 0) { chart2.append(el("span", { class: "dbar empty" })); continue; }
+    chart2.append(mkBar(i, "dbar", Math.round((tot / maxTotal) * 100), Math.round((d.daily.sales_unpaid[i] / tot) * 100), `฿${nf(tot)}`));
   }
   const avgSales = daysWithData ? Math.round(d.kpi.sales_total / daysWithData) : 0;   // หารด้วยวันที่มีข้อมูล (ให้ตรงกับการ์ดจำนวนส่งออก)
   // hero = ยอดที่ชำระแล้ว (เขียว) · ยอดขายรวม + รอชำระ ไปอยู่ขวาล่าง
   const mainPaid = el("div", { class: "kmain" });
   const bigPaid = el("div", { class: "kbig num", style: "color:#059669" });
-  bigPaid.append(el("small", {}, "฿"), " " + nf(d.kpi.sales_paid));
+  bigPaid.append(el("small", {}, "฿"), " ", animNum(d.kpi.sales_paid, { from: L?.sales_paid }));
   mainPaid.append(bigPaid, el("div", { class: "kunit" }, "ยอดที่ชำระแล้วเดือนนี้"));
 
   // รอชำระ + ยอดขายรวม = 2 คอลัมน์ (ตัวเลขบน/ป้ายล่าง) เหมือน detail การ์ดตีกลับ
   const detail2 = el("div", { class: "kdetail" },
     el("div", { class: "ksub" },
-      el("div", {}, el("div", { class: "sv num", style: "color:#EA580C" }, `฿${nf(d.kpi.sales_unpaid)}`), el("div", { class: "l" }, "รอชำระ")),
-      el("div", {}, el("div", { class: "sv num" }, `฿${nf(d.kpi.sales_total)}`), el("div", { class: "l" }, "ยอดขายรวม"))));
+      el("div", {}, el("div", { class: "sv num", style: "color:#EA580C" }, "฿", animNum(d.kpi.sales_unpaid, { from: L?.sales_unpaid })), el("div", { class: "l" }, "รอชำระ")),
+      el("div", {}, el("div", { class: "sv num" }, "฿", animNum(d.kpi.sales_total, { from: L?.sales_total })), el("div", { class: "l" }, "ยอดขายรวม"))));
 
-  const cap2 = el("div", { class: "kcap" });
-  cap2.append("ยอดขายเฉลี่ยต่อวัน ", el("b", {}, `฿${nf(avgSales)}`), " (รวมยอดที่ยังไม่ชำระ)");
+  // caption: ซ้าย = ยอดเฉลี่ยต่อวัน (ระดับ) · ขวา = ยอดรอตรวจสอบ (error) ถ้ามี
+  const cap2 = el("div", { class: "kcap kcap-split" });
+  const cap2l = el("span", { class: "kcapl" });
+  cap2.append(cap2l);
+  if (d.kpi.sales_error > 0) {
+    cap2.append(el("span", { class: "kcaperr", title: "ยอด COD ที่ยอดไม่ตรง รอตรวจสอบ" },
+      icon("i-alert-solid"), "รอตรวจสอบ ", el("b", {}, `฿${nf(d.kpi.sales_error)}`)));
+  }
   root.append(kcardSplit("green", "i-coin", "ยอดขาย", mainPaid, detail2, chart2, cap2));
 
   // --- การ์ด 3: ตีกลับ ---
   const ret = d.daily.returned;
   const maxRet = Math.max(1, ...ret);
   const chart3 = el("div", { class: "chart red" });
-  for (let i = 0; i < days; i++) {
-    // วันอนาคต หรือวันที่ไม่มีตีกลับ = ไม่มีแท่ง
-    if (isFuture(i) || ret[i] === 0) { chart3.append(el("span", { class: "dbar empty" })); continue; }
-    const h = Math.round((ret[i] / maxRet) * 100);
-    chart3.append(el("span", { class: "dbar", style: `height:${Math.max(h, 3)}%` }));
+  for (let i = 0; i < SLOTS; i++) {
+    // เกินวันเดือนนี้ / วันอนาคต / ไม่มีตีกลับ = แท่งว่าง (ตำแหน่งคงที่)
+    if (i >= days || isFuture(i) || !ret[i]) { chart3.append(el("span", { class: "dbar empty" })); continue; }
+    chart3.append(mkBar(i, "dbar", Math.round((ret[i] / maxRet) * 100), null, `ตีกลับ ${nf(ret[i])}`));
   }
   const rate = d.kpi.exported_count ? (d.kpi.returned_count / d.kpi.exported_count) * 100 : 0;
   const ksub = el("div", { class: "ksub" },
-    el("div", {}, el("div", { class: "sv num" }, nf(d.kpi.returned_count)), el("div", { class: "l" }, "จำนวนออเดอร์")),
-    el("div", {}, el("div", { class: "sv num", style: "color:#DC2626" }, `${rate.toFixed(1)}%`), el("div", { class: "l" }, "อัตราตีกลับ")));
+    el("div", {}, el("div", { class: "sv num" }, animNum(d.kpi.returned_count, { from: L?.returned_count })), el("div", { class: "l" }, "จำนวนออเดอร์")),
+    el("div", {}, el("div", { class: "sv num", style: "color:#DC2626" }, animNum(rate, { pct: true, from: oldRetRate }), "%"), el("div", { class: "l" }, "อัตราตีกลับ")));
   const bigRet = el("div", { class: "kbig num", style: "color:#DC2626" });
-  bigRet.append(el("small", {}, "฿"), " " + nf(d.kpi.returned_amount));
+  bigRet.append(el("small", {}, "฿"), " ", animNum(d.kpi.returned_amount, { from: L?.returned_amount }));
   // ยอดจากสถานะ: เท่ากับยอดถึงแล้ว = เทา (ตีกลับกลับมาครบ) · ไม่เท่า = แดงอ่อน (ยังไม่ครบ)
   const retMatched = d.kpi.returned_amount === d.kpi.returned_amount_status;
-  bigRet.append(el("span", { class: "retsub" + (retMatched ? " done" : "") }, ` / ${nf(d.kpi.returned_amount_status)}`));
+  bigRet.append(el("span", { class: "retsub" + (retMatched ? " done" : "") }, " / ", animNum(d.kpi.returned_amount_status, { from: L?.returned_amount_status })));
   const mainRed = el("div", { class: "kmain" }, bigRet,
     el("div", { class: "kunit" }, "ตีกลับถึงแล้ว / จากสถานะตีกลับ"));
+  const cap3 = el("div", { class: "kcap", "aria-hidden": "true" });
   root.append(kcardSplit("red", "i-return", "ตีกลับ", mainRed,
-    el("div", { class: "kdetail" }, ksub), chart3, el("div", { class: "kcap", "aria-hidden": "true" }, " ")));
+    el("div", { class: "kdetail" }, ksub), chart3, cap3));
+
+  // เปลี่ยน caption ตามวันที่เลือกจากกราฟ (in-place ไม่ re-render ทั้งการ์ด)
+  function applyDay() {
+    const sel = state.kpiDay;
+    for (const b of bars) b.classList.toggle("selday", sel != null && Number(b.dataset.day) === sel);
+    cap1.textContent = "";
+    if (sel != null) cap1.append(`${dayLabel(d, sel)} · ส่งออก `, el("b", {}, nf(exp[sel] || 0)), " ออเดอร์");
+    else cap1.append(d.kpi.exported_count ? `เฉลี่ย ${avgExp}/วัน · สูงสุด ${maxExpVal} (${maxIdx + 1} ${moShort})` : "ยังไม่มีข้อมูลเดือนนี้");
+    cap2l.textContent = "";
+    if (sel != null) {
+      const paid = d.daily.sales_paid[sel] || 0, unpaid = d.daily.sales_unpaid[sel] || 0;
+      cap2l.append(`${dayLabel(d, sel)} · รวม `, el("b", {}, `฿${nf(paid + unpaid)}`), ` · ชำระ ฿${nf(paid)} · รอ ฿${nf(unpaid)}`);
+    } else cap2l.append("ยอดขายเฉลี่ยต่อวัน ", el("b", {}, `฿${nf(avgSales)}`));
+    cap3.textContent = "";
+    cap3.setAttribute("aria-hidden", sel != null ? "false" : "true");
+    if (sel != null) {
+      const rc = d.daily.returned[sel] || 0, ra = d.daily.returned_amount[sel] || 0, ras = d.daily.returned_amount_status[sel] || 0;
+      const dr = (d.daily.exported[sel] || 0) ? (rc / (d.daily.exported[sel] || 1)) * 100 : 0;
+      cap3.append(`${dayLabel(d, sel)} · ตีกลับ `, el("b", {}, nf(rc)), ` (${dr.toFixed(1)}%) · `, el("b", {}, `฿${nf(ra)}`), `/${nf(ras)}`);
+    } else cap3.append(" ");
+  }
+  applyDay();
+  // ทำให้มีชีวิต: เลขวิ่ง + แท่งกราฟโตขึ้นจาก 0
+  animateKpiNums(root);   // เลขวิ่ง (โหลดใหม่=จาก 0 · อัปเดต=จากค่าเดิม)
+  if (grow) requestAnimationFrame(() => { for (const b of bars) b.style.height = `${b.dataset.h || "0"}%`; });
+  else for (const b of bars) b.style.height = `${b.dataset.h || "0"}%`;   // อัปเดต: ตั้งทันที ไม่โตใหม่
+  lastKpi = { ...d.kpi };
 }
 
-function kcard(color: string, ic: string, title: string, body: Node, chart: Node, caption: string): HTMLElement {
+function kcard(color: string, ic: string, title: string, body: Node, chart: Node, caption: Node): HTMLElement {
   const card = el("div", { class: `kcard t${color}` });
   const wm = icon(ic); wm.setAttribute("class", `wm ${color}`);
   card.append(wm,
     el("div", { class: "khead" }, el("div", { class: `kicon ${color}` }, icon(ic)), el("div", { class: "ktitle" }, title)),
     body,
-    el("div", { class: "cbot" }, chart, el("div", { class: "kcap" }, caption)));
+    el("div", { class: "cbot" }, chart, caption));
   return card;
 }
 function kcardSplit(color: string, ic: string, title: string, main: Node, detail: Node, chart: Node, caption: Node): HTMLElement {
@@ -238,7 +351,8 @@ function computeVisible(): Order[] {
     rows.sort((a, b) => {
       let r: number;
       if (col === "total_sales") r = a.total_sales - b.total_sales;
-      else if (col === "date") r = a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+      // วันที่: เรียงด้วย ordered_at (มีเวลา) แม้ตารางโชว์แค่วัน → วันเดียวกันเรียงตามเวลา
+      else if (col === "date") r = a.ordered_at < b.ordered_at ? -1 : a.ordered_at > b.ordered_at ? 1 : 0;
       else r = cellValue(a, col).localeCompare(cellValue(b, col), "th");
       return dir === "asc" ? r : -r;
     });
@@ -267,7 +381,14 @@ function renderTable() {
     td.append(el("div", { class: "state" }, d.orders.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ยังไม่มีออเดอร์ในเดือนนี้"));
     tbody.append(el("tr", {}, td));
   } else {
-    for (const o of rows) tbody.append(buildRow(o));
+    // แถวเด้งไล่ลง (stagger เฉพาะ ~30 แถวแรกที่เห็นในจอ กัน perf ตอนพันแถว)
+    // .rowin ใช้ fill-mode backwards → หลัง animation จบ transform กลับเป็น none (ไม่เหลือ
+    // identity matrix ค้างที่จะสร้าง stacking context ต่อแถว ทำ popup เลือกสถานะโดนทับ)
+    rows.forEach((o, i) => {
+      const tr = buildRow(o);
+      if (i < 30) { tr.classList.add("rowin"); tr.style.animationDelay = `${i * 22}ms`; }
+      tbody.append(tr);
+    });
   }
   table.append(thead, tbody);
   wrap.append(table);
@@ -275,7 +396,7 @@ function renderTable() {
   // โชว์ปุ่มขยาย (ที่อยู่/ชื่อ) เฉพาะแถวที่ข้อความล้น
   // แยก read (scrollWidth) กับ write (display) เป็น 2 เฟส กัน layout thrashing (สำคัญมากตอนแถวเยอะ)
   const toShow: HTMLElement[] = [];
-  for (const tx of wrap.querySelectorAll<HTMLElement>(".atxt, .ntxt")) {
+  for (const tx of wrap.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
     if (tx.scrollWidth > tx.clientWidth + 1) {
       const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
       if (tog) toShow.push(tog);
@@ -299,7 +420,8 @@ function buildTh(col: Column): HTMLElement {
   if (active) th.classList.add("filtered");
 
   const hh = el("div", { class: "hh" });
-  hh.append(col.label);
+  if (col.headIcon) { const hi = icon(col.headIcon); hi.setAttribute("class", "ic headicon"); const w = el("span", { class: "headiconw", title: col.label }, hi); hh.append(w); }
+  else hh.append(col.label);
   const funnel = el("span", { class: "funnel" + (active ? " on" : "") }, icon("i-funnel"));
   funnel.addEventListener("click", (e) => { e.stopPropagation(); openFilter(th, col); });
   hh.append(funnel);
@@ -319,7 +441,8 @@ function buildTh(col: Column): HTMLElement {
 }
 
 function buildRow(o: Order): HTMLElement {
-  const tr = el("tr");
+  const tr = el("tr") as HTMLElement;
+  tr.dataset.oid = String(o.id);   // ใช้หาแถวเพื่ออัปเดตเฉพาะจุด (ไม่ re-render ทั้งตาราง)
   // วันที่
   tr.append(el("td", { class: "datecell" }, dmy(o.date)));
   // เบอร์โทร
@@ -340,15 +463,23 @@ function buildRow(o: Order): HTMLElement {
   tr.append(buildTrackCell(o));
   // สถานะจัดส่ง (badge + ดินสอแก้ inline)
   tr.append(buildStatusCell(o, "delivery"));
+  // รายละเอียดปัญหา: ไอคอน i เฉพาะเมื่อสถานะ = มีปัญหา → กดดู popup
+  tr.append(buildProblemCell(o));
   // สถานะชำระ (badge + ดินสอแก้ inline)
   tr.append(buildStatusCell(o, "payment"));
-  // ตีกลับถึงแล้ว (ลอจิกเฟสถัดไป — ตอนนี้ "-" หรือ "ถึงแล้ว")
+  // ตีกลับถึงแล้ว: ⚠️ ขัดแย้ง / "ถึงแล้ว" + ผลตรวจสอบ / "—"
   const raCell = el("td", { class: "center" });
-  if (o.return_arrived) raCell.append(badge({ cls: "r", icon: "i-return" }, "ถึงแล้ว"));
-  else raCell.append("—");
+  if (o.recon_conflict) {
+    tr.classList.add("cfrow");
+    raCell.append(el("span", { class: "cferr", title: "มีทั้งรายการ COD รับเงิน และ ตีกลับถึงแล้ว — โปรดตรวจสอบ" }, icon("i-alert-solid")));
+  } else if (o.return_arrived) {
+    raCell.append(badge({ cls: "g", icon: "i-return" }, "ถึงแล้ว"));   // ผลตรวจสอบไม่แสดงในตาราง (ใช้ที่อื่น)
+  } else {
+    raCell.append("—");
+  }
   tr.append(raCell);
-  // หมายเหตุ
-  tr.append(el("td", { class: o.note ? "note mono" : "note" }, o.note || "—"));
+  // หมายเหตุ (ตัดบรรทัดเดียว + ปุ่มขยายเหมือนคอลัมน์ชื่อ)
+  tr.append(buildNoteCell(o, tr));
   // แก้ไข (เปิด sidebar)
   const actCell = el("td", { class: "actcell" });
   const editBtn = el("button", { class: "rowedit", title: "อัพเดต / บันทึกติดตาม" }, icon("i-editbox"));
@@ -358,16 +489,75 @@ function buildRow(o: Order): HTMLElement {
   return tr;
 }
 
+// คอลัมน์รายละเอียดปัญหา: ว่างเปล่า ยกเว้นสถานะจัดส่ง = มีปัญหา → ไอคอน i กดดู popup
+function buildProblemCell(o: Order): HTMLElement {
+  const td = el("td", { class: "center probcol" });
+  if (o.delivery_status === "มีปัญหา") {
+    const btn = el("button", { class: "probinfo", type: "button", title: "ดูรายละเอียดปัญหา" }, icon("i-info"));
+    btn.addEventListener("click", (e) => { e.stopPropagation(); openProblemPopup(btn, o.status_detail || ""); });
+    td.append(btn);
+  }
+  return td;
+}
+
+let problemPop: HTMLElement | null = null;
+function closeProblemPopup() { if (problemPop) { problemPop.remove(); problemPop = null; } }
+function openProblemPopup(anchor: HTMLElement, text: string) {
+  closeProblemPopup();
+  const pop = el("div", { class: "probpop" },
+    el("div", { class: "probpoph" }, icon("i-alert"), "รายละเอียดปัญหา"),
+    el("div", { class: "probpopb" }, text.trim() || "— ไม่ได้ระบุรายละเอียด —"));
+  document.body.append(pop);
+  problemPop = pop;
+  const r = anchor.getBoundingClientRect();
+  const w = 260;
+  pop.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8))}px`;
+  pop.style.top = `${r.bottom + 6}px`;
+  const onDoc = (e: MouseEvent) => {
+    if (problemPop && !problemPop.contains(e.target as Node) && e.target !== anchor) {
+      closeProblemPopup(); document.removeEventListener("mousedown", onDoc);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", onDoc), 0);
+}
+
+// COD = เก็บเงินปลายทาง (สถานะชำระระบบจัดการเอง แก้มือไม่ได้)
+const isCOD = (o: Order) => o.payment_method === "เก็บเงินปลายทาง";
+
 // สถานะ (จัดส่ง/ชำระ) + ดินสอแก้ inline → popup เลือก → ยืนยัน
 function buildStatusCell(o: Order, field: "delivery" | "payment"): HTMLElement {
   const td = el("td", { class: "center statuscell" });
   const val = field === "delivery" ? o.delivery_status : o.payment_status;
-  const b = field === "delivery" ? deliveryBadge(val) : paymentBadge(val);
-  const wrap = el("div", { class: "stwrap" }, badge(b, val));
-  const pen = el("span", { class: "stedit", title: "แก้สถานะ" }, icon("i-edit"));
-  pen.addEventListener("click", (e) => { e.stopPropagation(); openStatusPopup(pen, o, field); });
-  wrap.append(pen);
+  // payment error = สามเหลี่ยมตกใจทึบ (สไตล์เดียวกับ error ขัดแย้ง) ไม่ใช่ป้าย
+  const isPayErr = field === "payment" && val === "error";
+  const content = isPayErr
+    ? el("span", { class: "cferr", title: "ยอด COD ไม่ตรง — รอตรวจสอบ" }, icon("i-alert-solid"))
+    : badge(field === "delivery" ? deliveryBadge(val) : paymentBadge(val),
+            field === "payment" ? paymentStatusLabel(val) : val);
+  const wrap = el("div", { class: "stwrap" }, content);
+  // COD: ล็อกสถานะชำระ → ไม่แสดงไอคอน (รู้ทันทีว่าแก้ไม่ได้) แต่กันที่ว่างเท่าดินสอไว้ badge จะได้ชิดขวาตรงกันทุกแถว
+  const locked = field === "payment" && isCOD(o);
+  if (locked) {
+    td.title = "สถานะชำระของ COD ระบบจัดการอัตโนมัติ";
+    wrap.append(el("span", { class: "stedit stghost", "aria-hidden": "true" }, icon("i-edit")));
+  } else {
+    const pen = el("span", { class: "stedit", title: "แก้สถานะ" }, icon("i-edit"));
+    pen.addEventListener("click", (e) => { e.stopPropagation(); openStatusPopup(pen, o, field); });
+    wrap.append(pen);
+  }
   td.append(wrap);
+  return td;
+}
+
+function buildNoteCell(o: Order, tr: HTMLElement): HTMLElement {
+  const td = el("td", { class: "note-cell" });
+  const line = el("div", { class: "noteline" });
+  const txt = el("span", { class: "notetxt mono", title: o.note || "" }, o.note || "—");
+  const tog = el("span", { class: "itemtoggle notetoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
+  tog.style.display = "none"; // โชว์เฉพาะแถวที่หมายเหตุล้น (เช็ค overflow หลัง render)
+  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
+  line.append(txt, tog);
+  td.append(line);
   return td;
 }
 
@@ -605,18 +795,36 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
   o.status_detail = r.status_detail ?? "";
   computeKpiDaily(state.data!);
   renderKpi(state.data!);
-  renderTable();
+  // อัปเดต "เฉพาะแถวที่เปลี่ยน" (ไม่ re-render ทั้งตาราง/ไม่ cascade ใหม่)
+  // ยกเว้นมี filter/sort บนคอลัมน์สถานะ ที่การเปลี่ยนอาจทำให้แถวย้าย/หาย → ต้อง render ใหม่
+  const cols = ["delivery_status", "payment_status", "problem", "return_arrived"];
+  const affectsView = (state.sort != null && cols.includes(state.sort.col))
+    || [...state.filters.keys()].some((k) => cols.includes(k));
+  const tr = document.querySelector<HTMLElement>(`#tableWrap tbody tr[data-oid="${o.id}"]`);
+  if (affectsView || !tr) { renderTable(); return; }
+  const fresh = buildRow(o);
+  fresh.classList.add("rowflash");   // ไฮไลต์ยืนยันสั้นๆ
+  tr.replaceWith(fresh);
+  for (const tx of fresh.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
+    if (tx.scrollWidth > tx.clientWidth + 1) {
+      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
+      if (tog) tog.style.display = "";
+    }
+  }
 }
 
 // ---- แก้สถานะ inline: ดินสอ → popup เลือก → ยืนยัน ----
 function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "payment") {
   if (!requireEditor()) return;
+  const key = `st:${o.id}:${field}`;
+  if (openDrop && openDrop.dataset.stkey === key) { closeDrop(); return; }   // กดดินสอเดิมซ้ำ → ปิด
   closeDrop();
   const cur = field === "delivery" ? o.delivery_status : o.payment_status;
   const opts = field === "delivery" ? DELIVERY_STATUSES : PAYMENT_STATUSES;
   let sel = cur;
 
-  const pop = el("div", { class: "stpop" });
+  const pop = el("div", { class: "stpop" }) as HTMLElement;
+  pop.dataset.stkey = key;
   openDrop = pop;
   const list = el("div", { class: "stlist" });
   const rowEls = new Map<string, HTMLElement>();
@@ -657,12 +865,31 @@ function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "pay
   actions.append(cancel, ok);
   pop.append(actions);
 
-  // วางใน td (position:relative) ใต้ดินสอ
-  const td = anchor.closest("td")!;
-  td.append(pop);
-  const r = pop.getBoundingClientRect();
-  if (r.right > window.innerWidth - 8) { pop.style.right = "auto"; pop.style.left = "0"; }
-  if (r.bottom > window.innerHeight - 8) { pop.style.top = "auto"; pop.style.bottom = "calc(100% + .25rem)"; }
+  // วางบน body แบบ fixed (หนี stacking context ของแถว ที่ animation ทิ้ง transform ไว้)
+  // แล้ว reposition ตามแถวเวลาเลื่อนตาราง · ปิดเองถ้าแถวเลื่อนพ้นกรอบตาราง
+  document.body.append(pop);
+  const tw = document.getElementById("tableWrap")!;
+  const place = () => {
+    const a = anchor.getBoundingClientRect();
+    const tb = tw.getBoundingClientRect();
+    if (a.bottom < tb.top + 2 || a.top > tb.bottom - 2) { closeDrop(); return; }   // แถวพ้นตาราง → ปิด
+    const p = pop.getBoundingClientRect();
+    let left = Math.max(8, Math.min(a.right - p.width, window.innerWidth - p.width - 8));
+    let top = a.bottom + 4;
+    if (top + p.height > window.innerHeight - 8) top = a.top - p.height - 4;   // ล้นล่าง → พลิกขึ้น
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  };
+  place();
+  const onMove = () => place();
+  tw.addEventListener("scroll", onMove, { passive: true });
+  window.addEventListener("scroll", onMove, { passive: true });
+  window.addEventListener("resize", onMove);
+  dropCleanup = () => {
+    tw.removeEventListener("scroll", onMove);
+    window.removeEventListener("scroll", onMove);
+    window.removeEventListener("resize", onMove);
+  };
 }
 
 // ---- sidebar: ตัวแก้ไขหลัก + ไทม์ไลน์ ----
@@ -773,11 +1000,18 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   }
 
   const payGroup = chipGroup(PAYMENT_STATUSES, selPayment, paymentBadge, (v) => { selPayment = v; updateSaveState(); });
+  // COD: สถานะชำระแก้มือไม่ได้ (ระบบ reconcile จัดการ) → แสดง badge อย่างเดียว + โน้ต
+  const paymentEl = isCOD(o)
+    ? el("div", { class: "sbpaylock" },
+        badge(paymentBadge(selPayment), paymentStatusLabel(selPayment)),
+        el("span", { class: "sbpaylocknote" }, icon("i-lock"),
+          selPayment === "error" ? "COD — ยอดไม่ตรง โปรดตรวจสอบ" : "COD — ระบบจัดการอัตโนมัติ"))
+    : payGroup.el;
 
   editC.body.append(
     el("div", { class: "sbfld" }, "สถานะจัดส่ง"), delGroup.el,
     reasonBlock, problemBlock,
-    el("div", { class: "sbfld sbfld-gap" }, "สถานะชำระเงิน"), payGroup.el,
+    el("div", { class: "sbfld sbfld-gap" }, "สถานะชำระเงิน"), paymentEl,
   );
   // (editC ต่อท้าย "บันทึกการติดตาม" ด้านล่าง ตามที่เจ้านายสั่ง)
 
@@ -1248,7 +1482,11 @@ function renderTimeline(box: HTMLElement, entries: TrackingEntry[]) {
 //  ตัวกรองแบบ Google Sheets
 // ======================================================
 let openDrop: HTMLElement | null = null;
-function closeDrop() { if (openDrop) { openDrop.remove(); openDrop = null; } }
+let dropCleanup: (() => void) | null = null;
+function closeDrop() {
+  if (dropCleanup) { dropCleanup(); dropCleanup = null; }
+  if (openDrop) { openDrop.remove(); openDrop = null; }
+}
 
 function distinctValues(col: ColKey): { value: string; count: number }[] {
   const m = new Map<string, number>();
@@ -1396,6 +1634,11 @@ function buildMonthPicker() {
       (state.pickerYear === now.getFullYear() && m > now.getMonth() + 1);
     if (isFuture) cls.push("dim");
     const cell = el("div", { class: cls.join(" ") }, THAI_MONTHS_SHORT[m - 1]);
+    // ป้ายสถานะเดือน: error (⚠️) เด่นกว่า done (✓)
+    if (state.monthsWithError.has(ym))
+      cell.append(el("span", { class: "mbadge err", title: "มีรายการ error รอตรวจสอบ" }, icon("i-alert-solid")));
+    else if (state.monthsDone.has(ym))
+      cell.append(el("span", { class: "mbadge done", title: "เดือนนี้เสร็จสมบูรณ์ (ส่ง/ชำระครบ · ตีกลับถึงแล้ว)" }, icon("i-check-circle")));
     cell.addEventListener("click", (e) => {
       e.stopPropagation();
       $("#monthPick").hidden = true;
@@ -1441,12 +1684,14 @@ async function loadMonth(month: string) {
   state.filters.clear();
   state.sort = null;
   state.search = "";
+  state.kpiDay = null;   // เปลี่ยนเดือน → เลิกเลือกวัน
+  lastKpi = null;        // เปลี่ยนเดือน → KPI วิ่งจาก 0 + แท่งโตใหม่
   ($("#searchInput") as HTMLInputElement).value = "";
   clearSelection();
   $("#monthLabel").textContent = monthLabel(month);
   $("#pageTitle").textContent = `ออเดอร์ — ${monthLabel(month)}`;
-  $("#kpi").textContent = "";
-  $("#tableWrap").innerHTML = `<div class="state">กำลังโหลด...</div>`;
+  // ไม่ล้าง #kpi ทันที (การ์ดเดิมค้างไว้จนข้อมูลใหม่มา → ไม่กระพริบ) · ตารางโชว์ skeleton shimmer
+  $("#tableWrap").innerHTML = `<div class="skel">${'<div class="skelrow"></div>'.repeat(12)}</div>`;
   try {
     const data = await fetchOrders(month);
     if (!data.authorized) { toLogin(); return; }
@@ -1518,6 +1763,8 @@ async function startApp() {
     updateUserDisplay();
     const months = m.months ?? [];
     state.monthsWithData = new Set(months);
+    state.monthsWithError = new Set(m.months_error ?? []);
+    state.monthsDone = new Set(m.months_done ?? []);
     const first = months[0] ?? new Date().toISOString().slice(0, 7);
     await loadMonth(first);
   } catch {
@@ -1576,10 +1823,16 @@ function setupIdleTracking() {
 // ======================================================
 let importOv: HTMLElement | null = null;
 let importRows: ImportRow[] = [];
+let codRows: CodRow[] = [];
+const codFix = new Set<string>();   // เลขแทร็คที่พนักงานเลือกแก้ยอด
+let codEvidence: File | null = null;   // ไฟล์หลักฐานที่แนบ (ด่านก่อนนำเข้า)
 
 function closeImportModal() {
   if (importOv) { importOv.remove(); importOv = null; }
   importRows = [];
+  codRows = [];
+  codFix.clear();
+  codEvidence = null;
 }
 
 function openImportModal() {
@@ -1587,7 +1840,7 @@ function openImportModal() {
   const ov = el("div", { class: "modal-ov" });
   const modal = el("div", { class: "modal" });
   const head = el("div", { class: "modal-head" },
-    el("div", { class: "modal-title" }, icon("i-upload"), "นำเข้าไฟล์ออเดอร์"));
+    el("div", { class: "modal-title" }, icon("i-upload"), el("span", { id: "importTitleTxt" }, "นำเข้าไฟล์")));
   const closeX = el("button", { class: "modal-x", title: "ปิด" }, icon("i-close"));
   closeX.addEventListener("click", closeImportModal);
   head.append(closeX);
@@ -1596,12 +1849,296 @@ function openImportModal() {
   ov.append(modal);
   document.body.append(ov);
   importOv = ov;
-  ov.addEventListener("click", (e) => { if (e.target === ov) closeImportModal(); });
-  showImportPick(body);
+  // คลิกนอก modal = ไม่ปิด (กันข้อมูล/ไฟล์ที่ตรวจแล้วหาย) — ปิดได้ทางปุ่ม × เท่านั้น
+  showImportMenu(body);
+}
+
+// อัปเดตหัว modal ให้ตรงกับประเภทที่เลือก
+function setImportTitle(text: string) {
+  const t = document.getElementById("importTitleTxt");
+  if (t) t.textContent = text;
+}
+
+// เมนูเลือกประเภทไฟล์ที่จะนำเข้า
+function showImportMenu(body: HTMLElement) {
+  setImportTitle("นำเข้าไฟล์");
+  body.textContent = "";
+  body.append(el("div", { class: "impmenuhd" }, "เลือกประเภทไฟล์ที่จะนำเข้า"));
+  const menu = el("div", { class: "impmenu" });
+
+  const optOrders = importOpt("i-upload", "ออเดอร์ (GoSell)", "ไฟล์ Export Orders (.xlsx)");
+  optOrders.addEventListener("click", () => showImportPick(body));
+
+  const optCod = importOpt("i-editbox", "COD รับเงินแล้ว", "ไฟล์รายการรับเงินปลายทาง (.xlsx)");
+  optCod.addEventListener("click", () => showCodImport(body));
+
+  menu.append(optOrders, optCod);   // ตีกลับถึงแล้ว = กรอง+บันทึกผ่านระบบ ไม่ใช่อัปโหลด
+  body.append(menu,
+    el("div", { class: "importnote" }, "⚠️ ไฟล์ต้องตรงกับ template ของประเภทที่เลือกเท่านั้น — ไม่ตรงจะไม่นำเข้า"));
+}
+
+// การ์ดตัวเลือกในเมนูนำเข้า (soon = ยังไม่เปิดใช้)
+function importOpt(ic: string, title: string, desc: string, soon = false): HTMLElement {
+  const opt = el("button", { class: soon ? "impopt soon" : "impopt", type: "button" },
+    el("span", { class: "impopticon" }, icon(ic)),
+    el("span", { class: "impopttxt" },
+      el("span", { class: "impoptt" }, title, ...(soon ? [el("span", { class: "impsoon" }, "เร็วๆ นี้")] : [])),
+      el("span", { class: "impoptd" }, desc)),
+    icon("i-chev"));
+  if (soon) opt.addEventListener("click", () => toast("อยู่ระหว่างพัฒนา (เฟสถัดไป)", false));
+  return opt;
+}
+
+// Google Sheets ต้นฉบับ template COD (แชร์สาธารณะ) — /copy = ให้ผู้ใช้ทำสำเนาไปกรอกเอง
+const COD_SHEET_URL = "https://docs.google.com/spreadsheets/d/11UXsCzzIozZDYqxFJjPa7MKrddlEhFXOxJSIfbqtdZ0";
+
+// หน้า COD รับเงินแล้ว — อัปโหลดไฟล์ = พระเอก · template = แถบรอง (ครั้งแรกใช้)
+function showCodImport(body: HTMLElement) {
+  setImportTitle("นำเข้าไฟล์ COD รับเงินแล้ว");
+  body.textContent = "";
+  codRows = []; codFix.clear();
+  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "เลือกประเภทอื่น");
+  back.addEventListener("click", () => showImportMenu(body));
+
+  // ── อัปโหลด (เด่นสุด) ──
+  const drop = el("label", { class: "importdrop big" });
+  const inp = el("input", { type: "file", accept: ".xlsx", hidden: "" }) as HTMLInputElement;
+  drop.append(
+    icon("i-upload"),
+    el("div", { class: "idt" }, "อัปโหลดไฟล์ COD ที่กรอกแล้ว (.xlsx)"),
+    el("div", { class: "ids" }, "คลิกเพื่อเลือก หรือลากไฟล์มาวาง"),
+    inp);
+  inp.addEventListener("change", () => { if (inp.files?.[0]) void handleCodFile(inp.files[0], body); });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault(); drop.classList.remove("over");
+    const f = e.dataTransfer?.files?.[0];
+    if (f) void handleCodFile(f, body);
+  });
+
+  // ── template (รอง, พับไว้) ──
+  const dl = el("a", { class: "codtpl", href: "templates/cod-template.xlsx", download: "Template COD รับเงินแล้ว.xlsx" },
+    el("span", { class: "codtplic" }, icon("i-upload")),
+    el("span", { class: "codtpltxt" },
+      el("span", { class: "codtplt" }, "ดาวน์โหลด template (Excel)"),
+      el("span", { class: "codtpld" }, ".xlsx — มี dropdown “ได้รับจาก” ในตัว")));
+  const gs = el("a", { class: "codtpl", href: `${COD_SHEET_URL}/copy`, target: "_blank", rel: "noopener" },
+    el("span", { class: "codtplic gs" }, icon("i-gsheet")),
+    el("span", { class: "codtpltxt" },
+      el("span", { class: "codtplt" }, "เปิดใน Google Sheets"),
+      el("span", { class: "codtpld" }, "ทำสำเนาไปกรอกบน Google Sheets ได้เลย")));
+  const tpl = el("details", { class: "codtpldetails" });
+  tpl.append(
+    el("summary", {}, icon("i-chev"), "ยังไม่มีไฟล์? โหลด template ไปกรอก (ครั้งแรก)"),
+    el("div", { class: "codtplrow" }, dl, gs),
+    el("div", { class: "importnote" }, "⚠️ วันที่ · ที่มา (ไฟล์หลักฐาน) · ผู้บันทึก ระบบใส่ให้อัตโนมัติ — อย่าเพิ่มคอลัมน์เอง"));
+
+  body.append(back, drop, tpl);
+}
+
+async function handleCodFile(file: File, body: HTMLElement) {
+  if (!/\.xlsx$/i.test(file.name)) { importError(body, "รองรับเฉพาะไฟล์ .xlsx เท่านั้น"); return; }
+  importLoading(body, `กำลังอ่านไฟล์ "${file.name}"...`);
+  let parsed;
+  try {
+    parsed = parseCodWorkbook(await file.arrayBuffer());
+  } catch (e: any) {
+    codImportError(body, e?.message ?? "อ่านไฟล์ไม่สำเร็จ");
+    return;
+  }
+  if (parsed.rows.length === 0) {
+    codImportError(body, "ไม่พบรายการในไฟล์นี้" + (parsed.skipped.length ? ` (ข้าม ${parsed.skipped.length} แถว)` : ""));
+    return;
+  }
+  codRows = parsed.rows; codFix.clear();
+  importLoading(body, "กำลังตรวจสอบข้อมูล...");
+  let pre: CodImportResp;
+  try {
+    pre = await importCodPayments(codRows, "preflight");
+  } catch (e: any) {
+    codImportError(body, "ตรวจสอบข้อมูลไม่สำเร็จ: " + (e?.message ?? e));
+    return;
+  }
+  if (!pre.authorized) { closeImportModal(); toLogin(); return; }
+  if (pre.error && pre.error !== null && (pre.problems ?? []).length === 0 && (pre.mismatches ?? []).length === 0) {
+    codImportError(body, pre.error === "forbidden_viewer" ? "ไม่มีสิทธิ์นำเข้าข้อมูล" : pre.error);
+    return;
+  }
+  showCodPreview(body, file.name, pre);
+}
+
+function codImportError(body: HTMLElement, msg: string) {
+  body.textContent = "";
+  body.append(el("div", { class: "importstate err" }, icon("i-x"), msg));
+  const again = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
+  again.addEventListener("click", () => showCodImport(body));
+  body.append(el("div", { class: "modal-foot" }, again));
+}
+
+function showCodPreview(body: HTMLElement, fname: string, pre: CodImportResp) {
+  body.textContent = "";
+  const problems = pre.problems ?? [];
+  const mismatches = pre.mismatches ?? [];
+  const canConfirm = problems.length === 0 && (pre.rows_total ?? 0) > 0;
+
+  body.append(el("div", { class: "ifile" }, icon("i-check"), fname));
+  body.append(el("div", { class: "istats" },
+    istat(nf(pre.rows_total ?? 0), "รายการในไฟล์", "blue"),
+    istat(nf(mismatches.length), "ยอดไม่ตรง", mismatches.length ? "amber" : "plain")));
+
+  // บล็อก (ต้องแก้ไฟล์)
+  if (problems.length) {
+    const box = el("div", { class: "ibox err" });
+    box.append(el("div", { class: "ibh" }, icon("i-x"), `มี ${problems.length} รายการที่นำเข้าไม่ได้ — แก้ไฟล์แล้วอัปใหม่`));
+    const list = el("div", { class: "ilist" });
+    for (const p of problems.slice(0, 30)) list.append(el("div", {}, `${p.tracking} — ${p.reason}`));
+    if (problems.length > 30) list.append(el("div", { class: "more" }, `…และอีก ${problems.length - 30} รายการ`));
+    box.append(list);
+    body.append(box);
+  }
+
+  // ยอดไม่ตรง (ไม่บล็อก) — เลือกแก้ยอดทีละรายการ
+  if (mismatches.length) {
+    const box = el("div", { class: "ibox warn" });
+    box.append(el("div", { class: "ibh" }, icon("i-alert-solid"),
+      `${mismatches.length} รายการยอดรับไม่ตรงกับออเดอร์ — เลือกแก้ยอด หรือปล่อยเป็น Error ให้ตรวจภายหลัง`));
+    for (const m of mismatches) box.append(codMismatchRow(m));
+    body.append(box);
+  }
+
+  const foot = el("div", { class: "modal-foot" });
+  const cancel = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
+  cancel.addEventListener("click", () => showCodImport(body));
+  const confirm = el("button", { class: "btn" }, icon("i-upload"), `ยืนยันนำเข้า ${nf(pre.rows_total ?? 0)} รายการ`) as HTMLButtonElement;
+  confirm.disabled = !canConfirm;
+  confirm.addEventListener("click", () => showCodEvidence(body));
+  foot.append(cancel, confirm);
+  body.append(foot);
+}
+
+function codMismatchRow(m: CodMismatch): HTMLElement {
+  const row = el("div", { class: "codmm" });
+  const info = el("div", { class: "codmmi" },
+    el("div", { class: "codmmt" }, m.tracking, m.order_no ? el("span", { class: "codmmord" }, `#${m.order_no}`) : ""),
+    el("div", { class: "codmma" },
+      "ออเดอร์ ", el("b", {}, "฿" + nf(m.order_amount)),
+      " · รับจริง ", el("b", { class: "hl" }, m.received_amount === null ? "—" : "฿" + nf(m.received_amount))));
+  row.append(info);
+  if (m.fixable) {
+    const btn = el("button", { class: "codfixbtn", type: "button" }, `แก้ยอดเป็น ฿${nf(m.received_amount ?? 0)}`) as HTMLButtonElement;
+    const sync = () => {
+      const on = codFix.has(m.tracking);
+      btn.classList.toggle("on", on);
+      btn.textContent = on ? `จะแก้เป็น ฿${nf(m.received_amount ?? 0)} ✓` : `แก้ยอดเป็น ฿${nf(m.received_amount ?? 0)}`;
+    };
+    btn.addEventListener("click", () => { codFix.has(m.tracking) ? codFix.delete(m.tracking) : codFix.add(m.tracking); sync(); });
+    sync();
+    row.append(btn);
+  } else {
+    row.append(el("span", { class: "codmmno" }, "ไฟล์ไม่ระบุยอด"));
+  }
+  return row;
+}
+
+// ด่านแนบไฟล์หลักฐาน (บังคับก่อนนำเข้า) — อัปโหลด Storage ผ่าน Edge Function
+function showCodEvidence(body: HTMLElement) {
+  body.textContent = "";
+  codEvidence = null;
+  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "กลับไปตรวจสอบ");
+  back.addEventListener("click", () => void handleCodPreflightRefresh(body));
+
+  const hd = el("div", { class: "codhd" },
+    el("div", { class: "codhdt" }, "แนบไฟล์หลักฐานก่อนนำเข้า"),
+    el("div", { class: "codhds" }, "รูป · PDF · Excel · หรือไฟล์อื่นๆ (ไม่เกิน 10 MB) — เก็บไว้ตรวจสอบย้อนหลัง"));
+
+  const drop = el("label", { class: "importdrop evi" });
+  const inp = el("input", { type: "file", hidden: "" }) as HTMLInputElement;
+  const dt = el("div", { class: "idt" }, "เลือกไฟล์หลักฐาน");
+  const ds = el("div", { class: "ids" }, "คลิกเพื่อเลือก หรือลากไฟล์มาวาง");
+  drop.append(icon("i-upload"), dt, ds, inp);
+
+  const foot = el("div", { class: "modal-foot" });
+  const confirm = el("button", { class: "btn" }, icon("i-check"), "แนบแล้ว นำเข้าเลย") as HTMLButtonElement;
+  confirm.disabled = true;
+  const setFile = (f: File | null) => {
+    codEvidence = f;
+    if (f) { drop.classList.add("has"); dt.textContent = f.name; ds.textContent = `${(f.size / 1024).toFixed(0)} KB — คลิกเพื่อเปลี่ยนไฟล์`; }
+    else { drop.classList.remove("has"); dt.textContent = "เลือกไฟล์หลักฐาน"; ds.textContent = "คลิกเพื่อเลือก หรือลากไฟล์มาวาง"; }
+    confirm.disabled = !f;
+  };
+  inp.addEventListener("change", () => setFile(inp.files?.[0] ?? null));
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer?.files?.[0]; if (f) setFile(f); });
+
+  const cancel = el("button", { class: "fbtn" }, "กลับไปตรวจสอบ");
+  cancel.addEventListener("click", () => void handleCodPreflightRefresh(body));
+  confirm.addEventListener("click", () => void doCodConfirm(body));
+  foot.append(cancel, confirm);
+
+  const fixNote = codFix.size
+    ? el("div", { class: "importnote" }, `จะแก้ยอดออเดอร์ ${codFix.size} รายการให้ตรงกับที่รับจริง · ที่เหลือยอดไม่ตรงจะเป็น Error`)
+    : el("div", { class: "importnote" }, "รายการยอดไม่ตรงที่ไม่ได้เลือกแก้ จะถูกตั้งเป็น Error ให้ตรวจภายหลัง");
+
+  body.append(back, hd, drop, fixNote, foot);
+}
+
+async function doCodConfirm(body: HTMLElement) {
+  if (!codEvidence) { showCodEvidence(body); return; }
+  importLoading(body, "กำลังอัปโหลดไฟล์หลักฐาน...");
+  const up = await uploadCodEvidence(codEvidence);
+  if (!up.ok || !up.path) {
+    codImportError(body, "อัปโหลดหลักฐานไม่สำเร็จ" + (up.error ? ` (${codUploadErr(up.error)})` : ""));
+    return;
+  }
+  importLoading(body, "กำลังนำเข้าข้อมูล...");
+  let res: CodImportResp;
+  try {
+    res = await importCodPayments(codRows, "confirm", [...codFix], up.path);
+  } catch (e: any) {
+    codImportError(body, "นำเข้าไม่สำเร็จ: " + (e?.message ?? e));
+    return;
+  }
+  if (!res.authorized) { closeImportModal(); toLogin(); return; }
+  if (!res.ok) { codImportError(body, res.error === "no_evidence" ? "ต้องแนบไฟล์หลักฐานก่อนนำเข้า" : (res.error ?? "นำเข้าไม่สำเร็จ")); return; }
+  closeImportModal();
+  const paid = res.paid ?? 0, err = res.err ?? 0;
+  toast(`นำเข้า COD ${nf(res.inserted ?? 0)} รายการ — ชำระแล้ว ${nf(paid)}${err ? ` · Error ${nf(err)}` : ""}`);
+  try {
+    if (state.month) await loadMonth(state.month);
+  } catch { /* refresh พลาดไม่ร้ายแรง */ }
+}
+
+function codUploadErr(code: string): string {
+  switch (code) {
+    case "too_large":       return "ไฟล์ใหญ่เกิน 10 MB";
+    case "bad_type":        return "ชนิดไฟล์ไม่รองรับ";
+    case "empty_file":      return "ไฟล์ว่าง";
+    case "forbidden_viewer": return "ไม่มีสิทธิ์";
+    case "unauthorized":    return "เซสชันหมดอายุ";
+    default:                return code;
+  }
+}
+
+// กลับไปหน้า preview โดยรัน preflight ใหม่จาก codRows ที่จำไว้
+async function handleCodPreflightRefresh(body: HTMLElement) {
+  if (codRows.length === 0) { showCodImport(body); return; }
+  importLoading(body, "กำลังตรวจสอบข้อมูล...");
+  try {
+    const pre = await importCodPayments(codRows, "preflight");
+    if (!pre.authorized) { closeImportModal(); toLogin(); return; }
+    showCodPreview(body, "ไฟล์ที่เลือก", pre);
+  } catch (e: any) {
+    codImportError(body, "ตรวจสอบข้อมูลไม่สำเร็จ: " + (e?.message ?? e));
+  }
 }
 
 function showImportPick(body: HTMLElement) {
+  setImportTitle("นำเข้าไฟล์ออเดอร์ (GoSell)");
   body.textContent = "";
+  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "เลือกประเภทอื่น");
+  back.addEventListener("click", () => showImportMenu(body));
   const drop = el("label", { class: "importdrop" });
   const inp = el("input", { type: "file", accept: ".xlsx", hidden: "" }) as HTMLInputElement;
   drop.append(
@@ -1617,7 +2154,7 @@ function showImportPick(body: HTMLElement) {
     const f = e.dataTransfer?.files?.[0];
     if (f) void handleImportFile(f, body);
   });
-  body.append(drop,
+  body.append(back, drop,
     el("div", { class: "importnote" }, "ระบบจะข้ามออเดอร์ที่ยกเลิก · ตรวจวันซ้ำ/แบรนด์ · ให้ยืนยันก่อนบันทึกจริง"));
 }
 
@@ -1735,6 +2272,8 @@ async function refreshAfterImport(month: string) {
     const m = await fetchMonths();
     if (!m.authorized) { toLogin(); return; }
     state.monthsWithData = new Set(m.months ?? []);
+    state.monthsWithError = new Set(m.months_error ?? []);
+    state.monthsDone = new Set(m.months_done ?? []);
     const target = /^\d{4}-\d{2}$/.test(month) ? month : (state.month || (m.months ?? [])[0]);
     if (target) await loadMonth(target);
     else buildMonthPicker();

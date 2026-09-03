@@ -17,7 +17,7 @@ async function restRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
   return res.json() as Promise<T>;
 }
 
-export interface MonthsResponse { authorized: boolean; months?: string[]; }
+export interface MonthsResponse { authorized: boolean; months?: string[]; months_error?: string[]; months_done?: string[]; }
 
 export function fetchMonths(): Promise<MonthsResponse> {
   return restRpc<MonthsResponse>("get_months", { p_token: getToken() });
@@ -44,6 +44,51 @@ export interface ImportResp {
 }
 export function importOrders(rows: unknown[], mode: "preflight" | "confirm"): Promise<ImportResp> {
   return restRpc<ImportResp>("app_import_orders", { p_token: getToken(), p_rows: rows, p_mode: mode });
+}
+
+// ---- import COD รับเงินแล้ว ----
+export interface CodProblem { tracking: string; reason: string; }
+export interface CodMismatch {
+  tracking: string; order_no: string | null; order_id: number;
+  order_amount: number; received_amount: number | null; fixable: boolean;
+}
+export interface CodImportResp {
+  authorized: boolean;
+  ok?: boolean;
+  mode?: string;
+  error?: string | null;
+  problems?: CodProblem[];
+  mismatches?: CodMismatch[];
+  rows_total?: number;
+  rows_ok?: number;
+  inserted?: number;
+  fixed?: number;
+  paid?: number;
+  err?: number;
+}
+export function importCodPayments(
+  rows: unknown[], mode: "preflight" | "confirm",
+  fixTrackings: string[] = [], source: string | null = null,
+): Promise<CodImportResp> {
+  return restRpc<CodImportResp>("app_import_cod_payments", {
+    p_token: getToken(), p_rows: rows, p_mode: mode,
+    p_fix_trackings: fixTrackings, p_source: source,
+  });
+}
+
+// อัปโหลดไฟล์หลักฐาน COD → Edge Function (service role) → คืน path เก็บใน source
+export interface CodUploadResp { ok: boolean; path?: string; error?: string; }
+export async function uploadCodEvidence(file: File): Promise<CodUploadResp> {
+  try {
+    const fd = new FormData();
+    fd.append("token", getToken() ?? "");
+    fd.append("file", file);
+    // multipart = CORS-safelisted → ไม่ trigger preflight (ไม่ใส่ apikey/authorization header)
+    const res = await fetch(`${FUNCTIONS_URL}/cod-upload`, { method: "POST", body: fd });
+    return (await res.json()) as CodUploadResp;
+  } catch {
+    return { ok: false, error: "network" };
+  }
 }
 
 // ---- tracking (Stage 5): แก้สถานะ + โน้ตติดตาม ----
