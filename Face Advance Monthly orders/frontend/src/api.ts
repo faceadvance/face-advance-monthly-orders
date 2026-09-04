@@ -17,7 +17,7 @@ async function restRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
   return res.json() as Promise<T>;
 }
 
-export interface MonthsResponse { authorized: boolean; months?: string[]; months_error?: string[]; months_done?: string[]; }
+export interface MonthsResponse { authorized: boolean; idle_minutes?: number; months?: string[]; months_error?: string[]; months_done?: string[]; }
 
 export function fetchMonths(): Promise<MonthsResponse> {
   return restRpc<MonthsResponse>("get_months", { p_token: getToken() });

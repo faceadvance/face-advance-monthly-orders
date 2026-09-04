@@ -1736,7 +1736,7 @@ async function bootstrap() {
     toLogin();
   });
 
-  // idle-timeout: ออกจากระบบอัตโนมัติถ้าไม่มีการใช้งานเกิน 90 นาที (ตรงกับฝั่ง DB)
+  // idle-timeout: ออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน (อายุตามบัญชี — ตั้งจาก get_months)
   setupIdleTracking();
 
   // ปิด dropdown/picker เมื่อคลิกนอก
@@ -1759,7 +1759,7 @@ async function startApp() {
     if (!m.authorized) { toLogin(); return; }
     document.body.classList.add("authed");
     document.body.classList.add("ready");
-    resetIdle();                       // เริ่มนับ idle-timeout เมื่อเข้าแอป
+    setIdleMinutes(m.idle_minutes);    // ตั้ง idle-timeout ตามค่าจริงของบัญชี + เริ่มนับ
     updateUserDisplay();
     const months = m.months ?? [];
     state.monthsWithData = new Set(months);
@@ -1791,22 +1791,34 @@ function updateUserDisplay() {
 }
 
 // ======================================================
-//  Idle-timeout — auto logout 90 นาทีหลัง action ล่าสุด (ตรงกับ DB)
+//  Idle-timeout — auto logout หลัง action ล่าสุด
+//  อายุ idle อ่านจาก DB ต่อบัญชี (app_users.idle_minutes) ผ่าน get_months
+//  friday=1440 นาที / Aom+plug=30 นาที — client จึงตรงกับ DB จริง
 // ======================================================
-const IDLE_MS = 30 * 60 * 1000;   // idle-timeout 30 นาที (ตรงกับ DB app_session_uid)
+const DEFAULT_IDLE_MIN = 30;            // fallback ถ้า server ไม่ส่งค่า (ปลอดภัยไว้ก่อน)
+let idleMs = DEFAULT_IDLE_MIN * 60 * 1000;
 let idleTimer: number | undefined;
 let lastIdleReset = 0;
+
+// ตั้งอายุ idle จากค่าจริงของบัญชี (เรียกหลัง get_months) แล้วเริ่มนับใหม่
+function setIdleMinutes(mins?: number | null) {
+  const m = typeof mins === "number" && mins > 0 ? mins : DEFAULT_IDLE_MIN;
+  idleMs = m * 60 * 1000;
+  resetIdle();
+}
 
 function resetIdle() {
   if (!document.body.classList.contains("authed")) return;
   window.clearTimeout(idleTimer);
-  idleTimer = window.setTimeout(onIdleExpire, IDLE_MS);
+  idleTimer = window.setTimeout(onIdleExpire, idleMs);
 }
 function onIdleExpire() {
   const t = getToken();
   if (t) void authLogout(t);
   toLogin();
-  toast("ไม่มีการใช้งานเกิน 30 นาที — ออกจากระบบอัตโนมัติ", false);
+  const mins = Math.round(idleMs / 60000);
+  const label = mins % 60 === 0 && mins >= 60 ? `${mins / 60} ชั่วโมง` : `${mins} นาที`;
+  toast(`ไม่มีการใช้งานเกิน ${label} — ออกจากระบบอัตโนมัติ`, false);
 }
 function setupIdleTracking() {
   const onActivity = () => {
