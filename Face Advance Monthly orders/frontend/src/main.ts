@@ -3,10 +3,14 @@ import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
   importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs,
-  getDetailPresets,
+  getDetailPresets, fetchNotifications,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole } from "./session";
+import { pageDef, pagesFor, canEdit, type PageKey } from "./pages";
+import { renderRecordReturns } from "./returns";
+import { renderReturnsList } from "./returns_list";
+import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
@@ -16,10 +20,10 @@ import {
 
 const MAX_SELECT = 30;
 
-// สิทธิ์ผู้ใช้: viewer = ดูอย่างเดียว (แก้/อัพเดต/นำเข้าไม่ได้)
+// สิทธิ์ผู้ใช้: แก้ไขได้เฉพาะ Adm/OM/RT+ (Vm/RTs = ดูอย่างเดียว) — ดู pages.ts
 let currentRole = getRole();
 function requireEditor(): boolean {
-  if (currentRole === "viewer") { toast("ไม่มีสิทธิ์แก้ไขข้อมูล", false); return false; }
+  if (!canEdit(currentRole)) { toast("ไม่มีสิทธิ์แก้ไขข้อมูล", false); return false; }
   return true;
 }
 
@@ -40,9 +44,14 @@ const COLUMNS: Column[] = [
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
   { key: "note", label: "หมายเหตุ" },
 ];
+const ordHidden = new Set<string>();   // คอลัมน์ที่ซ่อน (ปุ่มเลือกคอลัมน์หน้า order)
 
 // ---------- state ----------
 const state = {
+  page: "orders" as PageKey,   // หน้าที่กำลังแสดง (Stage 8)
+  ordersLoaded: false,          // โหลดข้อมูลหน้าออเดอร์แล้วหรือยัง (lazy)
+  ordersStale: false,           // ข้อมูลออเดอร์ล้าสมัย (มีตีกลับใหม่) → ต้องรีเฟรชก่อนแก้
+  ordersBaseReturns: null as number | null,   // จำนวนตีกลับรวมตอนหน้า Order โหลดล่าสุด (ไว้เทียบว่ามีใหม่)
   month: "",
   data: null as OrdersResponse | null,
   monthsWithData: new Set<string>(),
@@ -102,6 +111,7 @@ function computeKpiDaily(d: OrdersResponse) {
   };
   const kpi: Kpi = { exported_count: 0, delivered_count: 0, sales_total: 0, sales_paid: 0, sales_unpaid: 0, sales_error: 0, returned_count: 0, returned_amount: 0, returned_amount_status: 0 };
   for (const o of d.orders) {
+    if (o.payment_status === "ไม่ใช่งานขาย") continue;   // ไม่นับในการ์ด 3 อันบน (ส่งออก/ยอดขาย/ตีกลับ)
     const idx = Number(o.date.slice(8, 10)) - 1;
     const amt = o.total_sales || 0;
     const inRange = idx >= 0 && idx < days;
@@ -409,10 +419,75 @@ function renderTable() {
 
   renderActiveFilters();
   updateSelectionUI();
+  applyOrdHidden();
+  updateOrdProgress();
+}
+
+// ---- ตกแต่งหน้า order (ยกจากหน้ารายการตีกลับ: ซ่อนคอลัมน์ · scroll progress · spotlight) ----
+function applyOrdHidden() {
+  const wrap = document.getElementById("tableWrap"); if (!wrap) return;
+  for (const c of COLUMNS) {
+    const hide = ordHidden.has(c.key);
+    wrap.querySelectorAll<HTMLElement>(".col-" + c.key).forEach((e) => { e.style.display = hide ? "none" : ""; });
+  }
+}
+function updateOrdProgress() {
+  const wrap = document.getElementById("tableWrap");
+  const bar = document.querySelector("#ordProgress i") as HTMLElement | null;
+  if (!wrap || !bar) return;
+  const max = wrap.scrollHeight - wrap.clientHeight;
+  bar.style.width = (max > 4 ? (wrap.scrollTop / max) * 100 : 0) + "%";
+}
+function buildOrdColsMenu() {
+  const pop = document.getElementById("ordColsPop"); if (!pop) return;
+  pop.textContent = "";
+  pop.append(el("div", { class: "rlcolshd" }, "แสดงคอลัมน์"));
+  for (const c of COLUMNS) {
+    const cbx = el("span", { class: "cbx" + (ordHidden.has(c.key) ? " off" : "") }, icon("i-tick"));
+    const row = el("div", { class: "rlcolitem" }, cbx, c.label);
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (ordHidden.has(c.key)) ordHidden.delete(c.key);
+      else if (COLUMNS.length - ordHidden.size > 1) ordHidden.add(c.key);
+      cbx.classList.toggle("off", ordHidden.has(c.key));
+      applyOrdHidden();
+    });
+    pop.append(row);
+  }
+}
+let ordDecoInited = false;
+function initOrdersDeco() {
+  if (ordDecoInited) return;
+  const cardTop = document.querySelector("#pageOrders .card-top") as HTMLElement | null;
+  const wrap = document.getElementById("tableWrap");
+  if (!cardTop || !wrap) return;
+  ordDecoInited = true;
+  // ปุ่มเลือกคอลัมน์
+  const btn = el("button", { class: "rlcolsbtn", id: "ordColsBtn", type: "button", title: "เลือกคอลัมน์" }, icon("i-grid"), el("span", {}, "คอลัมน์"));
+  const pop = el("div", { class: "rlcolspop", id: "ordColsPop", hidden: "" });
+  btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; if (!pop.hidden) buildOrdColsMenu(); });
+  cardTop.append(el("div", { class: "rlcolswrap" }, btn, pop));
+  document.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (!pop.hidden && !t.closest?.("#ordColsPop") && !t.closest?.("#ordColsBtn")) pop.hidden = true;
+  });
+  // แถบ scroll progress (ก่อนตาราง)
+  const prog = el("div", { class: "rlprogress", id: "ordProgress" }, el("i", {}));
+  wrap.parentElement?.insertBefore(prog, wrap);
+  wrap.addEventListener("scroll", updateOrdProgress);
+  // spotlight การ์ด KPI (delegated · #kpi คงอยู่)
+  document.getElementById("kpi")?.addEventListener("mousemove", (e) => {
+    const card = (e.target as HTMLElement).closest(".kcard") as HTMLElement | null;
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    card.style.setProperty("--mx", `${e.clientX - r.left}px`);
+    card.style.setProperty("--my", `${e.clientY - r.top}px`);
+  });
 }
 
 function buildTh(col: Column): HTMLElement {
   const th = el("th", {});
+  th.classList.add("col-" + col.key);
   if (col.thClass) th.classList.add(col.thClass);
   if (col.align === "center") th.classList.add("c");
   if (col.align === "right") th.classList.add("rcol");
@@ -443,30 +518,20 @@ function buildTh(col: Column): HTMLElement {
 function buildRow(o: Order): HTMLElement {
   const tr = el("tr") as HTMLElement;
   tr.dataset.oid = String(o.id);   // ใช้หาแถวเพื่ออัปเดตเฉพาะจุด (ไม่ re-render ทั้งตาราง)
-  // วันที่
-  tr.append(el("td", { class: "datecell" }, dmy(o.date)));
-  // เบอร์โทร
-  tr.append(el("td", { class: "mono" }, o.phone || "—"));
-  // ชื่อลูกค้า (+code) — โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม
-  tr.append(buildNameCell(o, tr));
-  // ที่อยู่ (โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม)
-  tr.append(buildAddrCell(o, tr));
-  // รายการสินค้า (โชว์บรรทัดแรก · มี ≥2 → ปุ่มสามเหลี่ยมขยายทั้งแถว)
-  tr.append(buildItemsCell(o, tr));
-  // ช่องทางชำระ (COD ย่อจาก เก็บเงินปลายทาง) — ชิดขวา
-  tr.append(el("td", { class: "tar" }, paymentMethodLabel(o.payment_method) || "—"));
-  // ยอดขาย
-  tr.append(el("td", { class: "amount num" }, nf(o.total_sales)));
-  // ขนส่ง
-  tr.append(el("td", {}, o.carrier || "—"));
-  // เลขแทร็ค + ปุ่มติ๊ก
-  tr.append(buildTrackCell(o));
-  // สถานะจัดส่ง (badge + ดินสอแก้ inline)
-  tr.append(buildStatusCell(o, "delivery"));
-  // รายละเอียดปัญหา: ไอคอน i เฉพาะเมื่อสถานะ = มีปัญหา → กดดู popup
-  tr.append(buildProblemCell(o));
-  // สถานะชำระ (badge + ดินสอแก้ inline)
-  tr.append(buildStatusCell(o, "payment"));
+  // ติดคลาส col-<key> ทุกช่อง → ใช้ซ่อน/โชว์คอลัมน์ (ต้องตรงกับ th ที่ buildTh ติดให้)
+  const ac = (key: string, td: HTMLElement) => { td.classList.add("col-" + key); tr.append(td); };
+  ac("date", el("td", { class: "datecell" }, dmy(o.date)));
+  ac("phone", el("td", { class: "mono" }, o.phone || "—"));
+  ac("customer_name", buildNameCell(o, tr));
+  ac("address", buildAddrCell(o, tr));
+  ac("items", buildItemsCell(o, tr));
+  ac("payment_method", el("td", { class: "tar" }, paymentMethodLabel(o.payment_method) || "—"));
+  ac("total_sales", el("td", { class: "amount num" }, nf(o.total_sales)));
+  ac("carrier", el("td", {}, o.carrier || "—"));
+  ac("tracking_no", buildTrackCell(o));
+  ac("delivery_status", buildStatusCell(o, "delivery"));
+  ac("problem", buildProblemCell(o));
+  ac("payment_status", buildStatusCell(o, "payment"));
   // ตีกลับถึงแล้ว: ⚠️ ขัดแย้ง / "ถึงแล้ว" + ผลตรวจสอบ / "—"
   const raCell = el("td", { class: "center" });
   if (o.recon_conflict) {
@@ -477,9 +542,8 @@ function buildRow(o: Order): HTMLElement {
   } else {
     raCell.append("—");
   }
-  tr.append(raCell);
-  // หมายเหตุ (ตัดบรรทัดเดียว + ปุ่มขยายเหมือนคอลัมน์ชื่อ)
-  tr.append(buildNoteCell(o, tr));
+  ac("return_arrived", raCell);
+  ac("note", buildNoteCell(o, tr));
   // แก้ไข (เปิด sidebar)
   const actCell = el("td", { class: "actcell" });
   const editBtn = el("button", { class: "rowedit", title: "อัพเดต / บันทึกติดตาม" }, icon("i-editbox"));
@@ -760,7 +824,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 //  การบันทึกติดตาม (Stage 5): แก้สถานะ inline + sidebar
 // ======================================================
 const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
-const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก"];
+const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก", "ไม่ใช่งานขาย"];
 const RETURN_REASONS = [
   "ไม่สามารถติดต่อลูกค้าได้",
   "ลูกค้าไม่สะดวกรับในรอบการจัดส่ง",
@@ -783,6 +847,7 @@ function trackErrMsg(err?: string): string {
     case "forbidden_viewer":       return "ไม่มีสิทธิ์แก้ไขข้อมูล";
     case "bad_delivery_status":
     case "bad_payment_status":     return "สถานะไม่ถูกต้อง";
+    case "cod_payment_locked":     return "ออเดอร์ COD ระบบคุมสถานะชำระอัตโนมัติ แก้เองไม่ได้";
     default:                       return "บันทึกไม่สำเร็จ";
   }
 }
@@ -816,6 +881,7 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
 // ---- แก้สถานะ inline: ดินสอ → popup เลือก → ยืนยัน ----
 function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "payment") {
   if (!requireEditor()) return;
+  if (!guardFresh()) return;   // กันแก้ทับ: ข้อมูลไม่อัปเดต → รีเฟรชก่อน
   const key = `st:${o.id}:${field}`;
   if (openDrop && openDrop.dataset.stkey === key) { closeDrop(); return; }   // กดดินสอเดิมซ้ำ → ปิด
   closeDrop();
@@ -894,11 +960,12 @@ function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "pay
 
 // ---- sidebar: ตัวแก้ไขหลัก + ไทม์ไลน์ ----
 let sidebarEl: HTMLElement | null = null;
-function closeSidebar() { if (sidebarEl) { sidebarEl.remove(); sidebarEl = null; } }
+function closeSidebar() { if (sidebarEl) { sidebarEl.remove(); sidebarEl = null; } document.body.classList.remove("sbopen"); }
 
 function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   if (!requireEditor()) return;
   closeSidebar();
+  document.body.classList.add("sbopen");   // Dock อยู่ขวาเหมือน sidebar → ซ่อน Dock ระหว่างเปิด
   const root = el("div", { class: "sboverlay" });   // พื้นหลังทึบ — คลิกนอกไม่ปิด (ตามสเปก)
   const panel = el("div", { class: "sbpanel" });
   root.append(panel);
@@ -1093,6 +1160,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   updateSaveState();   // เริ่มต้น: disable (ยังไม่แก้)
   closeBtn.addEventListener("click", () => requestClose());
   saveBtn.addEventListener("click", async () => {
+    if (!guardFresh()) { requestClose(); return; }   // กันแก้ทับ: มีตีกลับใหม่ → รีเฟรชก่อน
     const newDelivery = selDelivery;
     const newPayment = selPayment;
     const note = noteTa.value.trim();
@@ -1690,24 +1758,120 @@ async function loadMonth(month: string) {
   clearSelection();
   $("#monthLabel").textContent = monthLabel(month);
   $("#pageTitle").textContent = `ออเดอร์ — ${monthLabel(month)}`;
-  // ไม่ล้าง #kpi ทันที (การ์ดเดิมค้างไว้จนข้อมูลใหม่มา → ไม่กระพริบ) · ตารางโชว์ skeleton shimmer
-  $("#tableWrap").innerHTML = `<div class="skel">${'<div class="skelrow"></div>'.repeat(12)}</div>`;
+  // ไม่ล้าง #kpi และไม่ล้างตารางทันที — ของเดิมค้างไว้จนข้อมูลใหม่มา แล้วค่อยสลับ (ไม่กระพริบ · เปลี่ยนแค่ข้อมูล)
   try {
     const data = await fetchOrders(month);
     if (!data.authorized) { toLogin(); return; }
     currentRole = data.role || currentRole; setRole(currentRole);   // sync สิทธิ์จาก server
+    document.body.classList.toggle("noedit", !canEdit(currentRole));   // role แก้ไม่ได้ → ซ่อนดินสอ
     computeKpiDaily(data);            // get_orders คืนแค่ orders → คำนวณ KPI/daily ที่นี่
     state.data = data;
     renderKpi(data);
     renderTable();
     buildMonthPicker();
+    await loadNotifs(); markOrdersFresh();   // ข้อมูลสดแล้ว → ตั้งฐานกันแก้ทับ + อัปเดตซองจดหมาย
   } catch (e: any) {
     $("#tableWrap").innerHTML = `<div class="state err">โหลดข้อมูลไม่สำเร็จ: ${e?.message ?? e}</div>`;
   }
 }
 
+// ---- ศูนย์แจ้งเตือน (ซองจดหมาย header) — ตีกลับใหม่ข้ามเครื่อง แบบเมล + เสียง + กันแก้ทับ ----
+let notifItems: import("./api").NotifItem[] = [];
+let lastUnread = 0, notifInited = false;
+let audioCtx: AudioContext | null = null;
+const notifSeenKey = () => `fa_notif_seen_${displayName() || "user"}`;
+const notifSeenAt = () => localStorage.getItem(notifSeenKey()) || "";
+const returnsTotal = () => notifItems.reduce((s, i) => s + (i.n || 0), 0);
+
+function timeAgo(iso: string): string {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "เมื่อสักครู่";
+  if (s < 3600) return `${Math.floor(s / 60)} นาทีที่แล้ว`;
+  if (s < 86400) return `${Math.floor(s / 3600)} ชม.ที่แล้ว`;
+  return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+}
+function beep() {   // เสียงเตือนเมลใหม่ (Web Audio · ไม่ต้องมีไฟล์เสียง)
+  try {
+    audioCtx ??= new (window.AudioContext || (window as any).webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    const play = (freq: number, at: number) => {
+      const o = audioCtx!.createOscillator(), g = audioCtx!.createGain();
+      o.connect(g); g.connect(audioCtx!.destination); o.type = "sine"; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(0.13, t + at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.22);
+      o.start(t + at); o.stop(t + at + 0.24);
+    };
+    play(784, 0); play(1046, 0.12);   // ตุ๊งแต๊ง 2 โน้ต
+  } catch { /* เล่นเสียงไม่ได้ (นโยบายเบราว์เซอร์) → ข้าม */ }
+}
+function pulseRefresh() {
+  const b = $("#refreshBtn") as HTMLElement;
+  b?.classList.add("attn"); window.setTimeout(() => b?.classList.remove("attn"), 2000);
+}
+function renderNotifState() {
+  const seen = notifSeenAt();
+  const unread = notifItems.filter((n) => !seen || n.at > seen).length;
+  ($("#notifDot") as HTMLElement).hidden = unread === 0;
+  $("#notifIconUse").setAttribute("href", unread > 0 ? "#i-mail" : "#i-mail-open");
+  ($("#notifBtn") as HTMLElement).classList.toggle("hasunread", unread > 0);
+  if (notifInited && unread > lastUnread) beep();   // มีเมลใหม่ → เสียง
+  lastUnread = unread; notifInited = true;
+}
+async function loadNotifs() {
+  try {
+    const res = await fetchNotifications();
+    if (res.authorized && res.ok) {
+      notifItems = res.items ?? [];
+      renderNotifState();
+      // กันแก้ทับ: มีตีกลับใหม่กว่าตอนโหลดหน้า Order → ตั้งธง stale
+      if (state.ordersBaseReturns != null && returnsTotal() > state.ordersBaseReturns) {
+        if (!state.ordersStale) pulseRefresh();
+        state.ordersStale = true;
+      }
+    }
+  } catch { /* เงียบ */ }
+}
+function markOrdersFresh() { state.ordersBaseReturns = returnsTotal(); state.ordersStale = false; }
+function renderNotifList() {
+  const seen = notifSeenAt();
+  const list = $("#notifList") as HTMLElement;
+  list.innerHTML = "";
+  if (!notifItems.length) { list.innerHTML = `<div class="notifempty">ยังไม่มีแจ้งเตือน</div>`; return; }
+  for (const n of notifItems) {
+    const isNew = !seen || n.at > seen;
+    const row = document.createElement("div");
+    row.className = `notifitem${isNew ? " new" : ""}`;
+    row.innerHTML = `<div class="ni-top"><b>${n.by_name}</b> บันทึกตีกลับ <span class="ni-n">${n.n} รายการ</span><span class="ni-time">${timeAgo(n.at)}</span></div>
+      <div class="ni-sub"><span class="ni-tr">${n.trackings}</span></div>`;
+    list.append(row);
+  }
+}
+function openNotifPop() {
+  renderNotifList();
+  ($("#notifPop") as HTMLElement).hidden = false;
+  if (notifItems.length) localStorage.setItem(notifSeenKey(), notifItems[0].at);   // เปิด = อ่านแล้ว
+  renderNotifState();
+}
+function closeNotifPop() { ($("#notifPop") as HTMLElement).hidden = true; }
+/** กันแก้ทับ: ถ้าข้อมูลไม่อัปเดต (มีตีกลับใหม่) ให้รีเฟรชก่อนแก้ */
+function guardFresh(): boolean {
+  if (state.ordersStale) {
+    toast("มีตีกลับใหม่เข้ามา — กดรีเฟรช 🔄 ก่อนแก้ไข", false);
+    pulseRefresh();
+    return false;
+  }
+  return true;
+}
+async function refreshOrders() {
+  const btn = $("#refreshBtn") as HTMLElement;
+  btn?.classList.add("spin");
+  window.setTimeout(() => btn?.classList.remove("spin"), 600);
+  if (state.month) await loadMonth(state.month);
+}
+
 async function bootstrap() {
   initZoom();
+  initOrdersDeco();
 
   // month picker toggle
   $("#monthPill").addEventListener("click", (e) => {
@@ -1728,6 +1892,20 @@ async function bootstrap() {
 
   // ปุ่มนำเข้าไฟล์ (Stage 2)
   $("#importBtn").addEventListener("click", () => { if (!requireEditor()) return; openImportModal(); });
+
+  // รีเฟรชออเดอร์
+  $("#refreshBtn").addEventListener("click", () => { void refreshOrders(); });
+  // กระดิ่งแจ้งเตือน (ตีกลับใหม่ข้ามเครื่อง) — คลิกเปิด popup · คลิกนอก = ปิด
+  $("#notifBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const pop = $("#notifPop") as HTMLElement;
+    if (pop.hidden) openNotifPop(); else closeNotifPop();
+  });
+  document.addEventListener("click", (e) => {
+    const w = $("#notifWrap");
+    if (!w.contains(e.target as Node)) closeNotifPop();
+  });
+  window.setInterval(() => { void loadNotifs(); }, 45000);   // เช็คแจ้งเตือนใหม่ทุก 45 วิ
 
   // logout
   $("#logoutBtn").addEventListener("click", async () => {
@@ -1752,24 +1930,166 @@ async function bootstrap() {
   else toLogin();
 }
 
-// โหลดเดือน + เข้าแอป (หลัง login ผ่าน)
+// เข้าแอป (หลัง login ผ่าน) — เซ็ต role + Dock + ไปหน้าแรกที่ role เข้าได้
 async function startApp() {
   try {
     const m = await fetchMonths();
     if (!m.authorized) { toLogin(); return; }
+    currentRole = m.role || getRole(); setRole(currentRole);   // role จริงจาก server
+    document.body.classList.toggle("noedit", !canEdit(currentRole));   // role แก้ไม่ได้ → ซ่อนดินสอ
     document.body.classList.add("authed");
     document.body.classList.add("ready");
     setIdleMinutes(m.idle_minutes);    // ตั้ง idle-timeout ตามค่าจริงของบัญชี + เริ่มนับ
     updateUserDisplay();
-    const months = m.months ?? [];
-    state.monthsWithData = new Set(months);
+    state.monthsWithData = new Set(m.months ?? []);
     state.monthsWithError = new Set(m.months_error ?? []);
     state.monthsDone = new Set(m.months_done ?? []);
-    const first = months[0] ?? new Date().toISOString().slice(0, 7);
-    await loadMonth(first);
+    state.ordersLoaded = false;
+    buildDock();
+    const accessible = pagesFor(currentRole);
+    const target: PageKey = accessible.includes(state.page) ? state.page : (accessible[0] ?? "orders");
+    await setPage(target);
+    void loadNotifs();   // เติม badge กระดิ่งตอนเข้าระบบ
   } catch {
     toLogin(); // ต่อเซิร์ฟเวอร์ไม่ได้/session เสีย → กลับไป login
   }
+}
+
+// โหลดข้อมูลหน้าออเดอร์ครั้งแรกที่เข้า (lazy)
+async function ensureOrders() {
+  if (state.ordersLoaded) return;
+  state.ordersLoaded = true;
+  const months = [...state.monthsWithData];
+  const first = months[0] ?? new Date().toISOString().slice(0, 7);
+  await loadMonth(first);
+}
+
+// สลับหน้า (กันเข้าหน้าที่ role ไม่มีสิทธิ์)
+async function setPage(key: PageKey) {
+  if (!pagesFor(currentRole).includes(key)) return;
+  state.page = key;
+  ($("#dockWrap") as HTMLElement).classList.remove("open");
+  renderPage();
+  document.querySelectorAll<HTMLElement>(".dockitem").forEach((d) => {
+    d.classList.toggle("active", d.dataset.page === key);
+  });
+  if (key === "orders") {
+    if (state.ordersStale && state.ordersLoaded && state.month) {
+      state.ordersStale = false;
+      await loadMonth(state.month);   // ดึงใหม่ให้เห็นมาร์คตีกลับล่าสุด
+    } else {
+      await ensureOrders();
+    }
+  }
+}
+
+// หน้าตีกลับบันทึกสำเร็จ → ทำให้ข้อมูลออเดอร์ล้าสมัย (ดึงใหม่รอบหน้าที่เข้าหน้าออเดอร์)
+window.addEventListener("fa:returns-saved", () => { state.ordersStale = true; void loadNotifs(); });
+
+// แสดงหน้าตาม state.page + toggle header controls เฉพาะหน้าออเดอร์
+function renderPage() {
+  const key = state.page;
+  const def = pageDef(key);
+  const isOrders = key === "orders";
+  ($("#pageOrders") as HTMLElement).hidden = !isOrders;
+  ($("#pageAlt") as HTMLElement).hidden = isOrders;
+  ($("#monthsel") as HTMLElement).style.display = isOrders ? "" : "none";
+  ($("#refreshBtn") as HTMLElement).style.display = isOrders ? "" : "none";
+  ($("#searchWrap") as HTMLElement).style.display = isOrders ? "" : "none";
+  ($("#importBtn") as HTMLElement).style.display = (isOrders && canEdit(currentRole)) ? "" : "none";
+  if (isOrders) {
+    $("#pageTitle").textContent = state.month ? `ออเดอร์ — ${monthLabel(state.month)}` : "ออเดอร์";
+  } else if (key === "record-returns") {
+    $("#pageTitle").textContent = def.title;
+    renderRecordReturns($("#pageAlt") as HTMLElement, { toast });
+  } else if (key === "returns-list") {
+    $("#pageTitle").textContent = def.title;
+    renderReturnsList($("#pageAlt") as HTMLElement, { toast });
+  } else {
+    $("#pageTitle").textContent = def.title;
+    ($("#pageAlt") as HTMLElement).innerHTML = def.built ? "" : `
+      <div class="pageph">
+        <div class="ico">🚧</div>
+        <h2>${def.title}</h2>
+        <p>หน้านี้กำลังก่อสร้าง — จะเปิดใช้งานในเฟสถัดไปค่ะ</p>
+        <div class="tag">กำลังก่อสร้าง</div>
+      </div>`;
+  }
+}
+
+// สร้าง Dock (ขวา · magnify แบบ macOS) — แสดงเฉพาะ role ที่เข้าได้ >1 หน้า · คลิกป้ายเปิด/ปิด · คลิกนอก = ปิด
+let dockOutsideBound = false;
+let dockRAF = 0;
+let dockMouseY = 0;
+function buildDock() {
+  const wrap = $("#dockWrap") as HTMLElement;
+  const dock = $("#dock") as HTMLElement;             // frame (frosted)
+  const box = $("#dockItems") as HTMLElement;         // ที่วางไอคอน (absolute)
+  const accessible = pagesFor(currentRole);
+  if (accessible.length <= 1) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  box.innerHTML = "";
+  for (const key of accessible) {
+    const def = pageDef(key);
+    const glyph = def.logo
+      ? el("img", { src: "fmark.png", alt: def.title })
+      : icon(def.icon);
+    const btn = el("button", { class: "dockitem", "data-page": key },
+      glyph, el("span", { class: "dtip" }, def.title)) as HTMLElement;
+    btn.addEventListener("click", () => { void setPage(key); });
+    box.appendChild(btn);
+  }
+  layoutDock(null);   // จัดวางตอนพัก
+
+  box.onmousemove = (e) => {
+    dockMouseY = e.clientY;
+    if (!dockRAF) dockRAF = requestAnimationFrame(() => { dockRAF = 0; layoutDock(dockMouseY); });
+  };
+  box.onmouseleave = () => {
+    if (dockRAF) { cancelAnimationFrame(dockRAF); dockRAF = 0; }
+    layoutDock(null, true);   // ยุบกลับแบบนุ่ม
+  };
+  // ป้ายใช้ "เปิด" อย่างเดียว (เปิดแล้วซ่อน — ปิดด้วยการคลิกนอก dock)
+  ($("#dockTab") as HTMLElement).onclick = (e) => { e.stopPropagation(); wrap.classList.add("open"); };
+  if (!dockOutsideBound) {
+    dockOutsideBound = true;
+    document.addEventListener("click", (e) => {
+      if (!wrap.classList.contains("open")) return;
+      const t = e.target as HTMLElement;
+      if (t.closest?.(".dockitem") || t.closest?.("#dockTab")) return;   // กดไอคอน/ป้าย = ไม่ใช่ "นอก"
+      const r = dock.getBoundingClientRect();                            // กดบนกรอบ glass = ไม่ใช่ "นอก" (เช็กพิกัด เพราะ hit-area บังกรอบอยู่)
+      const inFrame = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inFrame) wrap.classList.remove("open");
+    });
+    window.addEventListener("resize", () => { if (!wrap.hidden) layoutDock(null); });
+  }
+}
+
+// macOS magnify — คณิตอยู่ใน dock.ts (pure · มี test) · ที่นี่แค่เอาผลไปใส่ DOM
+function layoutDock(cursorY: number | null, smooth = false) {
+  const dock = $("#dock") as HTMLElement;
+  const box = $("#dockItems") as HTMLElement;
+  const items = [...document.querySelectorAll<HTMLElement>("#dockItems .dockitem")];
+  if (!items.length) return;
+  const vh = window.innerHeight;
+  const L = computeDockLayout(items.length, cursorY, vh);
+  // hit-area คงที่ (กัน flicker) — ต้องมีขนาดจริง ไม่งั้น translateX(100%) ตอนปิดเลื่อนไม่พ้นจอ
+  const hit = dockHitBox(items.length);
+  const hitTop = vh / 2 - hit.height / 2;
+  box.style.width = `${hit.width}px`;
+  box.style.height = `${hit.height}px`;
+  box.style.marginTop = `${(-hit.height / 2).toFixed(1)}px`;
+  const useSmooth = smooth || cursorY == null;
+  items.forEach((it, i) => {
+    it.classList.toggle("dsmooth", useSmooth);
+    it.style.width = it.style.height = `${L.sizes[i].toFixed(1)}px`;
+    it.style.top = `${(L.tops[i] - hitTop).toFixed(1)}px`;   // top สัมพัทธ์กับกล่อง hit
+    it.style.right = `${L.rights[i].toFixed(1)}px`;          // โตแล้วเลื่อนออกซ้าย (กรอบอยู่กับที่)
+  });
+  dock.classList.toggle("dsmooth", useSmooth);
+  dock.style.marginTop = "0";
+  dock.style.top = `${L.dockTop.toFixed(1)}px`;
+  dock.style.height = `${L.dockHeight.toFixed(1)}px`;   // ยืดแค่บน-ล่าง · ความกว้างคงที่ (CSS)
 }
 
 function toLogin() {
@@ -1777,6 +2097,10 @@ function toLogin() {
   window.clearTimeout(idleTimer);     // หยุดนับ idle เมื่อออกจากระบบ
   closeImportModal();
   closeSidebar();
+  // ยังไม่ล็อกอิน = ไม่มี Dock (กันเห็นทางไปหน้าอื่นตั้งแต่หน้า login)
+  const dw = $("#dockWrap") as HTMLElement;
+  dw.hidden = true;
+  dw.classList.remove("open");
   document.body.classList.remove("authed");
   renderLogin(() => { void startApp(); });
   document.body.classList.add("ready");

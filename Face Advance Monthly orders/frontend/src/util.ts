@@ -74,6 +74,7 @@ export function paymentBadge(s: string): { cls: string; icon: string } {
     case "รอชำระ":   return { cls: "a", icon: "i-clock" };
     case "ยกเลิก":   return { cls: "n", icon: "i-x" };
     case "error":    return { cls: "w", icon: "i-alert-solid" };   // ยอด COD ไม่ตรง ระบบตั้งเอง
+    case "ไม่ใช่งานขาย": return { cls: "n", icon: "i-ban" };       // ไม่นับในการ์ด/ยอดขาย
     default:         return { cls: "n", icon: "i-x" };
   }
 }

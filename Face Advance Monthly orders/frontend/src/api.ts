@@ -17,7 +17,7 @@ async function restRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
   return res.json() as Promise<T>;
 }
 
-export interface MonthsResponse { authorized: boolean; idle_minutes?: number; months?: string[]; months_error?: string[]; months_done?: string[]; }
+export interface MonthsResponse { authorized: boolean; idle_minutes?: number; role?: string; months?: string[]; months_error?: string[]; months_done?: string[]; }
 
 export function fetchMonths(): Promise<MonthsResponse> {
   return restRpc<MonthsResponse>("get_months", { p_token: getToken() });
@@ -153,6 +153,85 @@ async function authFn(body: Record<string, unknown>): Promise<AuthResp> {
     return { ok: false, message: "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ลองใหม่อีกครั้ง" };
   }
 }
+// ---- Stage 8: บันทึกตีกลับ ----
+export interface ReturnOrder {
+  id: number; order_no: string | null; customer_name: string; phone: string;
+  total_sales: number; items: string; carrier: string;
+  delivery_status: string; payment_status: string; payment_method: string;
+  ordered_date: string; seller_code: string | null; seller_name: string | null;
+}
+export interface LookupResp { authorized: boolean; ok?: boolean; error?: string; order?: ReturnOrder }
+export interface SaveReturnsResp {
+  authorized: boolean; ok?: boolean; error?: string; inserted?: number;
+  problems?: { row: number; tracking: string; reason: string }[];
+  conflicts?: { row: number; tracking: string; with: string }[];
+}
+export interface ReturnRowPayload {
+  tracking_out: string; tracking_return?: string; inspection_result: string;
+  damage_detail?: string; photo_url?: string; no_deduct: boolean;
+}
+
+export interface ReturnsStats {
+  authorized: boolean; ok?: boolean; error?: string;
+  cycle_label?: string; cycle_short?: string; cycle_range?: string;
+  deduct?: number; no_deduct?: number;
+}
+export function fetchReturnsStats(): Promise<ReturnsStats> {
+  return restRpc<ReturnsStats>("app_returns_stats", { p_token: getToken() });
+}
+export interface ReturnsSignal { authorized: boolean; ok?: boolean; count?: number }
+export function fetchReturnsSignal(): Promise<ReturnsSignal> {
+  return restRpc<ReturnsSignal>("app_returns_signal", { p_token: getToken() });
+}
+export interface NotifItem { at: string; by_name: string; n: number; trackings: string }
+export interface NotifResp { authorized: boolean; ok?: boolean; items?: NotifItem[] }
+export function fetchNotifications(): Promise<NotifResp> {
+  return restRpc<NotifResp>("app_notifications", { p_token: getToken() });
+}
+
+// ---- Stage 9: หน้ารายการตีกลับ ----
+export interface ReturnListRow {
+  id: number;
+  ordered_at: string; return_date: string | null;
+  order_no: string | null; customer_name: string | null; phone: string | null; address: string | null;
+  seller_code: string | null; seller_name: string | null; team_name: string | null;
+  carrier: string | null; total_sales: number;
+  payment_method: string | null; payment_status: string | null; delivery_status: string | null; return_arrived: boolean;
+  items: string | null;
+  inspection_result: string | null; tracking_return: string | null; tracking_out: string | null;
+  no_deduct: boolean; has_recon: boolean;
+}
+export interface ReturnCycleOpt { value: string; label: string; range: string; }
+export interface ReturnTeamOpt { id: number; name: string; }
+export interface ReturnSellerOpt { code: string; name: string | null; team_id: number | null; }
+export interface ReturnsListResp {
+  authorized: boolean; ok?: boolean; error?: string;
+  role?: string; all_teams?: boolean; mode?: string;
+  cycle?: ReturnCycleOpt; cycles?: ReturnCycleOpt[];
+  teams?: ReturnTeamOpt[]; sellers?: ReturnSellerOpt[];
+  stats?: { orders: number; sales: number };
+  prev?: { orders: number; sales: number };
+  rows?: ReturnListRow[];
+}
+export function fetchReturnsList(
+  cycle: string | null, mode: string, teamId: number | null, sellerCode: string | null,
+): Promise<ReturnsListResp> {
+  return restRpc<ReturnsListResp>("app_returns_list", {
+    p_token: getToken(), p_cycle: cycle, p_mode: mode, p_team_id: teamId, p_seller_code: sellerCode,
+  });
+}
+
+export function lookupReturnTracking(tracking: string): Promise<LookupResp> {
+  return restRpc<LookupResp>("app_lookup_return_tracking", { p_token: getToken(), p_tracking: tracking });
+}
+export interface PhotoCheckResp { authorized: boolean; ok?: boolean; exists?: boolean; error?: string }
+export function checkReturnPhoto(photo: string): Promise<PhotoCheckResp> {
+  return restRpc<PhotoCheckResp>("app_check_return_photo", { p_token: getToken(), p_photo: photo });
+}
+export function saveReturns(rows: ReturnRowPayload[]): Promise<SaveReturnsResp> {
+  return restRpc<SaveReturnsResp>("app_save_returns", { p_token: getToken(), p_rows: rows });
+}
+
 export function authLogin(username: string, password: string): Promise<AuthResp> {
   return authFn({ action: "login", username, password });
 }
