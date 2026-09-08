@@ -232,6 +232,132 @@ export function saveReturns(rows: ReturnRowPayload[]): Promise<SaveReturnsResp> 
   return restRpc<SaveReturnsResp>("app_save_returns", { p_token: getToken(), p_rows: rows });
 }
 
+// ---- Stage 9b: EDITH — ศูนย์รวมปัญหาทั้งระบบ (Adm only) ----
+export type EdithIssueType = "error" | "conflict" | "recon" | "dedup";
+export interface EdithIssue {
+  type: EdithIssueType; ref: number; key: string; severity: string;
+  opened_at: string; age_minutes: number; summary: string;
+  extra: Record<string, unknown>;
+}
+export interface EdithCounts { error: number; conflict: number; recon: number; dedup: number; total: number; }
+export interface EdithIssuesResp {
+  authorized: boolean; ok?: boolean; error?: string;
+  issues?: EdithIssue[]; counts?: EdithCounts;
+}
+export function fetchEdithIssues(): Promise<EdithIssuesResp> {
+  return restRpc<EdithIssuesResp>("app_edith_issues", { p_token: getToken() });
+}
+
+export interface EdithDetailResp {
+  authorized: boolean; ok?: boolean; error?: string;
+  order?: Record<string, unknown>;
+  conflict?: Record<string, unknown>;
+  review?: Record<string, unknown>;
+}
+export function fetchEdithDetail(type: EdithIssueType, ref: number): Promise<EdithDetailResp> {
+  const fn = type === "error" ? "app_edith_error_detail"
+    : type === "conflict" ? "app_edith_conflict_detail"
+    : type === "recon" ? "app_edith_recon_detail"
+    : "app_edith_dedup_detail";
+  const arg = type === "conflict" ? { p_conflict_id: ref }
+    : type === "dedup" ? { p_review_id: ref }
+    : { p_order_id: ref };
+  return restRpc<EdithDetailResp>(fn, { p_token: getToken(), ...arg });
+}
+
+export interface EdithActionResp {
+  authorized: boolean; ok?: boolean; error?: string;
+  payment_status?: string; delivery_status?: string;
+  kind?: string; deleted?: Record<string, unknown>;
+}
+export function edithFixCod(orderId: number, newAmount: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_fix_cod_amount", { p_token: getToken(), p_order_id: orderId, p_new_amount: newAmount });
+}
+// แก้ Error โดยเลือกว่าใช้ค่าไหน: "order"=ยึดยอดออเดอร์ · "received"=ยึดยอดรับเงิน (ระบบปรับอีกฝั่ง)
+export function edithResolveError(orderId: number, use: "order" | "received"): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_resolve_error", { p_token: getToken(), p_order_id: orderId, p_use: use });
+}
+// เปลี่ยนสถานะชำระด้วยตนเอง (เผื่อเคสไม่มี COD record / override)
+export function edithSetPaymentStatus(orderId: number, status: string): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_set_payment_status", { p_token: getToken(), p_order_id: orderId, p_status: status });
+}
+
+// ---- จัดการผู้ใช้ (Adm only · อยู่ใน EDITH) ----
+export interface AdminUser {
+  id: string; username: string; display_name: string | null; role: string;
+  is_active: boolean; all_teams: boolean; idle_minutes: number; session_hours: number;
+  has_line: boolean; line_user_id: string | null; teams: string[];
+  created_at: string | null; last_seen_at: string | null;
+}
+export interface AdminTeam { id: number; name: string; is_active: boolean; }
+export interface AdminUsersResp {
+  authorized: boolean; ok?: boolean; error?: string; me?: string;
+  users?: AdminUser[]; teams?: AdminTeam[];
+}
+export function fetchAdminUsers(): Promise<AdminUsersResp> {
+  return restRpc<AdminUsersResp>("app_admin_list_users", { p_token: getToken() });
+}
+export interface AdminActionResp { authorized: boolean; ok?: boolean; error?: string; user_id?: string; username?: string; password?: string; }
+export function adminCreateUser(u: { username: string; display_name: string; role: string; all_teams: boolean; team_ids: number[]; idle_minutes: number; session_hours: number; line_user_id: string; }): Promise<AdminActionResp> {
+  return restRpc<AdminActionResp>("app_admin_create_user", {
+    p_token: getToken(), p_username: u.username, p_display_name: u.display_name, p_role: u.role,
+    p_all_teams: u.all_teams, p_team_ids: u.team_ids, p_idle_minutes: u.idle_minutes, p_session_hours: u.session_hours, p_line_user_id: u.line_user_id });
+}
+export function adminUpdateUser(id: string, u: { display_name: string; role: string; all_teams: boolean; team_ids: number[]; is_active: boolean; idle_minutes: number; session_hours: number; line_user_id: string; }): Promise<AdminActionResp> {
+  return restRpc<AdminActionResp>("app_admin_update_user", {
+    p_token: getToken(), p_user_id: id, p_display_name: u.display_name, p_role: u.role,
+    p_all_teams: u.all_teams, p_team_ids: u.team_ids, p_is_active: u.is_active, p_idle_minutes: u.idle_minutes, p_session_hours: u.session_hours, p_line_user_id: u.line_user_id });
+}
+export function adminResetPassword(id: string, newPassword: string): Promise<AdminActionResp> {
+  return restRpc<AdminActionResp>("app_admin_reset_password", { p_token: getToken(), p_user_id: id, p_new_password: newPassword });
+}
+export function edithDeleteRecon(kind: "cod" | "return", orderId: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_delete_recon", { p_token: getToken(), p_kind: kind, p_order_id: orderId });
+}
+export function edithRestoreRecon(kind: "cod" | "return", payload: Record<string, unknown>): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_restore_recon", { p_token: getToken(), p_kind: kind, p_payload: payload });
+}
+export function edithResolveConflict(conflictId: number, chosenIdx: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_resolve_conflict", { p_token: getToken(), p_conflict_id: conflictId, p_chosen_idx: chosenIdx });
+}
+export function edithMerge(keep: number, dup: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_merge_customers", { p_token: getToken(), p_keep: keep, p_dup: dup });
+}
+
+export interface EdithLogRow {
+  id: number; username: string; event: string;
+  detail: Record<string, unknown> | null; ip: string | null; geo: Record<string, unknown> | null; at: string;
+}
+export interface EdithLogResp {
+  authorized: boolean; ok?: boolean; error?: string;
+  rows?: EdithLogRow[]; total?: number; users?: string[]; events?: string[];
+}
+export function fetchEdithLog(filter: Record<string, unknown> = {}): Promise<EdithLogResp> {
+  return restRpc<EdithLogResp>("app_edith_log", { p_token: getToken(), p_filter: filter });
+}
+
+// ---- Stage 9c: หน้าค้นหา (global search · ข้ามรอบเดือน · ตามสิทธิ์) ----
+export interface SearchRow {
+  id: number;
+  ordered_at: string; return_date?: string | null;
+  order_no: string | null; customer_name: string | null; phone: string | null; address: string | null;
+  seller_code: string | null; seller_name: string | null; team_name: string | null;
+  carrier: string | null; total_sales: number;
+  payment_method: string | null; payment_status: string | null; delivery_status: string | null; return_arrived: boolean;
+  tracking_out: string | null; items: string | null; note?: string | null;
+  inspection_result?: string | null; tracking_return?: string | null; no_deduct?: boolean; has_recon?: boolean;
+  cycle_label?: string; cycle_value?: string;
+  matched_fields: string[];
+}
+export interface SearchResp {
+  authorized: boolean; ok?: boolean; error?: string;
+  view?: "order" | "deduct"; query?: string; too_short?: boolean;
+  rows?: SearchRow[]; count?: number;
+}
+export function searchOrders(query: string, view: "order" | "deduct"): Promise<SearchResp> {
+  return restRpc<SearchResp>("app_search_orders", { p_token: getToken(), p_query: query, p_view: view });
+}
+
 export function authLogin(username: string, password: string): Promise<AuthResp> {
   return authFn({ action: "login", username, password });
 }

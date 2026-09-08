@@ -10,6 +10,8 @@ import { getToken, clearSession, displayName, getRole, setRole } from "./session
 import { pageDef, pagesFor, canEdit, type PageKey } from "./pages";
 import { renderRecordReturns } from "./returns";
 import { renderReturnsList } from "./returns_list";
+import { renderEdith } from "./edith";
+import { renderSearch } from "./search";
 import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
@@ -1783,12 +1785,11 @@ const notifSeenKey = () => `fa_notif_seen_${displayName() || "user"}`;
 const notifSeenAt = () => localStorage.getItem(notifSeenKey()) || "";
 const returnsTotal = () => notifItems.reduce((s, i) => s + (i.n || 0), 0);
 
-function timeAgo(iso: string): string {
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "เมื่อสักครู่";
-  if (s < 3600) return `${Math.floor(s / 60)} นาทีที่แล้ว`;
-  if (s < 86400) return `${Math.floor(s / 3600)} ชม.ที่แล้ว`;
-  return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+function fmtDateTime(iso: string): string {   // "8 ก.ย. · 14:32" — วันที่ + เวลา
+  const d = new Date(iso);
+  const date = d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+  const time = d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+  return `${date} · ${time}`;
 }
 function beep() {   // เสียงเตือนเมลใหม่ (Web Audio · ไม่ต้องมีไฟล์เสียง)
   try {
@@ -1841,8 +1842,8 @@ function renderNotifList() {
     const isNew = !seen || n.at > seen;
     const row = document.createElement("div");
     row.className = `notifitem${isNew ? " new" : ""}`;
-    row.innerHTML = `<div class="ni-top"><b>${n.by_name}</b> บันทึกตีกลับ <span class="ni-n">${n.n} รายการ</span><span class="ni-time">${timeAgo(n.at)}</span></div>
-      <div class="ni-sub"><span class="ni-tr">${n.trackings}</span></div>`;
+    row.innerHTML = `<div class="ni-top"><b>${n.by_name || "ไม่ทราบ"}</b> บันทึกตีกลับเพิ่ม <span class="ni-n">${n.n} รายการ</span></div>
+      <div class="ni-sub">${fmtDateTime(n.at)}</div>`;
     list.append(row);
   }
 }
@@ -1931,10 +1932,21 @@ async function bootstrap() {
 }
 
 // เข้าแอป (หลัง login ผ่าน) — เซ็ต role + Dock + ไปหน้าแรกที่ role เข้าได้
+let startAppRetry = 0;
 async function startApp() {
+  let m: Awaited<ReturnType<typeof fetchMonths>>;
   try {
-    const m = await fetchMonths();
-    if (!m.authorized) { toLogin(); return; }
+    m = await fetchMonths();
+  } catch {
+    // เชื่อมต่อไม่ได้ชั่วคราว (เน็ตกระตุก/เซิร์ฟเวอร์ตอบช้า) → ห้ามล้าง session · ลองใหม่แบบถอยหลัง
+    startAppRetry = Math.min(startAppRetry + 1, 5);
+    toast(`เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กำลังลองใหม่… (${startAppRetry})`);
+    window.setTimeout(() => { void startApp(); }, 2000 * startAppRetry);
+    return;
+  }
+  startAppRetry = 0;
+  if (!m.authorized) { toLogin(); return; }   // session หมด/เสียจริง → ออกไป login เท่านั้น
+  try {
     currentRole = m.role || getRole(); setRole(currentRole);   // role จริงจาก server
     document.body.classList.toggle("noedit", !canEdit(currentRole));   // role แก้ไม่ได้ → ซ่อนดินสอ
     document.body.classList.add("authed");
@@ -1951,7 +1963,8 @@ async function startApp() {
     await setPage(target);
     void loadNotifs();   // เติม badge กระดิ่งตอนเข้าระบบ
   } catch {
-    toLogin(); // ต่อเซิร์ฟเวอร์ไม่ได้/session เสีย → กลับไป login
+    // โหลดหน้าแรกพลาด (ไม่ใช่เรื่อง auth) → คงอยู่ในระบบ ไม่เตะออก
+    toast("โหลดข้อมูลไม่สำเร็จ ลองรีเฟรชอีกครั้ง");
   }
 }
 
@@ -1993,6 +2006,8 @@ function renderPage() {
   const isOrders = key === "orders";
   ($("#pageOrders") as HTMLElement).hidden = !isOrders;
   ($("#pageAlt") as HTMLElement).hidden = isOrders;
+  // กัน theme ของ EDITH ค้างย้อมหน้าอื่น (#pageAlt แชร์ทุกหน้า) — renderEdith จะเติม class คืนเอง
+  ($("#pageAlt") as HTMLElement).classList.remove("edith-host");
   ($("#monthsel") as HTMLElement).style.display = isOrders ? "" : "none";
   ($("#refreshBtn") as HTMLElement).style.display = isOrders ? "" : "none";
   ($("#searchWrap") as HTMLElement).style.display = isOrders ? "" : "none";
@@ -2005,6 +2020,12 @@ function renderPage() {
   } else if (key === "returns-list") {
     $("#pageTitle").textContent = def.title;
     renderReturnsList($("#pageAlt") as HTMLElement, { toast });
+  } else if (key === "edith" && def.built) {
+    $("#pageTitle").textContent = def.title;
+    renderEdith($("#pageAlt") as HTMLElement, { toast });
+  } else if (key === "search") {
+    $("#pageTitle").textContent = def.title;
+    renderSearch($("#pageAlt") as HTMLElement, { toast });
   } else {
     $("#pageTitle").textContent = def.title;
     ($("#pageAlt") as HTMLElement).innerHTML = def.built ? "" : `
