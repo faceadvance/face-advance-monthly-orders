@@ -4,7 +4,7 @@
 //   • สถานะตีกลับทั้งหมด → orders delivery_status='ตีกลับ' · เดือนปฏิทิน 1–สิ้นเดือน (แบบหน้า order) · การ์ด scope+จำนวน+กราฟ
 // ตัวเลือกเดือน: stepper เด่น (◀ ▶ + กดเลือกจาก grid) · default = รอบ/เดือนปัจจุบันเสมอ
 // สิทธิ์: Adm/Vm/all_teams เห็นทุกทีม · RTs เห็นทีมตัวเอง (คุมใน RPC) · funnel filter หัวคอลัมน์แบบหน้า order
-import { el, icon, nf, dmy, paymentMethodLabel, paymentStatusLabel, deliveryBadge, paymentBadge, THAI_MONTHS_SHORT } from "./util";
+import { el, icon, nf, dmy, paymentMethodLabel, paymentStatusLabel, deliveryBadge, paymentBadge, THAI_MONTHS_SHORT, loadColsHidden, saveColsHidden } from "./util";
 import { fetchReturnsList, type ReturnsListResp, type ReturnListRow } from "./api";
 import { makeVTable, type VTable } from "./virtual";
 
@@ -25,8 +25,8 @@ let sort: { key: string; dir: "asc" | "desc" } | null = null;
 let openDrop: HTMLElement | null = null;
 let outsideBound = false;
 // ซ่อน/โชว์คอลัมน์ (แยกตามโหมด) + เมนู
-const hiddenDeduct = new Set<string>();
-const hiddenStatus = new Set<string>();
+const hiddenDeduct = loadColsHidden("fa_cols_ret_deduct");   // จำต่อเครื่อง (แยกตามโหมด)
+const hiddenStatus = loadColsHidden("fa_cols_ret_status");
 const curHidden = () => (state.mode === "status" ? hiddenStatus : hiddenDeduct);
 
 const dash = (s: string | null | undefined): string => (s && s.trim() !== "" ? s : "—");
@@ -365,7 +365,7 @@ function renderRlLoading() {
   vt?.detach(); vt = null;
   const wrap = document.querySelector("#rlWrap") as HTMLElement | null;
   if (wrap) { wrap.onscroll = null; wrap.innerHTML = ""; wrap.append(el("div", { class: "loadbox" }, el("span", { class: "loadspin" }), el("span", {}, "กำลังโหลดข้อมูล…"))); }
-  const cards = document.getElementById("rlCards"); if (cards) cards.innerHTML = "";
+  document.getElementById("rlCards")?.classList.add("cards-loading");   // คงกรอบการ์ด ซ่อนแค่ตัวเลข
 }
 async function load(first: boolean) {
   renderRlLoading();   // ล้างของเดิมออกทันที + โชว์กำลังโหลด (ไม่ให้รู้สึกค้างระหว่างรอ fetch)
@@ -460,6 +460,7 @@ function setDelta(id: string, cur: number, prev: number) {   // เดลต้�
 }
 function paintCards() {
   if (!data) return;
+  document.getElementById("rlCards")?.classList.remove("cards-loading");   // ข้อมูลมาแล้ว
   const deduct = state.mode === "deduct";
   const rows = computeVisible();
   const orders = rows.length;
@@ -595,6 +596,7 @@ function buildColsMenu() {
       if (hidden.has(c.key)) hidden.delete(c.key);
       else if (cols.length - hidden.size > 1) hidden.add(c.key);   // เหลืออย่างน้อย 1 คอลัมน์
       cbx.classList.toggle("off", hidden.has(c.key));
+      saveColsHidden(state.mode === "status" ? "fa_cols_ret_status" : "fa_cols_ret_deduct", hidden);   // จำต่อเครื่อง
       paintTable();
     });
     pop.append(row);

@@ -18,6 +18,7 @@ import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
   cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
+  loadColsHidden, saveColsHidden,
 } from "./util";
 
 const MAX_SELECT = 30;
@@ -46,7 +47,7 @@ const COLUMNS: Column[] = [
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
   { key: "note", label: "หมายเหตุ" },
 ];
-const ordHidden = new Set<string>();   // คอลัมน์ที่ซ่อน (ปุ่มเลือกคอลัมน์หน้า order)
+const ordHidden = loadColsHidden("fa_cols_orders");   // คอลัมน์ที่ซ่อน (จำใน localStorage ต่อเครื่อง)
 
 // ---------- state ----------
 const state = {
@@ -183,6 +184,7 @@ function animateKpiNums(root: HTMLElement) {
 function renderKpi(d: OrdersResponse) {
   const root = $("#kpi");
   root.textContent = "";
+  root.classList.remove("cards-loading");   // ข้อมูลมาแล้ว → เลิกสถานะโหลด
   const days = d.days_in_month;
   const curDay = currentDayOfMonth(d);
   const isFuture = (i: number) => i + 1 > curDay;
@@ -475,14 +477,13 @@ function onTableScroll() {
 
 // เปลี่ยนเดือน → ล้างข้อมูลเดิมออกทันที + โชว์กำลังโหลด (ไม่ให้รู้สึกค้างระหว่างรอ fetch)
 function renderLoading() {
-  const kpi = document.getElementById("kpi");
-  if (kpi) { kpi.textContent = ""; kpi.append(el("div", { class: "loadbox kpiload" }, spinner(), el("span", {}, "กำลังโหลด…"))); }
+  // การ์ด KPI: คงกรอบการ์ดไว้ ซ่อนแค่ตัวเลข (จาง) + spinner ในการ์ด — ไม่ล้างทั้งใบ
+  document.getElementById("kpi")?.classList.add("cards-loading");
   const wrap = document.getElementById("tableWrap");
-  if (wrap) { wrap.textContent = ""; wrap.append(el("div", { class: "loadbox" }, spinner(), el("span", {}, "กำลังโหลดข้อมูล…"))); }
+  if (wrap) { wrap.textContent = ""; wrap.append(el("div", { class: "loadbox" }, el("span", { class: "loadspin" }), el("span", {}, "กำลังโหลดข้อมูล…"))); }
   const meta = document.getElementById("tableMeta"); if (meta) meta.textContent = "";
   currentVisible = []; tickEls.clear(); vTbody = null;   // ตัดการอ้างอิงตารางเก่า (กัน scroll handler ทำงานกับ DOM ที่หายไป)
 }
-function spinner(): HTMLElement { return el("span", { class: "loadspin" }); }
 
 function renderTable() {
   const d = state.data!;
@@ -563,6 +564,7 @@ function buildOrdColsMenu() {
       if (ordHidden.has(c.key)) ordHidden.delete(c.key);
       else if (COLUMNS.length - ordHidden.size > 1) ordHidden.add(c.key);
       cbx.classList.toggle("off", ordHidden.has(c.key));
+      saveColsHidden("fa_cols_orders", ordHidden);   // จำไว้ต่อเครื่อง
       applyOrdHidden();
     });
     pop.append(row);

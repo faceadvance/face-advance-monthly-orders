@@ -38,6 +38,15 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+// จำการซ่อน/แสดงคอลัมน์ต่อหน้า ใน localStorage ของแต่ละเครื่อง (เปิดมาใหม่ไม่ต้องปรับใหม่)
+export function loadColsHidden(key: string): Set<string> {
+  try { const raw = localStorage.getItem(key); if (raw) return new Set(JSON.parse(raw) as string[]); } catch { /* ค่าเสีย → เริ่มว่าง */ }
+  return new Set<string>();
+}
+export function saveColsHidden(key: string, set: Set<string>): void {
+  try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* localStorage เต็ม/ปิด → ข้าม */ }
+}
+
 export function icon(id: string, style = ""): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "ic");

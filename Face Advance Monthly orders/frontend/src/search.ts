@@ -2,6 +2,7 @@
 // 2 โหมด: แบบออเดอร์ / แบบหักยอดตีกลับ — ยกตาราง+funnel+การ์ดของหน้านั้นๆ มาเลย (คำนวณจากผลค้นหา · ไม่มีเดือน)
 // ตาราง+ตัวกรอง funnel + caret ใช้คลาสร่วมกับหน้า order/หักยอด · ไม่มี sidebar (ดูจากตารางพอ)
 import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, paymentMethodLabel } from "./util";
+import { makeVTable, type VTable } from "./virtual";
 import { searchOrders, type SearchRow, type SearchResp } from "./api";
 
 let toastFn: (m: string, ok?: boolean) => void = () => {};
@@ -41,7 +42,7 @@ function highlight(text: string | null | undefined): Node {
 // ---------- cells (คลาสร่วมกับหน้า order/หักยอด) ----------
 function caretToggle(extra = ""): HTMLElement {
   const tog = el("span", { class: `itemtoggle ${extra}`.trim(), title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret")) as HTMLElement;
-  tog.addEventListener("click", (e) => { e.stopPropagation(); (e.currentTarget as HTMLElement).closest("tr")?.classList.toggle("rowopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); const tr = (e.currentTarget as HTMLElement).closest("tr") as HTMLElement | null; if (tr) toggleSearchRow(tr); });
   return tog;
 }
 function itemsCell(r: SearchRow): Node {
@@ -104,6 +105,32 @@ const COLS_DEDUCT: Col[] = [
   { key: "cycle", label: "รอบเดือน", td: "rlteam", val: (r) => r.cycle_label ?? "", render: (r) => { const box = el("span", {}, el("span", { class: "srch-cycle" }, r.cycle_label || "—")); if (r.no_deduct) box.append(" ", badge("n", "i-ban", "ไม่หัก")); return box; } },
 ];
 const cols = (): Col[] => (view === "deduct" ? COLS_DEDUCT : COLS_ORDER);
+
+// ---------- virtual scrolling ----------
+let srchVt: VTable | null = null;
+let srchVisible: SearchRow[] = [];
+let srchCols: Col[] = [];
+const srchExpanded = new Set<number>();
+function buildSearchRow(i: number): HTMLElement {
+  const r = srchVisible[i];
+  const tr = el("tr", {}) as HTMLElement;
+  tr.dataset.idx = String(i);
+  if (srchExpanded.has(i)) tr.classList.add("rowopen");
+  for (const c of srchCols) tr.append(el("td", { class: c.td || "" }, c.render(r)));
+  return tr;
+}
+function toggleSearchRow(tr: HTMLElement) {
+  const i = Number(tr.dataset.idx);
+  if (!Number.isFinite(i)) return;
+  const open = tr.classList.toggle("rowopen");
+  if (open) { srchExpanded.add(i); srchVt?.setRowHeight(i, tr.getBoundingClientRect().height); }
+  else { srchExpanded.delete(i); srchVt?.setRowHeight(i, null); }
+}
+function srchMeasureToggles(scope: ParentNode) {
+  for (const tx of scope.querySelectorAll<HTMLElement>(".ntxt, .atxt")) {
+    if (tx.scrollWidth > tx.clientWidth + 1) { const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle"); if (tog) tog.style.display = ""; }
+  }
+}
 
 // ---------- filter/sort (funnel — ยกจากหน้า order/หักยอด) ----------
 function computeVisible(): SearchRow[] {
@@ -292,28 +319,45 @@ function paint() {
 
   const rows = computeVisible();
   cards.append(buildCards(rows));
-  const capped = (resp.count ?? 0) >= 300;
+  const capped = (resp.count ?? 0) >= 5000;
   meta.append(
     el("span", { class: "srch-count" }, `พบ ${nf(resp.count ?? allRows.length)}${capped ? "+" : ""} รายการ`),
     filters.size || sort ? el("span", { class: "srch-metaq" }, `กรองเหลือ ${nf(rows.length)}`) : el("span", { class: "srch-metaq" }, `ค้นด้วย “${resp.query}”`),
     el("span", { class: "srch-metascope" }, view === "order" ? "ทุกออเดอร์ · ข้ามรอบเดือน" : "ตีกลับทั้งหมด · ข้ามรอบเดือน"));
 
-  const cs = cols();
+  // virtual scrolling — วาดเฉพาะแถวที่เห็น (รองรับผลลัพธ์เยอะเหมือนหน้าออเดอร์)
+  srchVt?.detach(); srchVt = null;
+  srchCols = cols();
+  srchVisible = rows;
+  srchExpanded.clear();
   const table = el("table", {});
-  const thr = el("tr", {}); for (const c of cs) thr.append(buildTh(c));
+  const thr = el("tr", {}); for (const c of srchCols) thr.append(buildTh(c));
   const tbody = el("tbody", {});
-  if (!rows.length) {
-    tbody.append(el("tr", {}, el("td", { colspan: String(cs.length) }, el("div", { class: "srch-empty" }, el("p", {}, "ไม่มีรายการตรงกับตัวกรอง")))));
-  } else {
-    for (const r of rows) { const tr = el("tr", {}) as HTMLElement; for (const c of cs) tr.append(el("td", { class: c.td || "" }, c.render(r))); tbody.append(tr); }
-  }
   table.append(el("thead", {}, thr), tbody);
   const wrap = el("div", { class: "srch-tablewrap" }, table);
   results.append(el("div", { class: "card srch-card" }, wrap));
 
-  for (const tx of wrap.querySelectorAll<HTMLElement>(".ntxt, .atxt")) {
-    if (tx.scrollWidth > tx.clientWidth + 1) { const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle"); if (tog) tog.style.display = ""; }
+  if (!rows.length) {
+    tbody.append(el("tr", {}, el("td", { colspan: String(srchCols.length) }, el("div", { class: "srch-empty" }, el("p", {}, "ไม่มีรายการตรงกับตัวกรอง")))));
+    return;
   }
+  // วัดความกว้างคอลัมน์จากตัวอย่าง → ล็อก table-layout fixed กันคอลัมน์เพี้ยนตอน virtualize
+  const sampleN = Math.min(rows.length, 60);
+  for (let i = 0; i < sampleN; i++) tbody.append(buildSearchRow(i));
+  const ths = [...thr.children] as HTMLElement[];
+  const widths = ths.map((t) => Math.ceil(t.getBoundingClientRect().width));
+  const baseH = Math.round((tbody.firstElementChild as HTMLElement)?.getBoundingClientRect().height || 50);
+  tbody.textContent = "";
+  table.style.tableLayout = "fixed";
+  ths.forEach((t, i) => { t.style.width = widths[i] + "px"; });
+
+  srchVt = makeVTable({
+    wrap, tbody, colspan: srchCols.length,
+    count: () => srchVisible.length, buildRow: buildSearchRow, baseH,
+    afterWindow: (tb) => srchMeasureToggles(tb),
+  });
+  wrap.scrollTop = 0;
+  srchVt.render(true);
 }
 function emptyState(ic: string, title: string, sub: string): HTMLElement {
   return el("div", { class: "srch-empty" }, icon(ic), el("h3", {}, title), el("p", {}, sub));
