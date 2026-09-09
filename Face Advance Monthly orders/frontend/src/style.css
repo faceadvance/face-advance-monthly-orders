@@ -213,6 +213,8 @@ tr.rowopen td{vertical-align:top}
 .noteline{display:flex;align-items:center;gap:.3rem}
 .noteline .notetxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .notetxt{white-space:normal;overflow:visible;word-break:break-word}
+.carriercell .carriertxt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr.rowopen .carriercell .carriertxt{white-space:normal;overflow:visible;word-break:break-word}
 th.rcol .hh{justify-content:flex-end}
 /* คอลัมน์สถานะ (จัดส่ง/ชำระ/ตีกลับ/ปัญหา) แคบลง พอดีป้าย */
 thead th.c{padding-left:.45rem;padding-right:.45rem}

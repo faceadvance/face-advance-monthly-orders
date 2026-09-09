@@ -630,7 +630,7 @@ function buildRow(o: Order): HTMLElement {
   ac("items", buildItemsCell(o, tr));
   ac("payment_method", el("td", { class: "tar" }, paymentMethodLabel(o.payment_method) || "—"));
   ac("total_sales", el("td", { class: "amount num" }, nf(o.total_sales)));
-  ac("carrier", el("td", {}, o.carrier || "—"));
+  ac("carrier", el("td", { class: "carriercell" }, el("span", { class: "carriertxt", title: o.carrier || "" }, o.carrier || "—")));
   ac("tracking_no", buildTrackCell(o));
   ac("delivery_status", buildStatusCell(o, "delivery"));
   ac("problem", buildProblemCell(o));
