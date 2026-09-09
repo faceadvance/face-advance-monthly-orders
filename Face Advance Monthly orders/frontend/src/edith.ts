@@ -542,9 +542,9 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
     el("span", {}, "เลือกฝั่งที่จะ ", el("b", {}, "เก็บไว้"), " — ระบบจะย้ายออเดอร์และเบอร์ทั้งหมดของอีกฝั่งมารวมที่ id ที่เลือก แล้วลบอีกฝั่งทิ้งถาวร")));
 
   const idA = Number(v.new_customer_id), idB = Number(v.candidate_customer_id);
-  type Side = { id: number; name: string; addr: string; phones: string; orders: number; spent: number; last: string };
-  const A: Side = { id: idA, name: g(v, "new_name"), addr: g(v, "new_addr"), phones: g(v, "new_phones"), orders: Number(v.new_orders || 0), spent: Number(v.new_spent || 0), last: g(v, "new_last") };
-  const B: Side = { id: idB, name: g(v, "cand_name"), addr: g(v, "cand_addr"), phones: g(v, "cand_phones"), orders: Number(v.cand_orders || 0), spent: Number(v.cand_spent || 0), last: g(v, "cand_last") };
+  type Side = { id: number; name: string; addr: string; phones: string; orders: number; spent: number; last: string; first: string };
+  const A: Side = { id: idA, name: g(v, "new_name"), addr: g(v, "new_addr"), phones: g(v, "new_phones"), orders: Number(v.new_orders || 0), spent: Number(v.new_spent || 0), last: g(v, "new_last"), first: g(v, "new_first") };
+  const B: Side = { id: idB, name: g(v, "cand_name"), addr: g(v, "cand_addr"), phones: g(v, "cand_phones"), orders: Number(v.cand_orders || 0), spent: Number(v.cand_spent || 0), last: g(v, "cand_last"), first: g(v, "cand_first") };
   const norm = (x: string) => x.trim().replace(/\s+/g, " ");
   const same = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
   const reasonKey: keyof Side = reason === "address" ? "addr" : reason === "phone" ? "phones" : "name";
@@ -567,6 +567,7 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
     card.append(el("div", { class: "ed-dstat" },
       el("span", {}, "ออเดอร์ ", el("b", {}, String(s.orders))),
       el("span", {}, "ยอดรวม ", el("b", {}, "฿" + nf(s.spent))),
+      el("span", {}, "ลูกค้าใหม่เมื่อ ", el("b", {}, s.first ? fmtTime(s.first) : "—")),
       el("span", {}, "ล่าสุด ", el("b", {}, s.last ? fmtTime(s.last) : "—"))));
     const keep = el("button", { class: "ed-btn primary" }, icon("i-check"), `เก็บ id #${s.id} นี้ไว้`) as HTMLButtonElement;
     keep.addEventListener("click", () => confirmAsk(
