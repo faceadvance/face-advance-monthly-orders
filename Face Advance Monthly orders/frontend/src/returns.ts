@@ -2,7 +2,7 @@
 // สเปกเจ้านาย: 3 ช่องกรอกด้านบน (แทร็คส่งออก · แทร็คตีกลับ · ลิงก์รูป) · Enter ไหลต่อเนื่อง
 //   · ตรวจซ้ำ/ไม่พบออเดอร์ตั้งแต่ตอนกรอก (ไม่รับค่า) · เสียหาย/ไม่ครบ → เลือกสินค้าในออเดอร์ + จำนวน (ไม่เกินที่มี)
 //   · ธง "ไม่หักยอด" (default ปิด · ใช้คิดค่าคอมในหน้ารายการตีกลับ) · รูปพรีวิวกดดูใหญ่ได้ · ร่างกู้คืนได้ถ้าไฟดับ
-import { el, icon, nf } from "./util";
+import { el, icon, nf, imageSrc, openLightbox } from "./util";
 import { lookupReturnTracking, saveReturns, fetchReturnsStats, checkReturnPhoto, type ReturnOrder, type ReturnsStats } from "./api";
 import { displayName } from "./session";
 
@@ -56,13 +56,6 @@ function kindsFor(ins: string): DamageKind[] {
   return [];
 }
 
-/** ลิงก์ Google Drive → URL รูปที่ฝังได้ (ไฟล์ต้องแชร์สาธารณะ) · ลิงก์รูปตรงๆ ใช้ได้เลย */
-export function imageSrc(url: string, big = false): string {
-  const u = url.trim();
-  const m = u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]{20,})/);
-  if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=${big ? "w1600" : "w600"}`;
-  return u;
-}
 
 // ---------- ร่าง (กันไฟดับ/ปิดระบบระหว่างกรอก) ----------
 function saveDraft() {
@@ -643,13 +636,6 @@ function focusField(which: "out" | "back" | "photo") {
   (document.querySelector(`#rtFocus input[data-f="${which}"]`) as HTMLInputElement | null)?.focus();
 }
 
-function openLightbox(url: string) {
-  const ov = el("div", { class: "rtlight" });
-  const img = el("img", { src: imageSrc(url, true), alt: "รูปกล่องตีกลับ" });
-  ov.addEventListener("click", () => ov.remove());
-  ov.append(img, el("a", { class: "rtlopen", href: url, target: "_blank", rel: "noopener" }, "เปิดต้นฉบับ ↗"));
-  document.body.append(ov);
-}
 
 // ---------- บันทึก ----------
 async function doSave() {

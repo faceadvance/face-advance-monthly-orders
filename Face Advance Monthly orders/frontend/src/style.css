@@ -1053,6 +1053,13 @@ body.sbopen #dockWrap{display:none}
 .rtqdi.dmg{background:#FFEDD5;color:#C2410C}
 .rtqdi.miss{background:#FEE2E2;color:#B91C1C}
 .rtqimg{width:180px;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--border);cursor:zoom-in}
+/* lightbox รูปเต็มจอ (ใช้ร่วมหน้าบันทึกตีกลับ + EDITH) — modal กลางจอ พื้นทึบ คลิกนอก/Esc/× ปิด */
+.rtlight{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.85);display:flex;align-items:center;justify-content:center;padding:24px;cursor:zoom-out;animation:rtlin .15s ease}
+.rtlight img{max-width:92vw;max-height:86vh;object-fit:contain;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.55);cursor:default;background:#fff}
+.rtlclose{position:fixed;top:14px;right:22px;color:#fff;font-size:2rem;line-height:1;font-weight:300;cursor:pointer;opacity:.85;user-select:none}
+.rtlclose:hover{opacity:1}
+.rtlopen{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#fff;color:var(--ink);font-size:.8rem;font-weight:600;padding:.4rem .95rem;border-radius:999px;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+@keyframes rtlin{from{opacity:0}to{opacity:1}}
 @media (max-width:1000px){ .rtinputs{grid-template-columns:1fr 1fr}.rtfbody{grid-template-columns:1fr} }
 
 /* ปัญหาที่ server ตอบกลับ */
@@ -1557,7 +1564,8 @@ td.rlteam{white-space:nowrap}
 
 /* รูปหลักฐาน conflict */
 .ed-photo{display:block;margin-top:5px;border:1px solid var(--ed-line);border-radius:8px;overflow:hidden;width:max-content;max-width:100%}
-.ed-photo img{display:block;width:100%;max-width:220px;height:auto}
+.ed-photo img{display:block;width:100%;max-width:220px;height:auto;cursor:zoom-in;transition:opacity .12s}
+.ed-photo img:hover{opacity:.9}
 .ed-nophoto{color:var(--ed-quiet)}
 .ed-mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:13px;letter-spacing:.01em}
 

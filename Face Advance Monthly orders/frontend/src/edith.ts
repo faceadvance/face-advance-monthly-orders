@@ -1,7 +1,7 @@
 // หน้า EDITH (Stage 9b) — ศูนย์จัดการเคสทั้งระบบ · Adm only
 // ดีไซน์: layout เดซี่ v3 (KPI + คิว time-bucket + โต๊ะตรวจ + audit filter) · พาเลตมืดเดซี่ v1
 // ปัญหา 4 ชนิด: error(COD ยอดไม่ตรง) · conflict(บันทึกตีกลับชน) · recon(COD+ตีกลับ) · dedup(ลูกค้าซ้ำ)
-import { el, icon, nf } from "./util";
+import { el, icon, nf, imageSrc, openLightbox } from "./util";
 import {
   fetchEdithIssues, fetchEdithDetail, fetchEdithLog,
   edithDeleteRecon, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
@@ -361,9 +361,11 @@ const g = (o: Record<string, unknown>, k: string) => (o[k] == null ? "" : String
 // แถวรูปหลักฐาน (แสดงรูปถ้ามี · คลิกเปิดเต็ม)
 function photoRow(url: string): HTMLElement {
   const pv = el("div", { class: "ed-kv" }, el("span", { class: "ed-k" }, "รูปหลักฐาน"));
-  if (url) pv.append(el("a", { class: "ed-photo", href: url, target: "_blank", rel: "noopener" },
-    el("img", { src: url, alt: "หลักฐานตีกลับ", loading: "lazy" })));
-  else pv.append(el("span", { class: "ed-v ed-nophoto" }, "— ไม่มีรูป"));
+  if (url) {
+    const img = el("img", { src: imageSrc(url), alt: "หลักฐานตีกลับ", loading: "lazy" }) as HTMLImageElement;
+    img.addEventListener("click", () => openLightbox(url));   // คลิกเปิด modal กลางจอ (เหมือนหน้าบันทึกตีกลับ)
+    pv.append(el("div", { class: "ed-photo" }, img));
+  } else pv.append(el("span", { class: "ed-v ed-nophoto" }, "— ไม่มีรูป"));
   return pv;
 }
 
@@ -514,9 +516,9 @@ function conflictResolver(conflictId: number, c: Record<string, unknown>, o?: Re
     const photo = g(s, "photo_url");
     const pv = el("div", { class: "ed-kv" }, el("span", { class: "ed-k" }, "รูปหลักฐาน"));
     if (photo) {
-      const a = el("a", { class: "ed-photo", href: photo, target: "_blank", rel: "noopener" },
-        el("img", { src: photo, alt: "หลักฐานตีกลับ", loading: "lazy" }));
-      pv.append(a);
+      const pimg = el("img", { src: imageSrc(photo), alt: "หลักฐานตีกลับ", loading: "lazy" }) as HTMLImageElement;
+      pimg.addEventListener("click", () => openLightbox(photo));
+      pv.append(el("div", { class: "ed-photo" }, pimg));
     } else pv.append(el("span", { class: "ed-v ed-nophoto" }, "— ไม่มีรูป"));
     card.append(pv);
 

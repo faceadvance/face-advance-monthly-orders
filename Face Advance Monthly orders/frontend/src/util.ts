@@ -47,6 +47,30 @@ export function saveColsHidden(key: string, set: Set<string>): void {
   try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* localStorage เต็ม/ปิด → ข้าม */ }
 }
 
+/** ลิงก์ Google Drive → URL รูปที่ฝังได้ (ไฟล์ต้องแชร์สาธารณะ) · ลิงก์รูปตรงๆ ใช้ได้เลย */
+export function imageSrc(url: string, big = false): string {
+  const u = url.trim();
+  const m = u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]{20,})/);
+  if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=${big ? "w1600" : "w600"}`;
+  return u;
+}
+
+/** เปิดรูปเต็มจอ (modal กลางจอ พื้นทึบหลัง) — คลิกพื้นนอกรูป / Esc / ปุ่ม × เพื่อปิด · ใช้ร่วมหน้าตีกลับ+EDITH */
+export function openLightbox(url: string): void {
+  const ov = el("div", { class: "rtlight" });
+  const img = el("img", { src: imageSrc(url, true), alt: "รูปกล่องตีกลับ" });
+  img.addEventListener("click", (e) => e.stopPropagation());   // คลิกที่รูปไม่ปิด (ปิดเฉพาะคลิกนอกรูป)
+  const openA = el("a", { class: "rtlopen", href: url, target: "_blank", rel: "noopener" }, "เปิดต้นฉบับ ↗");
+  openA.addEventListener("click", (e) => e.stopPropagation());
+  const x = el("span", { class: "rtlclose", title: "ปิด (Esc)" }, "×");
+  const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+  ov.addEventListener("click", close);   // คลิกพื้นทึบ = ปิด
+  document.addEventListener("keydown", onKey);
+  ov.append(img, x, openA);
+  document.body.append(ov);
+}
+
 export function icon(id: string, style = ""): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "ic");
