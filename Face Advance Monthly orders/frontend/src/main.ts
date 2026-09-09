@@ -473,6 +473,17 @@ function onTableScroll() {
   vRaf = requestAnimationFrame(() => { vRaf = 0; renderWindow(); });
 }
 
+// เปลี่ยนเดือน → ล้างข้อมูลเดิมออกทันที + โชว์กำลังโหลด (ไม่ให้รู้สึกค้างระหว่างรอ fetch)
+function renderLoading() {
+  const kpi = document.getElementById("kpi");
+  if (kpi) { kpi.textContent = ""; kpi.append(el("div", { class: "loadbox kpiload" }, spinner(), el("span", {}, "กำลังโหลด…"))); }
+  const wrap = document.getElementById("tableWrap");
+  if (wrap) { wrap.textContent = ""; wrap.append(el("div", { class: "loadbox" }, spinner(), el("span", {}, "กำลังโหลดข้อมูล…"))); }
+  const meta = document.getElementById("tableMeta"); if (meta) meta.textContent = "";
+  currentVisible = []; tickEls.clear(); vTbody = null;   // ตัดการอ้างอิงตารางเก่า (กัน scroll handler ทำงานกับ DOM ที่หายไป)
+}
+function spinner(): HTMLElement { return el("span", { class: "loadspin" }); }
+
 function renderTable() {
   const d = state.data!;
   const rows = computeVisible();
@@ -1847,6 +1858,7 @@ function initZoom() {
 //  โหลดเดือน + bootstrap
 // ======================================================
 async function loadMonth(month: string) {
+  const monthChanged = state.month !== month;   // เปลี่ยนเดือนจริง (ไม่ใช่รีเฟรชเดือนเดิม)
   state.month = month;
   state.pickerYear = Number(month.slice(0, 4));
   // reset มุมมองต่อเดือน
@@ -1859,7 +1871,8 @@ async function loadMonth(month: string) {
   clearSelection();
   $("#monthLabel").textContent = monthLabel(month);
   $("#pageTitle").textContent = `ออเดอร์ — ${monthLabel(month)}`;
-  // ไม่ล้าง #kpi และไม่ล้างตารางทันที — ของเดิมค้างไว้จนข้อมูลใหม่มา แล้วค่อยสลับ (ไม่กระพริบ · เปลี่ยนแค่ข้อมูล)
+  // เปลี่ยนเดือน → ล้างข้อมูลเดิมออกทันที + โชว์กำลังโหลด (ไม่ให้รู้สึกค้าง) · รีเฟรชเดือนเดิม → คงของเดิมไว้จนข้อมูลใหม่มา
+  if (monthChanged) renderLoading();
   try {
     const data = await fetchOrders(month);
     if (!data.authorized) { toLogin(); return; }

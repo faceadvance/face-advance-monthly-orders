@@ -141,6 +141,10 @@ tbody tr{transition:background .13s ease}
 /* perf: ข้าม layout/paint แถวที่อยู่นอกจอ (แถวยังอยู่ใน DOM ครบ — กรอง/เรียง/ค้นหา/ขยายทำงานเหมือนเดิม) */
 tr.vspacer td{padding:0!important;border:0!important}
 tr.vspacer,tr.vspacer:hover{background:transparent!important}
+/* สถานะกำลังโหลด (เปลี่ยนเดือน/โหลดหน้า) — ล้างของเดิมแล้วโชว์อันนี้ */
+.loadbox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;padding:3rem 1rem;color:var(--ink-3);font-size:.85rem}
+.loadbox.kpiload{min-height:150px;padding:0}
+.loadspin{width:26px;height:26px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--primary);animation:spin .7s linear infinite}
 tbody tr:hover{background:var(--hover)}
 tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .datecell{white-space:nowrap;text-align:right;font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink)}
