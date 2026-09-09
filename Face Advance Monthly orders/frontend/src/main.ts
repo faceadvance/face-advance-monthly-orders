@@ -613,6 +613,12 @@ function buildTh(col: Column): HTMLElement {
   const hh = el("div", { class: "hh" });
   if (col.headIcon) { const hi = icon(col.headIcon); hi.setAttribute("class", "ic headicon"); const w = el("span", { class: "headiconw", title: col.label }, hi); hh.append(w); }
   else hh.append(col.label);
+  // คอลัมน์สถานะชำระ: ดินสอ "รับเงิน COD แก้มือ" (เฉพาะ Adm/OM) อยู่หน้ากรวยกรอง
+  if (col.key === "payment_status" && (currentRole === "Adm" || currentRole === "OM")) {
+    const pen = el("span", { class: "hpen", title: "รับเงิน COD (แก้มือ · สูงสุด 20)" }, icon("i-edit"));
+    pen.addEventListener("click", (e) => { e.stopPropagation(); openCodManualSidebar(); });
+    hh.append(pen);
+  }
   const funnel = el("span", { class: "funnel" + (active ? " on" : "") }, icon("i-funnel"));
   funnel.addEventListener("click", (e) => { e.stopPropagation(); openFilter(th, col); });
   hh.append(funnel);
@@ -2358,6 +2364,85 @@ function importOpt(ic: string, title: string, desc: string, soon = false): HTMLE
     icon("i-chev"));
   if (soon) opt.addEventListener("click", () => toast("อยู่ระหว่างพัฒนา (เฟสถัดไป)", false));
   return opt;
+}
+
+// ── รับเงิน COD แก้มือ (สูงสุด 20 · ไม่ต้องแนบหลักฐาน · ไม่เปลี่ยนสถานะจัดส่ง · source='manual') ──
+const COD_MANUAL_MAX = 20;
+function openCodManualSidebar() {
+  if (currentRole !== "Adm" && currentRole !== "OM") { toast("เฉพาะ Adm/OM เท่านั้น", false); return; }
+  closeSidebar();
+  document.body.classList.add("sbopen");
+  const root = el("div", { class: "sboverlay" });
+  const panel = el("div", { class: "sbpanel" });
+  root.append(panel);
+  sidebarEl = root;
+
+  const head = el("div", { class: "sbhead" }, el("div", { class: "sbtitle" }, "รับเงิน COD (แก้มือ)"));
+  const closeW = el("button", { class: "sbclosew", type: "button", title: "ปิด" }, icon("i-close"));
+  closeW.addEventListener("click", closeSidebar);
+  head.append(closeW);
+  panel.append(head);
+
+  const body = el("div", { class: "sbbody" });
+  panel.append(body);
+  body.append(el("div", { class: "codmnote" }, "กรอกได้สูงสุด 20 รายการ · บันทึกได้เลยไม่ต้องแนบไฟล์หลักฐาน · ไม่เปลี่ยนสถานะจัดส่ง"));
+  body.append(el("div", { class: "codmhdr" },
+    el("span", {}, "หมายเลขพัสดุ"), el("span", {}, "จำนวนเงิน"), el("span", {}, "ได้รับจาก"), el("span", {}, "หมายเหตุ"), el("span", {})));
+  const rowsWrap = el("div", { class: "codmrows" });
+  body.append(rowsWrap);
+  const countEl = el("span", { class: "codmcount" });
+  const addBtn = el("button", { class: "codmadd", type: "button" }, "＋ เพิ่มแถว");
+  body.append(el("div", { class: "codmtool" }, addBtn, countEl));
+  const result = el("div", { class: "codmresult" });
+  body.append(result);
+
+  const rows: { tracking: HTMLInputElement; amount: HTMLInputElement; from: HTMLSelectElement; note: HTMLInputElement }[] = [];
+  const updateCount = () => { countEl.textContent = `${rows.length}/${COD_MANUAL_MAX}`; addBtn.disabled = rows.length >= COD_MANUAL_MAX; };
+  function addRow() {
+    if (rows.length >= COD_MANUAL_MAX) { toast("สูงสุด 20 รายการ", false); return; }
+    const tracking = el("input", { class: "rtinp", placeholder: "เลขแทร็คส่งออก" }) as HTMLInputElement;
+    const amount = el("input", { class: "rtinp", type: "number", inputmode: "numeric", placeholder: "ยอด" }) as HTMLInputElement;
+    const from = el("select", { class: "sbselect" }) as HTMLSelectElement;
+    for (const v of ["ขนส่ง", "ระบบ", "ทำเคลม"]) from.append(el("option", { value: v }, v));
+    const note = el("input", { class: "rtinp", placeholder: "หมายเหตุ" }) as HTMLInputElement;
+    const del = el("button", { class: "codmdel", type: "button", title: "ลบแถว" }, icon("i-close"));
+    const rowEl = el("div", { class: "codmrow" }, tracking, amount, from, note, del);
+    const rec = { tracking, amount, from, note };
+    del.addEventListener("click", () => { const i = rows.indexOf(rec); if (i >= 0) rows.splice(i, 1); rowEl.remove(); updateCount(); });
+    tracking.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); amount.focus(); } });
+    rows.push(rec);
+    rowsWrap.append(rowEl);
+    updateCount();
+    tracking.focus();
+  }
+  addBtn.addEventListener("click", addRow);
+
+  const save = el("button", { class: "fbtn p", type: "button" }, "บันทึก");
+  save.addEventListener("click", async () => {
+    const data = rows
+      .map((r) => ({ tracking_out: r.tracking.value.trim(), amount: r.amount.value.trim() === "" ? null : Number(r.amount.value), received_from: r.from.value, note: r.note.value.trim() || null }))
+      .filter((r) => r.tracking_out !== "");
+    if (!data.length) { toast("กรุณากรอกอย่างน้อย 1 รายการ (เลขแทร็ค)", false); return; }
+    save.disabled = true;
+    result.textContent = "กำลังบันทึก…";
+    try {
+      const res = await importCodPayments(data, "confirm", [], "manual");
+      if (!res.authorized) { toast("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", false); save.disabled = false; return; }
+      if (!res.ok) {
+        result.textContent = "";
+        result.append(el("div", { class: "codmerr" }, `บันทึกไม่ได้ — มี ${res.problems?.length || 0} รายการต้องแก้:`));
+        for (const p of res.problems || []) result.append(el("div", { class: "codmerri" }, `${p.tracking} — ${p.reason}`));
+        save.disabled = false;
+        return;
+      }
+      toast(`บันทึก COD ${res.inserted || data.length} รายการ · ชำระแล้ว ${res.paid || 0}${res.err ? ` · ยอดไม่ตรง ${res.err}` : ""}`);
+      closeSidebar();
+      if (state.month) await loadMonth(state.month);   // รีเฟรชให้เห็นสถานะชำระใหม่
+    } catch { toast("บันทึกไม่สำเร็จ", false); save.disabled = false; }
+  });
+  panel.append(el("div", { class: "sbfoot" }, save));
+
+  addRow();   // เริ่มด้วย 1 แถว
 }
 
 // Google Sheets ต้นฉบับ template COD (แชร์สาธารณะ) — /copy = ให้ผู้ใช้ทำสำเนาไปกรอกเอง

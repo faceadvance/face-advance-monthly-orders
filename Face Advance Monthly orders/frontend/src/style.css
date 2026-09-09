@@ -609,6 +609,25 @@ body.noedit .acthead,body.noedit .actcell{display:none}
 .pchipdel:hover{opacity:1;background:rgba(220,38,38,.14);color:#DC2626}
 .pchip.on .pchipdel:hover{background:rgba(255,255,255,.28);color:#fff}
 .sbcond{margin-top:.55rem}
+/* ดินสอ "รับเงิน COD แก้มือ" ที่หัวคอลัมน์สถานะชำระ */
+.hpen{display:inline-flex;align-items:center;cursor:pointer;color:var(--ink-3);padding:1px;border-radius:4px}
+.hpen:hover{color:var(--primary);background:rgba(37,99,235,.1)}
+thead th.filtered .hpen{color:#fff}
+/* sidebar รับเงิน COD แก้มือ */
+.codmnote{font-size:.78rem;color:var(--ink-2);background:#FFFBEB;border:1px solid #FEF3C7;border-radius:.5rem;padding:.5rem .65rem;margin-bottom:.7rem}
+.codmhdr,.codmrow{display:grid;grid-template-columns:1.4fr .7fr .9fr 1.3fr 26px;gap:.4rem;align-items:center}
+.codmhdr{font-size:.68rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.03em;padding:0 .1rem .3rem}
+.codmrow{margin-bottom:.4rem}
+.codmrow .rtinp,.codmrow .sbselect{margin-top:0;padding:.4rem .5rem;font-size:.8rem}
+.codmdel{border:none;background:transparent;color:var(--ink-3);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:5px;padding:2px}
+.codmdel:hover{color:#DC2626;background:#FEE2E2}
+.codmtool{display:flex;align-items:center;justify-content:space-between;margin-top:.3rem}
+.codmadd{border:1px dashed var(--primary);background:#fff;color:var(--primary);font-family:inherit;font-size:.8rem;font-weight:600;padding:.4rem .8rem;border-radius:.5rem;cursor:pointer}
+.codmadd:disabled{opacity:.45;cursor:not-allowed}
+.codmcount{font-size:.75rem;color:var(--ink-3)}
+.codmresult{margin-top:.7rem}
+.codmerr{font-size:.82rem;font-weight:600;color:#B45309;margin-bottom:.3rem}
+.codmerri{font-size:.78rem;color:#B45309;padding:.15rem 0}
 .sbfoot{display:flex;justify-content:flex-end;gap:.6rem;padding:.85rem 1.2rem;background:#fff;border-top:1px solid var(--border);flex:none}
 .sbfoot .fbtn{padding:.55rem 1.2rem;border-radius:.55rem;font-size:.83rem}
 
