@@ -183,7 +183,7 @@ export interface ReturnsSignal { authorized: boolean; ok?: boolean; count?: numb
 export function fetchReturnsSignal(): Promise<ReturnsSignal> {
   return restRpc<ReturnsSignal>("app_returns_signal", { p_token: getToken() });
 }
-export interface NotifItem { at: string; by_name: string; n: number; trackings: string }
+export interface NotifItem { at: string; by_name: string; n: number; trackings: string; kind?: "returns" | "orders" }
 export interface NotifResp { authorized: boolean; ok?: boolean; items?: NotifItem[] }
 export function fetchNotifications(): Promise<NotifResp> {
   return restRpc<NotifResp>("app_notifications", { p_token: getToken() });

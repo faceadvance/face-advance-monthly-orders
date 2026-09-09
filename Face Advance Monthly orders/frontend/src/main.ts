@@ -1903,7 +1903,7 @@ let lastUnread = 0, notifInited = false;
 let audioCtx: AudioContext | null = null;
 const notifSeenKey = () => `fa_notif_seen_${displayName() || "user"}`;
 const notifSeenAt = () => localStorage.getItem(notifSeenKey()) || "";
-const returnsTotal = () => notifItems.reduce((s, i) => s + (i.n || 0), 0);
+const returnsTotal = () => notifItems.filter((i) => i.kind !== "orders").reduce((s, i) => s + (i.n || 0), 0);
 
 function fmtDateTime(iso: string): string {   // "8 ก.ย. · 14:32" — วันที่ + เวลา
   const d = new Date(iso);
@@ -1918,11 +1918,11 @@ function beep() {   // เสียงเตือนเมลใหม่ (Web 
     const play = (freq: number, at: number) => {
       const o = audioCtx!.createOscillator(), g = audioCtx!.createGain();
       o.connect(g); g.connect(audioCtx!.destination); o.type = "sine"; o.frequency.value = freq;
-      g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(0.13, t + at + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.22);
-      o.start(t + at); o.stop(t + at + 0.24);
+      g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(0.5, t + at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.28);
+      o.start(t + at); o.stop(t + at + 0.3);
     };
-    play(784, 0); play(1046, 0.12);   // ตุ๊งแต๊ง 2 โน้ต
+    play(784, 0); play(1046, 0.14); play(1318, 0.28);   // ตุ๊งแต๊งแต๊ง 3 โน้ต (ดังขึ้น)
   } catch { /* เล่นเสียงไม่ได้ (นโยบายเบราว์เซอร์) → ข้าม */ }
 }
 function pulseRefresh() {
@@ -1961,8 +1961,9 @@ function renderNotifList() {
   for (const n of notifItems) {
     const isNew = !seen || n.at > seen;
     const row = document.createElement("div");
-    row.className = `notifitem${isNew ? " new" : ""}`;
-    row.innerHTML = `<div class="ni-top"><b>${n.by_name || "ไม่ทราบ"}</b> บันทึกตีกลับเพิ่ม <span class="ni-n">${n.n} รายการ</span></div>
+    row.className = `notifitem${isNew ? " new" : ""} ni-${n.kind || "returns"}`;
+    const verb = n.kind === "orders" ? "นำเข้าออเดอร์" : "บันทึกตีกลับเพิ่ม";
+    row.innerHTML = `<div class="ni-top"><b>${n.by_name || "ไม่ทราบ"}</b> ${verb} <span class="ni-n">${n.n} รายการ</span></div>
       <div class="ni-sub">${fmtDateTime(n.at)}</div>`;
     list.append(row);
   }
