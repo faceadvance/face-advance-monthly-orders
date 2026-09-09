@@ -139,7 +139,8 @@ tbody td{padding:.7rem .85rem;border-bottom:1px solid var(--border);font-size:.8
 tbody tr:last-child td{border-bottom:none}
 tbody tr{transition:background .13s ease}
 /* perf: ข้าม layout/paint แถวที่อยู่นอกจอ (แถวยังอยู่ใน DOM ครบ — กรอง/เรียง/ค้นหา/ขยายทำงานเหมือนเดิม) */
-#tableWrap tbody tr{content-visibility:auto;contain-intrinsic-size:auto 42px}
+tr.vspacer td{padding:0!important;border:0!important}
+tr.vspacer,tr.vspacer:hover{background:transparent!important}
 tbody tr:hover{background:var(--hover)}
 tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .datecell{white-space:nowrap;text-align:right;font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink)}

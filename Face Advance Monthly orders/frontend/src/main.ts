@@ -372,26 +372,105 @@ function computeVisible(): Order[] {
   return rows;
 }
 
-// วัด overflow (โชว์ปุ่มขยาย ▸) แบบ lazy เฉพาะแถวที่เลื่อนเข้ามาในจอ — เลิกวน measure ทั้งตารางตอนโหลด (perf ตอนพันแถว)
-let rowObs: IntersectionObserver | null = null;
-function ensureRowObs(): IntersectionObserver | null {
-  if (rowObs) return rowObs;
-  const wrap = document.getElementById("tableWrap");
-  if (!wrap || typeof IntersectionObserver === "undefined") return null;
-  rowObs = new IntersectionObserver((entries, ob) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      const tr = e.target as HTMLElement;
-      ob.unobserve(tr);   // วัดครั้งเดียวพอ
-      for (const tx of tr.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
-        if (tx.scrollWidth > tx.clientWidth + 1) {
-          const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
-          if (tog) tog.style.display = "";
-        }
-      }
+// ======================================================
+//  Virtual scrolling (windowing) — วาดลง DOM เฉพาะแถวที่มองเห็น
+//  ข้อมูลครบใน currentVisible → กรอง/เรียง/ค้นหา/เลือก ทำงานบนข้อมูลเต็มเหมือนเดิม
+//  วาดแค่ ~ช่วงที่เห็น + overscan → ไม่ค้างแม้หลายพันแถว, เลื่อนลื่น
+// ======================================================
+const OVERSCAN = 8;                          // แถวเผื่อบน/ล่างกันขอบขาดตอนเลื่อนเร็ว
+const COL_W = [98, 114, 166, 133, 240, 73, 91, 79, 181, 115, 50, 115, 100, 110]; // ความกว้างคอลัมน์คงที่ (จาก auto-layout เดิม) — กันคอลัมน์เพี้ยนตอน virtualize
+const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
+let vTbody: HTMLElement | null = null;
+let vTop: HTMLElement | null = null;         // spacer บน (ความสูง = แถวเหนือหน้าต่างรวมกัน)
+let vBot: HTMLElement | null = null;         // spacer ล่าง
+let vRowH = 50;                              // ความสูงแถวปกติ (วัดจริงครั้งแรก)
+const vHeights = new Map<number, number>();  // id → ความสูงจริง (เฉพาะแถวที่กางอยู่)
+const expandedRows = new Set<number>();      // แถวที่กางรายละเอียด (คงสภาพข้ามการเลื่อน)
+let vOffsets: number[] = [0];                // ผลรวมความสูงสะสม (len = N+1)
+let vFirst = -1, vLast = -1;
+let vRaf = 0;
+let vInitAnim = false;                       // เล่นอนิเมชันแถวเข้า เฉพาะครั้งแรกของชุดข้อมูล
+
+const rowH = (o: Order) => vHeights.get(o.id) ?? vRowH;
+function buildOffsets() {
+  const n = currentVisible.length;
+  vOffsets = new Array(n + 1);
+  vOffsets[0] = 0;
+  for (let i = 0; i < n; i++) vOffsets[i + 1] = vOffsets[i] + rowH(currentVisible[i]);
+}
+const vTotal = () => vOffsets[vOffsets.length - 1] || 0;
+// index แรกที่ก้นแถว (vOffsets[i+1]) เลย y ลงไป — binary search
+function idxAt(y: number): number {
+  let lo = 0, hi = currentVisible.length - 1, ans = hi < 0 ? 0 : hi;
+  while (lo <= hi) { const m = (lo + hi) >> 1;
+    if (vOffsets[m + 1] > y) { ans = m; hi = m - 1; } else lo = m + 1; }
+  return ans;
+}
+function spacerRow(): HTMLElement {
+  const tr = el("tr", { class: "vspacer", "aria-hidden": "true" });
+  tr.append(el("td", { colspan: String(COLUMNS.length + 1), style: "padding:0;border:0;height:0" }));
+  return tr;
+}
+// วัด overflow (โชว์ปุ่มขยาย ▸) เฉพาะแถวในหน้าต่างที่กำลังแสดง — เบาเพราะมีแค่ ~ช่วงที่เห็น
+function measureToggles(scope: ParentNode) {
+  for (const tx of scope.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
+    if (tx.scrollWidth > tx.clientWidth + 1) {
+      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
+      if (tog) tog.style.display = "";
     }
-  }, { root: wrap, rootMargin: "400px 0px" });
-  return rowObs;
+  }
+}
+
+// วาดหน้าต่างแถวที่มองเห็น (เรียกตอนเลื่อน/กรอง/เปิดแถว)
+function renderWindow(force = false) {
+  const wrap = document.getElementById("tableWrap");
+  if (!wrap || !vTbody) return;
+  const n = currentVisible.length;
+  if (n === 0) return;
+  const top = wrap.scrollTop, vh = wrap.clientHeight || 600;
+  let first = idxAt(top) - OVERSCAN;
+  let last = idxAt(top + vh) + OVERSCAN;
+  if (first < 0) first = 0;
+  if (last > n - 1) last = n - 1;
+  if (!force && first === vFirst && last === vLast) return;
+  vFirst = first; vLast = last;
+
+  tickEls.clear();   // เหลือเฉพาะแถวที่มองเห็น
+  const frag = document.createDocumentFragment();
+  for (let i = first; i <= last; i++) {
+    const o = currentVisible[i];
+    const tr = buildRow(o);
+    if (expandedRows.has(o.id)) tr.classList.add("rowopen");
+    if (vInitAnim && i - first < 30) { tr.classList.add("rowin"); tr.style.animationDelay = `${(i - first) * 22}ms`; }
+    frag.append(tr);
+  }
+  vInitAnim = false;
+
+  (vTop!.firstElementChild as HTMLElement).style.height = vOffsets[first] + "px";
+  (vBot!.firstElementChild as HTMLElement).style.height = Math.max(0, vTotal() - vOffsets[last + 1]) + "px";
+  vTbody.textContent = "";
+  vTbody.append(vTop!, frag, vBot!);
+
+  applyOrdHidden();       // ซ่อนคอลัมน์กับแถวที่เพิ่งสร้าง
+  measureToggles(vTbody);
+  updateSelectionUI();    // สะท้อนสถานะติ๊กของแถวที่เพิ่งเข้ามา
+  updateOrdProgress();
+}
+
+// เปิด/ปิดรายละเอียดทั้งแถว (คงสภาพข้ามการเลื่อน + ปรับความสูง virtual ให้ spacer ถูก)
+function toggleRowOpen(o: Order, tr: HTMLElement) {
+  const open = tr.classList.toggle("rowopen");
+  if (open) { expandedRows.add(o.id); vHeights.set(o.id, tr.getBoundingClientRect().height); }
+  else { expandedRows.delete(o.id); vHeights.delete(o.id); }
+  buildOffsets();
+  renderWindow(true);
+}
+
+// scroll → วาดหน้าต่างใหม่ (throttle ด้วย rAF) + อัปเดตแถบ progress ทุกเฟรม
+function onTableScroll() {
+  updateOrdProgress();
+  if (vRaf) return;
+  vRaf = requestAnimationFrame(() => { vRaf = 0; renderWindow(); });
 }
 
 function renderTable() {
@@ -399,41 +478,51 @@ function renderTable() {
   const rows = computeVisible();
   currentVisible = rows;
   tickEls.clear();
+  expandedRows.clear();   // กรอง/เรียง/โหลดใหม่ → ยุบทุกแถว (เหมือน re-render เดิม)
+  vHeights.clear();
 
   const wrap = $("#tableWrap");
   wrap.textContent = "";
   const table = el("table");
+  table.style.tableLayout = "fixed";   // คอลัมน์ยึดความกว้างจากหัวตาราง → ไม่เพี้ยนตอน virtualize
   const thead = el("thead");
-  const tr = el("tr");
-  for (const col of COLUMNS) tr.append(buildTh(col));
-  tr.append(el("th", { class: "acthead c" }, "อัพเดต"));
-  thead.append(tr);
+  const htr = el("tr");
+  for (const col of COLUMNS) htr.append(buildTh(col));
+  htr.append(el("th", { class: "acthead c" }, "อัพเดต"));
+  thead.append(htr);
+  const ths = [...htr.children] as HTMLElement[];
+  ths.forEach((th, i) => { th.style.width = (i < COL_W.length ? COL_W[i] : ACT_W) + "px"; });
 
   const tbody = el("tbody");
-  if (rows.length === 0) {
-    const td = el("td", { colspan: String(COLUMNS.length + 1) });
-    td.append(el("div", { class: "state" }, d.orders.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ยังไม่มีออเดอร์ในเดือนนี้"));
-    tbody.append(el("tr", {}, td));
-  } else {
-    const obs = ensureRowObs();
-    // .rowin ใช้ fill-mode backwards → หลัง animation จบ transform กลับเป็น none (กัน stacking context ค้าง)
-    rows.forEach((o, i) => {
-      const tr = buildRow(o);
-      if (i < 30) { tr.classList.add("rowin"); tr.style.animationDelay = `${i * 22}ms`; }
-      tbody.append(tr);
-      obs?.observe(tr);   // วัด overflow (โชว์ปุ่มขยาย) แบบ lazy เฉพาะแถวที่เลื่อนถึง — กัน layout storm ตอนพันแถว
-    });
-  }
+  vTbody = tbody; vTop = spacerRow(); vBot = spacerRow();
   table.append(thead, tbody);
   wrap.append(table);
 
   $("#tableMeta").textContent =
     `${nf(rows.length)} / ${nf(d.orders.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
 
+  if (rows.length === 0) {
+    const td = el("td", { colspan: String(COLUMNS.length + 1) });
+    td.append(el("div", { class: "state" }, d.orders.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ยังไม่มีออเดอร์ในเดือนนี้"));
+    tbody.append(el("tr", {}, td));
+    renderActiveFilters();
+    updateSelectionUI();
+    return;
+  }
+
+  // วัดความสูงแถวจริงครั้งแรก (ต้องตั้งความกว้างหัวตารางก่อนถึงวัดถูก) แล้วเคลียร์ออก
+  const sample = buildRow(rows[0]);
+  tbody.append(sample);
+  const sh = sample.getBoundingClientRect().height;
+  if (sh > 10) vRowH = sh;
+  tbody.textContent = ""; tickEls.clear();
+
+  buildOffsets();
+  vFirst = vLast = -1; vInitAnim = true;
+  wrap.scrollTop = 0;
+  renderWindow(true);
+
   renderActiveFilters();
-  updateSelectionUI();
-  applyOrdHidden();
-  updateOrdProgress();
 }
 
 // ---- ตกแต่งหน้า order (ยกจากหน้ารายการตีกลับ: ซ่อนคอลัมน์ · scroll progress · spotlight) ----
@@ -487,7 +576,8 @@ function initOrdersDeco() {
   // แถบ scroll progress (ก่อนตาราง)
   const prog = el("div", { class: "rlprogress", id: "ordProgress" }, el("i", {}));
   wrap.parentElement?.insertBefore(prog, wrap);
-  wrap.addEventListener("scroll", updateOrdProgress);
+  wrap.addEventListener("scroll", onTableScroll, { passive: true });
+  window.addEventListener("resize", () => renderWindow());
   // spotlight การ์ด KPI (delegated · #kpi คงอยู่)
   document.getElementById("kpi")?.addEventListener("mousemove", (e) => {
     const card = (e.target as HTMLElement).closest(".kcard") as HTMLElement | null;
@@ -632,7 +722,7 @@ function buildNoteCell(o: Order, tr: HTMLElement): HTMLElement {
   const txt = el("span", { class: "notetxt mono", title: o.note || "" }, o.note || "—");
   const tog = el("span", { class: "itemtoggle notetoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่หมายเหตุล้น (เช็ค overflow หลัง render)
-  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
   line.append(txt, tog);
   td.append(line);
   return td;
@@ -646,7 +736,7 @@ function buildNameCell(o: Order, tr: HTMLElement): HTMLElement {
   if (code) txt.append(" ", el("span", { class: "code" }, code));
   const tog = el("span", { class: "itemtoggle nametoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่ชื่อล้น (เช็ค overflow หลัง render)
-  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
   line.append(txt, tog);
   td.append(line);
   return td;
@@ -662,7 +752,7 @@ function buildAddrCell(o: Order, tr: HTMLElement): HTMLElement {
   for (const p of ap) parts.append(el("div", { class: "apart" }, p));
   const tog = el("span", { class: "itemtoggle addrtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่ที่อยู่ล้น (เช็ค overflow หลัง render)
-  tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
   wrap.append(txt, parts, tog);
   td.append(wrap);
   return td;
@@ -676,7 +766,7 @@ function buildItemsCell(o: Order, tr: HTMLElement): HTMLElement {
   const first = el("div", { class: "iln0" }, el("span", { class: "itxt", title: line(items[0]) }, line(items[0])));
   if (items.length > 1) {
     const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
-    tog.addEventListener("click", (e) => { e.stopPropagation(); tr.classList.toggle("rowopen"); });
+    tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
     first.append(tog);
     const rest = el("div", { class: "itemrest" });
     for (let i = 1; i < items.length; i++) rest.append(el("div", { class: "iln", title: line(items[i]) }, line(items[i])));
@@ -881,14 +971,12 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
   const tr = document.querySelector<HTMLElement>(`#tableWrap tbody tr[data-oid="${o.id}"]`);
   if (affectsView || !tr) { renderTable(); return; }
   const fresh = buildRow(o);
+  if (expandedRows.has(o.id)) fresh.classList.add("rowopen");   // คงสภาพกางไว้
   fresh.classList.add("rowflash");   // ไฮไลต์ยืนยันสั้นๆ
   tr.replaceWith(fresh);
-  for (const tx of fresh.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
-    if (tx.scrollWidth > tx.clientWidth + 1) {
-      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
-      if (tog) tog.style.display = "";
-    }
-  }
+  applyOrdHidden();          // แถวใหม่ต้องซ่อนคอลัมน์ตามที่ตั้งไว้
+  measureToggles(fresh);     // โชว์ปุ่มขยายถ้าข้อความล้น
+  updateSelectionUI();       // ผูกสถานะติ๊กใหม่ (buildRow ลงทะเบียน tickEls ใหม่)
 }
 
 // ---- แก้สถานะ inline: ดินสอ → popup เลือก → ยืนยัน ----
