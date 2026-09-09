@@ -372,6 +372,28 @@ function computeVisible(): Order[] {
   return rows;
 }
 
+// วัด overflow (โชว์ปุ่มขยาย ▸) แบบ lazy เฉพาะแถวที่เลื่อนเข้ามาในจอ — เลิกวน measure ทั้งตารางตอนโหลด (perf ตอนพันแถว)
+let rowObs: IntersectionObserver | null = null;
+function ensureRowObs(): IntersectionObserver | null {
+  if (rowObs) return rowObs;
+  const wrap = document.getElementById("tableWrap");
+  if (!wrap || typeof IntersectionObserver === "undefined") return null;
+  rowObs = new IntersectionObserver((entries, ob) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const tr = e.target as HTMLElement;
+      ob.unobserve(tr);   // วัดครั้งเดียวพอ
+      for (const tx of tr.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
+        if (tx.scrollWidth > tx.clientWidth + 1) {
+          const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
+          if (tog) tog.style.display = "";
+        }
+      }
+    }
+  }, { root: wrap, rootMargin: "400px 0px" });
+  return rowObs;
+}
+
 function renderTable() {
   const d = state.data!;
   const rows = computeVisible();
@@ -393,28 +415,17 @@ function renderTable() {
     td.append(el("div", { class: "state" }, d.orders.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ยังไม่มีออเดอร์ในเดือนนี้"));
     tbody.append(el("tr", {}, td));
   } else {
-    // แถวเด้งไล่ลง (stagger เฉพาะ ~30 แถวแรกที่เห็นในจอ กัน perf ตอนพันแถว)
-    // .rowin ใช้ fill-mode backwards → หลัง animation จบ transform กลับเป็น none (ไม่เหลือ
-    // identity matrix ค้างที่จะสร้าง stacking context ต่อแถว ทำ popup เลือกสถานะโดนทับ)
+    const obs = ensureRowObs();
+    // .rowin ใช้ fill-mode backwards → หลัง animation จบ transform กลับเป็น none (กัน stacking context ค้าง)
     rows.forEach((o, i) => {
       const tr = buildRow(o);
       if (i < 30) { tr.classList.add("rowin"); tr.style.animationDelay = `${i * 22}ms`; }
       tbody.append(tr);
+      obs?.observe(tr);   // วัด overflow (โชว์ปุ่มขยาย) แบบ lazy เฉพาะแถวที่เลื่อนถึง — กัน layout storm ตอนพันแถว
     });
   }
   table.append(thead, tbody);
   wrap.append(table);
-
-  // โชว์ปุ่มขยาย (ที่อยู่/ชื่อ) เฉพาะแถวที่ข้อความล้น
-  // แยก read (scrollWidth) กับ write (display) เป็น 2 เฟส กัน layout thrashing (สำคัญมากตอนแถวเยอะ)
-  const toShow: HTMLElement[] = [];
-  for (const tx of wrap.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
-    if (tx.scrollWidth > tx.clientWidth + 1) {
-      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
-      if (tog) toShow.push(tog);
-    }
-  }
-  for (const tog of toShow) tog.style.display = "";
 
   $("#tableMeta").textContent =
     `${nf(rows.length)} / ${nf(d.orders.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
@@ -1865,9 +1876,9 @@ function guardFresh(): boolean {
 }
 async function refreshOrders() {
   const btn = $("#refreshBtn") as HTMLElement;
-  btn?.classList.add("spin");
-  window.setTimeout(() => btn?.classList.remove("spin"), 600);
-  if (state.month) await loadMonth(state.month);
+  btn?.classList.add("refreshing");   // หมุนเฉพาะไอคอนในปุ่ม (ไม่มีวงแหวนน้ำเงิน) ตลอดที่โหลด
+  try { if (state.month) await loadMonth(state.month); }
+  finally { btn?.classList.remove("refreshing"); }
 }
 
 async function bootstrap() {
