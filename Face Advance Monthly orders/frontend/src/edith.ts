@@ -705,6 +705,8 @@ function detailSummary(d: Record<string, unknown>): string {
 
 // ---------- data ----------
 async function loadIssues() {
+  const box = q("#edQueue");   // ล้างคิวเดิม + โชว์กำลังโหลด (feedback สม่ำเสมอทุกหน้า)
+  if (box) box.innerHTML = `<div class="loadbox"><span class="loadspin"></span><span>กำลังโหลด…</span></div>`;
   const res = await fetchEdithIssues();
   if (!res.ok) { if (res.authorized === false) toastFn("session หมดอายุ", false); return; }
   issues = res.issues || [];

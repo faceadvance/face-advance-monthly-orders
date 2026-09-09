@@ -6,6 +6,7 @@
 // สิทธิ์: Adm/Vm/all_teams เห็นทุกทีม · RTs เห็นทีมตัวเอง (คุมใน RPC) · funnel filter หัวคอลัมน์แบบหน้า order
 import { el, icon, nf, dmy, paymentMethodLabel, paymentStatusLabel, deliveryBadge, paymentBadge, THAI_MONTHS_SHORT } from "./util";
 import { fetchReturnsList, type ReturnsListResp, type ReturnListRow } from "./api";
+import { makeVTable, type VTable } from "./virtual";
 
 let toastFn: (msg: string, ok?: boolean) => void = () => {};
 let data: ReturnsListResp | null = null;
@@ -51,7 +52,7 @@ function sellerCell(r: ReturnListRow): Node {
 // caret กางทั้งแถว (เหมือนหน้า order · toggle .rowopen ที่ <tr>)
 function caretToggle(extra = ""): HTMLElement {
   const tog = el("span", { class: `itemtoggle ${extra}`.trim(), title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret")) as HTMLElement;
-  tog.addEventListener("click", (e) => { e.stopPropagation(); (e.currentTarget as HTMLElement).closest("tr")?.classList.toggle("rowopen"); });
+  tog.addEventListener("click", (e) => { e.stopPropagation(); const tr = (e.currentTarget as HTMLElement).closest("tr") as HTMLElement | null; if (tr) toggleRlRow(tr); });
   return tog;
 }
 function itemsCell(r: ReturnListRow): Node {
@@ -123,6 +124,43 @@ const COLS_STATUS: RLCol[] = [
 ];
 const activeCols = (): RLCol[] => (state.mode === "status" ? COLS_STATUS : COLS_DEDUCT);
 const visibleCols = (): RLCol[] => activeCols().filter((c) => !curHidden().has(c.key));
+
+// ---------- virtual scrolling (windowing) ----------
+let vt: VTable | null = null;
+let curVisible: ReturnListRow[] = [];   // ข้อมูลที่กรอง/เรียงแล้ว (ครบทุกแถว)
+let curCols: RLCol[] = [];              // คอลัมน์ที่แสดง (snapshot ต่อการวาด)
+const rlExpanded = new Set<number>();   // แถวที่กางรายละเอียด (index) — คงสภาพข้ามการเลื่อน
+
+function buildRlRow(i: number): HTMLElement {
+  const r = curVisible[i];
+  const rowEl = el("tr", {}) as HTMLElement;
+  rowEl.dataset.idx = String(i);
+  if (rlExpanded.has(i)) rowEl.classList.add("rowopen");
+  for (const col of curCols) {
+    const cls = [col.tdClass ?? "", col.align === "center" ? "center" : "", col.align === "right" && !col.tdClass ? "tar" : ""].filter(Boolean).join(" ");
+    const td = el("td", cls ? { class: cls } : {});
+    td.append(col.render(r));
+    rowEl.append(td);
+  }
+  return rowEl;
+}
+// เปิด/ปิดรายละเอียดทั้งแถว + อัปเดตความสูง virtual ให้ spacer ถูก
+function toggleRlRow(tr: HTMLElement) {
+  const i = Number(tr.dataset.idx);
+  if (!Number.isFinite(i)) return;
+  const open = tr.classList.toggle("rowopen");
+  if (open) { rlExpanded.add(i); vt?.setRowHeight(i, tr.getBoundingClientRect().height); }
+  else { rlExpanded.delete(i); vt?.setRowHeight(i, null); }
+}
+// โชว์ปุ่มขยาย ▸ เฉพาะแถวในหน้าต่างที่ข้อความล้น
+function rlMeasureToggles(scope: ParentNode) {
+  for (const tx of scope.querySelectorAll<HTMLElement>(".ntxt, .atxt")) {
+    if (tx.scrollWidth > tx.clientWidth + 1) {
+      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
+      if (tog) tog.style.display = "";
+    }
+  }
+}
 
 // ---------- render ----------
 export function renderReturnsList(root: HTMLElement, deps: { toast: (msg: string, ok?: boolean) => void }) {
@@ -323,7 +361,14 @@ function fillSellerOptions() {
 }
 
 // ---------- load ----------
+function renderRlLoading() {
+  vt?.detach(); vt = null;
+  const wrap = document.querySelector("#rlWrap") as HTMLElement | null;
+  if (wrap) { wrap.onscroll = null; wrap.innerHTML = ""; wrap.append(el("div", { class: "loadbox" }, el("span", { class: "loadspin" }), el("span", {}, "กำลังโหลดข้อมูล…"))); }
+  const cards = document.getElementById("rlCards"); if (cards) cards.innerHTML = "";
+}
 async function load(first: boolean) {
+  renderRlLoading();   // ล้างของเดิมออกทันที + โชว์กำลังโหลด (ไม่ให้รู้สึกค้างระหว่างรอ fetch)
   const resp = await fetchReturnsList(state.cycle, state.mode, state.teamId, state.sellerCode);
   data = resp;
   if (!resp.authorized) { toastFn("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", false); return; }
@@ -467,59 +512,60 @@ function distinctValues(col: RLCol): { value: string; count: number }[] {
 function paintTable() {
   const wrap = document.querySelector("#rlWrap") as HTMLElement | null;
   if (!wrap) return;
-  const cols = visibleCols();
-  const rows = computeVisible();
+  vt?.detach(); vt = null;
+  curCols = visibleCols();
+  curVisible = computeVisible();
+  rlExpanded.clear();   // กรอง/เรียง/เปลี่ยนโหมด → ยุบทุกแถว
 
   const table = el("table", { class: "rltable" });
-  const tr = el("tr");
-  for (const col of cols) tr.append(buildTh(col));
-  table.append(el("thead", {}, tr));
-
+  const thead = el("thead");
+  const htr = el("tr");
+  for (const col of curCols) htr.append(buildTh(col));
+  thead.append(htr);
   const tbody = el("tbody");
-  if (!rows.length) {
-    tbody.append(el("tr", {}, el("td", { colspan: String(cols.length) },
-      el("div", { class: "rlempty" }, allRows.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ไม่มีออเดอร์ตีกลับในเดือนนี้"))));
-  } else {
-    rows.forEach((r, i) => {
-      const rowEl = el("tr", {});
-      for (const col of cols) {
-        const cls = [col.tdClass ?? "", col.align === "center" ? "center" : "", col.align === "right" && !col.tdClass ? "tar" : ""].filter(Boolean).join(" ");
-        const td = el("td", cls ? { class: cls } : {});
-        td.append(col.render(r));
-        rowEl.append(td);
-      }
-      if (i < 30) { rowEl.classList.add("rlrowin"); (rowEl as HTMLElement).style.animationDelay = `${i * 22}ms`; }
-      tbody.append(rowEl);
-    });
-  }
-  table.append(tbody);
+  table.append(thead, tbody);
   wrap.innerHTML = "";
   wrap.append(table);
-
-  // แถบความคืบหน้าการเลื่อน (แนวตั้ง)
-  const prog = document.querySelector(".rlprogress i") as HTMLElement | null;
-  const updateProg = () => {
-    if (!prog) return;
-    const max = wrap.scrollHeight - wrap.clientHeight;
-    prog.style.width = (max > 4 ? (wrap.scrollTop / max) * 100 : 0) + "%";
-  };
-  wrap.onscroll = updateProg; updateProg();
-
-  const toShow: HTMLElement[] = [];
-  for (const tx of wrap.querySelectorAll<HTMLElement>(".ntxt, .atxt")) {
-    if (tx.scrollWidth > tx.clientWidth + 1) {
-      const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
-      if (tog) toShow.push(tog);
-    }
-  }
-  for (const tog of toShow) tog.style.display = "";
 
   const title = document.getElementById("rlCardTitle");
   if (title) title.textContent = state.mode === "status"
     ? "ออเดอร์ตีกลับ (สถานะทั้งหมด)"
     : "ออเดอร์ตีกลับ ที่หักยอด ในรอบเดือน " + (data?.cycle?.label ?? "");
   const meta = document.getElementById("rlMeta");
-  if (meta) meta.textContent = `${nf(rows.length)} / ${nf(allRows.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
+  if (meta) meta.textContent = `${nf(curVisible.length)} / ${nf(allRows.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
+
+  const prog = document.querySelector(".rlprogress i") as HTMLElement | null;
+  const updateProg = () => {
+    if (!prog) return;
+    const max = wrap.scrollHeight - wrap.clientHeight;
+    prog.style.width = (max > 4 ? (wrap.scrollTop / max) * 100 : 0) + "%";
+  };
+
+  if (!curVisible.length) {
+    tbody.append(el("tr", {}, el("td", { colspan: String(curCols.length) },
+      el("div", { class: "rlempty" }, allRows.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ไม่มีออเดอร์ตีกลับในเดือนนี้"))));
+    wrap.onscroll = updateProg; updateProg();
+    return;
+  }
+
+  // วัดความกว้างคอลัมน์จากตัวอย่าง (auto layout) → ล็อกเป็น fixed กันคอลัมน์เพี้ยนตอน virtualize
+  const sampleN = Math.min(curVisible.length, 60);
+  for (let i = 0; i < sampleN; i++) tbody.append(buildRlRow(i));
+  const ths = [...htr.children] as HTMLElement[];
+  const widths = ths.map((t) => Math.ceil(t.getBoundingClientRect().width));
+  const baseH = Math.round((tbody.firstElementChild as HTMLElement)?.getBoundingClientRect().height || 50);
+  tbody.textContent = "";
+  table.style.tableLayout = "fixed";
+  ths.forEach((t, i) => { t.style.width = widths[i] + "px"; });
+
+  vt = makeVTable({
+    wrap, tbody, colspan: curCols.length,
+    count: () => curVisible.length, buildRow: buildRlRow, baseH,
+    afterWindow: (tb) => rlMeasureToggles(tb),
+  });
+  wrap.scrollTop = 0;
+  vt.render(true);
+  wrap.onscroll = updateProg; updateProg();
 }
 function buildTh(col: RLCol): HTMLElement {
   const th = el("th", {});
