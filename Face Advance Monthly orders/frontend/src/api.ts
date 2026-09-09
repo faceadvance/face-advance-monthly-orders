@@ -323,6 +323,9 @@ export function edithResolveConflict(conflictId: number, chosenIdx: number): Pro
 export function edithMerge(keep: number, dup: number): Promise<EdithActionResp> {
   return restRpc<EdithActionResp>("app_edith_merge_customers", { p_token: getToken(), p_keep: keep, p_dup: dup });
 }
+export function edithDismissDup(a: number, b: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_dismiss_dup", { p_token: getToken(), p_a: a, p_b: b });
+}
 
 export interface EdithLogRow {
   id: number; username: string; event: string;

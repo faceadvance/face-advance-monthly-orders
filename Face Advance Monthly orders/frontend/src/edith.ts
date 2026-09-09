@@ -4,7 +4,7 @@
 import { el, icon, nf } from "./util";
 import {
   fetchEdithIssues, fetchEdithDetail, fetchEdithLog,
-  edithDeleteRecon, edithRestoreRecon, edithResolveConflict, edithMerge,
+  edithDeleteRecon, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
   edithResolveError, edithSetPaymentStatus,
   type EdithIssue, type EdithIssueType, type EdithCounts, type EdithLogRow,
 } from "./api";
@@ -576,6 +576,12 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
     return card;
   };
   box.append(el("div", { class: "ed-dual" }, mk(A, B, "รายการใหม่"), mk(B, A, "ที่อาจซ้ำ")));
+  // ไม่ใช่คนเดียวกัน → ตั้ง review = rejected (นำออกจากคิว · ไม่แจ้งซ้ำอีก · ไม่รวมข้อมูล)
+  const dismiss = el("button", { class: "ed-btn ed-dismiss" }, icon("i-x"), "ไม่ใช่คนเดียวกัน (ไม่รวม)") as HTMLButtonElement;
+  dismiss.addEventListener("click", () => confirmAsk(
+    `ยืนยันว่า id #${idA} กับ #${idB} เป็นคนละคน? — จะนำออกจากคิว ไม่รวมข้อมูล และไม่แจ้งซ้ำคู่นี้อีก`,
+    () => runAction(dismiss, () => edithDismissDup(idA, idB), "ทำเครื่องหมาย 'ไม่ใช่คนเดียวกัน' แล้ว")));
+  box.append(el("div", { class: "ed-dismiss-row" }, dismiss));
   return box;
 }
 
