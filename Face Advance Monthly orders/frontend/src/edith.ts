@@ -542,27 +542,29 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
     el("span", {}, "เลือกฝั่งที่จะ ", el("b", {}, "เก็บไว้"), " — ระบบจะย้ายออเดอร์และเบอร์ทั้งหมดของอีกฝั่งมารวมที่ id ที่เลือก แล้วลบอีกฝั่งทิ้งถาวร")));
 
   const idA = Number(v.new_customer_id), idB = Number(v.candidate_customer_id);
-  type Side = { id: number; name: string; addr: string; phones: string; orders: number; spent: number; last: string; first: string };
-  const A: Side = { id: idA, name: g(v, "new_name"), addr: g(v, "new_addr"), phones: g(v, "new_phones"), orders: Number(v.new_orders || 0), spent: Number(v.new_spent || 0), last: g(v, "new_last"), first: g(v, "new_first") };
-  const B: Side = { id: idB, name: g(v, "cand_name"), addr: g(v, "cand_addr"), phones: g(v, "cand_phones"), orders: Number(v.cand_orders || 0), spent: Number(v.cand_spent || 0), last: g(v, "cand_last"), first: g(v, "cand_first") };
-  const norm = (x: string) => x.trim().replace(/\s+/g, " ");
-  const same = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
-  const reasonKey: keyof Side = reason === "address" ? "addr" : reason === "phone" ? "phones" : "name";
-  const rows: [string, keyof Side][] = [["ชื่อ", "name"], ["ที่อยู่", "addr"], ["เบอร์", "phones"]];
+  type Val = { v: string; hit: boolean };
+  const arr = (k: string): Val[] => Array.isArray(v[k]) ? (v[k] as Val[]) : [];
+  type Side = { id: number; names: Val[]; phones: Val[]; addrs: Val[]; orders: number; spent: number; last: string; first: string };
+  const A: Side = { id: idA, names: arr("new_names"), phones: arr("new_phones"), addrs: arr("new_addrs"), orders: Number(v.new_orders || 0), spent: Number(v.new_spent || 0), last: g(v, "new_last"), first: g(v, "new_first") };
+  const B: Side = { id: idB, names: arr("cand_names"), phones: arr("cand_phones"), addrs: arr("cand_addrs"), orders: Number(v.cand_orders || 0), spent: Number(v.cand_spent || 0), last: g(v, "cand_last"), first: g(v, "cand_first") };
+  const fieldsOf = (s: Side): [string, Val[]][] => [["ชื่อ", s.names], ["เบอร์", s.phones], ["ที่อยู่", s.addrs]];
 
   const mk = (s: Side, other: Side, title: string) => {
     const dup = other.id;
+    const nm0 = s.names[0]?.v || "—";
     const card = el("div", { class: "ed-vcard" },
       el("div", { class: "ed-vh" }, el("b", {}, title), el("span", { class: "ed-by" }, "id #" + s.id)));
-    for (const [lab, k] of rows) {
-      const isReason = k === reasonKey;
-      const isSame = same(String(s[k]), String(other[k]));
-      const cls = isReason ? "reason" : isSame ? "match" : "diff";
-      const marker = isReason ? el("i", { class: "ed-reason-tag" }, "จุดที่ซ้ำ")
-        : isSame ? el("i", { class: "ed-eq" }, "= ตรงกัน") : el("i", { class: "ed-neq" }, "≠ ต่าง");
-      card.append(el("div", { class: `ed-kv ${cls}` },
-        el("span", { class: "ed-k" }, lab, marker),
-        el("span", { class: "ed-v" }, String(s[k]) || "—")));
+    for (const [lab, vals] of fieldsOf(s)) {
+      const anyHit = vals.some((x) => x.hit);
+      const vlist = el("span", { class: "ed-v ed-vlist" });
+      if (!vals.length) vlist.append(el("span", { class: "ed-dv" }, "—"));
+      else vals.forEach((x, i) => {
+        if (i) vlist.append(el("span", { class: "ed-dvsep" }, "·"));
+        vlist.append(el("span", { class: `ed-dv ${x.hit ? "hit" : ""}` }, x.v || "—"));
+      });
+      card.append(el("div", { class: `ed-kv ${anyHit ? "reason" : ""}` },
+        el("span", { class: "ed-k" }, lab, anyHit ? el("i", { class: "ed-reason-tag" }, "🎯 ตรงกัน") : ""),
+        vlist));
     }
     card.append(el("div", { class: "ed-dstat" },
       el("span", {}, "ออเดอร์ ", el("b", {}, String(s.orders))),
@@ -571,7 +573,7 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
       el("span", {}, "ล่าสุด ", el("b", {}, s.last ? fmtTime(s.last) : "—"))));
     const keep = el("button", { class: "ed-btn primary" }, icon("i-check"), `เก็บ id #${s.id} นี้ไว้`) as HTMLButtonElement;
     keep.addEventListener("click", () => confirmAsk(
-      `รวมลูกค้า: เก็บ id #${s.id} (${s.name || "—"}) · ย้ายออเดอร์/เบอร์ของ id #${dup} มารวม แล้วลบ #${dup} ทิ้งถาวร?`,
+      `รวมลูกค้า: เก็บ id #${s.id} (${nm0}) · ย้ายออเดอร์/เบอร์ของ id #${dup} มารวม แล้วลบ #${dup} ทิ้งถาวร?`,
       () => runAction(keep, () => edithMerge(s.id, dup), `รวมมาที่ #${s.id} แล้ว`)));
     card.append(keep);
     return card;
