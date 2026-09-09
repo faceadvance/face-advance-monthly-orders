@@ -558,10 +558,7 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
       const anyHit = vals.some((x) => x.hit);
       const vlist = el("span", { class: "ed-v ed-vlist" });
       if (!vals.length) vlist.append(el("span", { class: "ed-dv" }, "—"));
-      else vals.forEach((x, i) => {
-        if (i) vlist.append(el("span", { class: "ed-dvsep" }, "·"));
-        vlist.append(el("span", { class: `ed-dv ${x.hit ? "hit" : ""}` }, x.v || "—"));
-      });
+      else vals.forEach((x) => vlist.append(el("span", { class: `ed-dv ${x.hit ? "hit" : ""}` }, x.v || "—")));
       card.append(el("div", { class: `ed-kv ${anyHit ? "reason" : ""}` },
         el("span", { class: "ed-k" }, lab, anyHit ? el("i", { class: "ed-reason-tag" }, "🎯 ตรงกัน") : ""),
         vlist));
