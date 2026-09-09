@@ -428,10 +428,13 @@ function mountForm(draft: UUser, mode: "create" | "edit") {
 
   function validate(showAll = false): Record<string, string> {
     const errs: Record<string, string> = {};
-    const un = draft.username.trim();
-    if (!un) errs.username = "กรุณากรอก username";
-    else if (!/^[a-z0-9][a-z0-9._-]{2,23}$/.test(un)) errs.username = "ใช้ได้เฉพาะ a-z 0-9 . _ - ความยาว 3–24";
-    else if (users.some((x) => x.username.toLowerCase() === un.toLowerCase() && x.id !== draft.id)) errs.username = "username นี้มีคนใช้แล้ว";
+    // username ตรวจเฉพาะตอนสร้าง — ตอนแก้ไข username readonly เปลี่ยนไม่ได้ (บัญชีเดิมบางอันมีพิมพ์ใหญ่ เช่น sup-c-BN ไม่ควรโดนบล็อก)
+    if (mode === "create") {
+      const un = draft.username.trim();
+      if (!un) errs.username = "กรุณากรอก username";
+      else if (!/^[a-z0-9][a-z0-9._-]{2,23}$/.test(un)) errs.username = "ใช้ได้เฉพาะ a-z 0-9 . _ - ความยาว 3–24";
+      else if (users.some((x) => x.username.toLowerCase() === un.toLowerCase() && x.id !== draft.id)) errs.username = "username นี้มีคนใช้แล้ว";
+    }
     if (!draft.name.trim()) errs.name = "กรุณากรอกชื่อที่แสดง";
     else if (/[​-‍﻿⁠]/.test(draft.name)) errs.name = "มีอักขระล่องหนปนอยู่ในชื่อ";
     if (draft.line && !/^U[0-9a-f]{32}$/.test(draft.line)) errs.line = "รูปแบบไม่ถูกต้อง — ต้องขึ้นต้นด้วย U ตามด้วย hex 32 ตัว";
@@ -440,7 +443,7 @@ function mountForm(draft: UUser, mode: "create" | "edit") {
     if (!(draft.idle >= 5 && draft.idle <= 480)) errs.idle = "5–480 นาที";
     else if (draft.idle > draft.hours * 60) errs.idle = "idle ต้องไม่เกินอายุ session";
     ["username", "name", "line", "teams", "hours", "idle"].forEach((k) => { if (showAll || touched.has(k)) setErr(k, errs[k]); });
-    const uOk = qs<HTMLElement>("#u2uOk"); if (uOk) uOk.style.display = (!errs.username && un && mode === "create") ? "" : "none";
+    const uOk = qs<HTMLElement>("#u2uOk"); if (uOk) uOk.style.display = (!errs.username && draft.username.trim() && mode === "create") ? "" : "none";
     return errs;
   }
 
