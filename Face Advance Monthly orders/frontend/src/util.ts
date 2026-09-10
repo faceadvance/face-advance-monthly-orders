@@ -120,7 +120,7 @@ export function paymentStatusLabel(s: string): string {
 export type ColKey =
   | "date" | "phone" | "customer_name" | "address" | "items"
   | "carrier" | "tracking_no" | "payment_method" | "total_sales"
-  | "delivery_status" | "problem" | "payment_status" | "return_arrived" | "note";
+  | "delivery_status" | "problem" | "payment_status" | "return_arrived" | "last_note_at" | "note";
 
 /** ช่องทางชำระ: ย่อ "เก็บเงินปลายทาง" → "COD" ให้สั้น (ค่าใน DB คงเดิม) */
 export function paymentMethodLabel(v: string): string {
@@ -146,6 +146,7 @@ export function cellValue(o: Order, col: ColKey): string {
     case "items": return itemsLabel(o.items);
     case "return_arrived": return returnArrivedLabel(o.return_arrived);
     case "problem": return o.delivery_status === "มีปัญหา" ? (o.status_detail || "") : "";
+    case "last_note_at": return o.last_note_at ? dmy(o.last_note_at) : "";
     default: return (o[col] ?? "") as string;
   }
 }

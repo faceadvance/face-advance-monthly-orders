@@ -45,6 +45,7 @@ const COLUMNS: Column[] = [
   { key: "problem", label: "รายละเอียดปัญหา", headIcon: "i-info", align: "center", thClass: "probcol" },
   { key: "payment_status", label: "สถานะชำระ", align: "center" },
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
+  { key: "last_note_at", label: "ติดตามล่าสุด", thClass: "datehead" },
   { key: "note", label: "หมายเหตุ" },
 ];
 const ordHidden = loadColsHidden("fa_cols_orders");   // คอลัมน์ที่ซ่อน (จำใน localStorage ต่อเครื่อง)
@@ -367,6 +368,7 @@ function computeVisible(): Order[] {
       if (col === "total_sales") r = a.total_sales - b.total_sales;
       // วันที่: เรียงด้วย ordered_at (มีเวลา) แม้ตารางโชว์แค่วัน → วันเดียวกันเรียงตามเวลา
       else if (col === "date") r = a.ordered_at < b.ordered_at ? -1 : a.ordered_at > b.ordered_at ? 1 : 0;
+      else if (col === "last_note_at") { const av = a.last_note_at || "", bv = b.last_note_at || ""; r = av < bv ? -1 : av > bv ? 1 : 0; }
       else r = cellValue(a, col).localeCompare(cellValue(b, col), "th");
       return dir === "asc" ? r : -r;
     });
@@ -380,7 +382,7 @@ function computeVisible(): Order[] {
 //  วาดแค่ ~ช่วงที่เห็น + overscan → ไม่ค้างแม้หลายพันแถว, เลื่อนลื่น
 // ======================================================
 const OVERSCAN = 8;                          // แถวเผื่อบน/ล่างกันขอบขาดตอนเลื่อนเร็ว
-const COL_W = [98, 114, 166, 133, 240, 73, 91, 79, 181, 115, 50, 115, 100, 110]; // ความกว้างคอลัมน์คงที่ (จาก auto-layout เดิม) — กันคอลัมน์เพี้ยนตอน virtualize
+const COL_W = [98, 114, 166, 133, 240, 73, 91, 79, 181, 115, 50, 115, 100, 100, 110]; // ความกว้างคอลัมน์คงที่ (วันที่/เบอร์/ชื่อ/ที่อยู่/สินค้า/ชำระ/ยอด/ขนส่ง/แทร็ค/จัดส่ง/ปัญหา/ชำระ/ตีกลับถึง/ติดตามล่าสุด/หมายเหตุ)
 const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
 let vTbody: HTMLElement | null = null;
 let vTop: HTMLElement | null = null;         // spacer บน (ความสูง = แถวเหนือหน้าต่างรวมกัน)
@@ -665,6 +667,9 @@ function buildRow(o: Order): HTMLElement {
     raCell.append("—");
   }
   ac("return_arrived", raCell);
+  // ติดตามล่าสุด: วันที่ user อัพเดตล่าสุด · เป็นวันนี้ → ตัวอักษรน้ำเงิน
+  const isToday = !!o.last_note_at && o.last_note_at === state.data?.today;
+  ac("last_note_at", el("td", { class: "datecell" + (isToday ? " lntoday" : "") }, o.last_note_at ? dmy(o.last_note_at) : "—"));
   ac("note", buildNoteCell(o, tr));
   // แก้ไข (เปิด sidebar)
   const actCell = el("td", { class: "actcell" });

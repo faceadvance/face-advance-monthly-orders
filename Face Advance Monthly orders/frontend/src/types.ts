@@ -22,6 +22,7 @@ export interface Order {
   seller_code: string;       // รหัสผู้ขาย (sellers.employee_code) — "" ถ้าไม่ระบุ
   seller_name: string;       // ชื่อผู้ขาย (sellers.name) — "" ถ้าไม่ระบุ
   items: OrderItem[];        // รายการสินค้าในออเดอร์
+  last_note_at: string | null;   // วันที่ล่าสุดที่บันทึกติดตาม (YYYY-MM-DD) — null ถ้าไม่มี
   note: string;
 }
 
