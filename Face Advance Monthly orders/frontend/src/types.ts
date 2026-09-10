@@ -23,6 +23,7 @@ export interface Order {
   seller_name: string;       // ชื่อผู้ขาย (sellers.name) — "" ถ้าไม่ระบุ
   items: OrderItem[];        // รายการสินค้าในออเดอร์
   last_note_at: string | null;   // วันที่ล่าสุดที่บันทึกติดตาม (YYYY-MM-DD) — null ถ้าไม่มี
+  last_note_text: string | null; // ข้อความโน้ตล่าสุด — null ถ้าไม่มี
   note: string;
 }
 

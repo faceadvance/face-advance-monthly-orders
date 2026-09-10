@@ -101,7 +101,6 @@ export function splitNameCode(full: string): { name: string; code: string } {
 export function deliveryBadge(s: string): { cls: string; icon: string } {
   switch (s) {
     case "ส่งสำเร็จ": return { cls: "g", icon: "i-check" };
-    case "ไม่เปลี่ยนเป็นเซ็นรับ": return { cls: "t", icon: "" };
     case "ส่งแล้ว":   return { cls: "b", icon: "i-truck" };
     case "รอส่ง":     return { cls: "a", icon: "i-clock" };
     case "ตีกลับ":    return { cls: "r", icon: "i-return" };
@@ -129,7 +128,7 @@ export function paymentStatusLabel(s: string): string {
 export type ColKey =
   | "date" | "phone" | "customer_name" | "address" | "items"
   | "carrier" | "tracking_no" | "payment_method" | "total_sales"
-  | "delivery_status" | "problem" | "payment_status" | "return_arrived" | "last_note_at" | "note";
+  | "delivery_status" | "problem" | "payment_status" | "return_arrived" | "last_note_at" | "last_note_text" | "note";
 
 /** ช่องทางชำระ: ย่อ "เก็บเงินปลายทาง" → "COD" ให้สั้น (ค่าใน DB คงเดิม) */
 export function paymentMethodLabel(v: string): string {
@@ -156,6 +155,7 @@ export function cellValue(o: Order, col: ColKey): string {
     case "return_arrived": return returnArrivedLabel(o.return_arrived);
     case "problem": return o.delivery_status === "มีปัญหา" ? (o.status_detail || "") : "";
     case "last_note_at": return o.last_note_at ? dmy(o.last_note_at) : "";
+    case "last_note_text": return o.last_note_text ?? "";
     default: return (o[col] ?? "") as string;
   }
 }

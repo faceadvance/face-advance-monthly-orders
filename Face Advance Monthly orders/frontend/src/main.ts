@@ -3,7 +3,7 @@ import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
   importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs,
-  getDetailPresets, fetchNotifications,
+  getDetailPresets, fetchNotifications, editNote,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole } from "./session";
@@ -46,6 +46,7 @@ const COLUMNS: Column[] = [
   { key: "payment_status", label: "สถานะชำระ", align: "center" },
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
   { key: "last_note_at", label: "ติดตามล่าสุด", thClass: "datehead" },
+  { key: "last_note_text", label: "โน๊ตล่าสุด" },
   { key: "note", label: "หมายเหตุ" },
 ];
 const ordHidden = loadColsHidden("fa_cols_orders");   // คอลัมน์ที่ซ่อน (จำใน localStorage ต่อเครื่อง)
@@ -407,7 +408,7 @@ const OVERSCAN = 8;                          // แถวเผื่อบน/�
 const COL_W: Record<string, number> = {   // ความกว้างคอลัมน์คงที่ (ต่อ key) — กันเพี้ยนตอน virtualize
   date: 98, phone: 114, customer_name: 166, address: 133, items: 240, payment_method: 73,
   total_sales: 91, carrier: 79, tracking_no: 181, delivery_status: 115, problem: 114,
-  payment_status: 115, return_arrived: 100, last_note_at: 100, note: 110,
+  payment_status: 115, return_arrived: 100, last_note_at: 100, last_note_text: 114, note: 110,
 };
 const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
 let vTbody: HTMLElement | null = null;
@@ -443,7 +444,7 @@ function spacerRow(): HTMLElement {
 }
 // วัด overflow (โชว์ปุ่มขยาย ▸) เฉพาะแถวในหน้าต่างที่กำลังแสดง — เบาเพราะมีแค่ ~ช่วงที่เห็น
 function measureToggles(scope: ParentNode) {
-  for (const tx of scope.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt, .probtxt")) {
+  for (const tx of scope.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt, .probtxt, .lasttxt")) {
     if (tx.scrollWidth > tx.clientWidth + 1) {
       const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
       if (tog) tog.style.display = "";
@@ -703,6 +704,7 @@ function buildRow(o: Order): HTMLElement {
   const isToday = !!o.last_note_at && o.last_note_at === state.data?.today;
   const lnText = !o.last_note_at ? "—" : isToday ? "วันนี้" : dmy(o.last_note_at);
   ac("last_note_at", el("td", { class: "datecell " + (isToday ? "lntoday" : "lnpast") }, lnText));
+  ac("last_note_text", buildLastNoteCell(o, tr));
   ac("note", buildNoteCell(o, tr));
   // ต่อเซลล์ตามลำดับคอลัมน์ที่ผู้ใช้จัด (ต้องตรงกับ thead)
   for (const col of orderedColumns()) { const c = cells[col.key]; if (c) tr.append(c); }
@@ -785,6 +787,20 @@ function buildNoteCell(o: Order, tr: HTMLElement): HTMLElement {
   const txt = el("span", { class: "notetxt mono", title: o.note || "" }, o.note || "—");
   const tog = el("span", { class: "itemtoggle notetoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
   tog.style.display = "none"; // โชว์เฉพาะแถวที่หมายเหตุล้น (เช็ค overflow หลัง render)
+  tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
+  line.append(txt, tog);
+  td.append(line);
+  return td;
+}
+// คอลัมน์ "โน๊ตล่าสุด" — ข้อความโน้ตล่าสุด (ตัด ... + สามเหลี่ยมกางทั้งแถว)
+function buildLastNoteCell(o: Order, tr: HTMLElement): HTMLElement {
+  const td = el("td", { class: "note-cell" });
+  const val = o.last_note_text || "";
+  if (!val) { td.append("—"); return td; }
+  const line = el("div", { class: "noteline" });
+  const txt = el("span", { class: "lasttxt", title: val }, val);
+  const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
+  tog.style.display = "none";
   tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
   line.append(txt, tog);
   td.append(line);
@@ -989,7 +1005,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 // ======================================================
 //  การบันทึกติดตาม (Stage 5): แก้สถานะ inline + sidebar
 // ======================================================
-const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ไม่เปลี่ยนเป็นเซ็นรับ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
+const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
 const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก", "ไม่ใช่งานขาย"];
 const RETURN_REASONS = [
   "ไม่สามารถติดต่อลูกค้าได้",
@@ -1185,18 +1201,17 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   // ที่อยู่ (บนสุดของบล็อกล่าง) — อยู่เหนือแถวขนส่ง/เลขแทร็ก/ผู้ขาย
   infoC.body.append(gridField("ที่อยู่", o.address, true));
   // ขนส่ง · เลขแทร็ก · ผู้ขาย — 3 ช่องระดับเดียวกัน
-  // KEX → เลขแทร็กกดได้ เปิดลิงก์ติดตามแท็บใหม่
+  // เลขแทร็ก: โชว์ข้อความ + ปุ่มคัดลอก (กดแล้ว copy เลขแทร็ก — ไม่เปิดลิงก์แล้ว)
   let trackNode: Node | string = "—";
   if (o.tracking_no) {
-    if ((o.carrier || "").trim().toUpperCase() === "KEX") {
-      trackNode = el("a", {
-        class: "trackbox mono tracklink",
-        href: "https://th.kex-express.com/th/track/?track=" + encodeURIComponent(o.tracking_no),
-        target: "_blank", rel: "noopener noreferrer", title: "ติดตามพัสดุ KEX",
-      }, o.tracking_no);
-    } else {
-      trackNode = el("span", { class: "trackbox mono" }, o.tracking_no);
-    }
+    const tno = o.tracking_no;
+    const copyBtn = el("button", { class: "trackcopy", type: "button", title: "คัดลอกเลขแทร็ก" }, icon("i-copy"));
+    copyBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await copyToClipboard(tno);
+      toast(ok ? "คัดลอกเลขแทร็กแล้ว" : "คัดลอกไม่สำเร็จ", ok);
+    });
+    trackNode = el("span", { class: "trackwrap" }, el("span", { class: "trackbox mono" }, tno), copyBtn);
   }
   const meta = el("div", { class: "sbgrid sbgrid3" });
   meta.append(
@@ -1678,13 +1693,48 @@ async function loadTimeline(orderId: number, noteBox: HTMLElement, logBox: HTMLE
 function renderNotes(box: HTMLElement, notes: TrackingEntry[]) {
   box.textContent = "";
   if (notes.length === 0) { box.append(el("div", { class: "tlempty" }, "ยังไม่มีโน้ต")); return; }
+  const me = displayName();
+  const today = state.data?.today;
   for (const e of notes) {
     const item = el("div", { class: "notecard" });
-    item.append(el("div", { class: "tlhead" },
-      el("span", { class: "tldate" }, trackTime(e.at)), el("span", { class: "tlby" }, e.by || "—")));
-    item.append(el("div", { class: "notebody" }, e.note ?? ""));
+    const head = el("div", { class: "tlhead" },
+      el("span", { class: "tldate" }, trackTime(e.at)), el("span", { class: "tlby" }, e.by || "—"));
+    const body = el("div", { class: "notebody" }, e.note ?? "");
+    item.append(head, body);
+    // แก้ไขได้เฉพาะโน้ตของตัวเอง + เป็นวันนี้ (server บังคับซ้ำอีกชั้น)
+    if (e.type === "note" && !!today && e.at.slice(0, 10) === today && !!me && e.by === me) {
+      const editBtn = el("button", { class: "noteedit", type: "button", title: "แก้ไขโน้ต" }, icon("i-edit"));
+      editBtn.addEventListener("click", () => startEditNote(item, body, e));
+      head.append(editBtn);
+    }
     box.append(item);
   }
+}
+// แก้ไขโน้ต inline
+function startEditNote(item: HTMLElement, body: HTMLElement, e: TrackingEntry) {
+  if (item.querySelector(".noteeditta")) return;
+  const ta = el("textarea", { class: "sbtextarea noteeditta", rows: "2" }) as HTMLTextAreaElement;
+  ta.value = e.note ?? "";
+  const save = el("button", { class: "fbtn p", type: "button" }, "บันทึก");
+  const cancel = el("button", { class: "btncancel", type: "button" }, "ยกเลิก");
+  const row = el("div", { class: "noteeditrow" }, cancel, save);
+  body.style.display = "none";
+  item.append(ta, row);
+  ta.focus();
+  const close = () => { ta.remove(); row.remove(); body.style.display = ""; };
+  cancel.addEventListener("click", close);
+  save.addEventListener("click", async () => {
+    const v = ta.value.trim();
+    if (!v) { toast("โน้ตว่างไม่ได้", false); return; }
+    save.setAttribute("disabled", "1");
+    try {
+      const r = await editNote(e.id, v);
+      if (!r.authorized) { toLogin(); return; }
+      if (!r.ok) { toast(r.error === "not_editable" ? "แก้ได้เฉพาะโน้ตของตัวเอง (วันนี้)" : "แก้ไม่สำเร็จ", false); save.removeAttribute("disabled"); return; }
+      e.note = v; body.textContent = v; close();
+      toast("แก้โน้ตแล้ว");
+    } catch { toast("แก้ไม่สำเร็จ", false); save.removeAttribute("disabled"); }
+  });
 }
 
 // เบอร์โทรใส่ขีด (เฉพาะ sidebar): 10 หลัก→089-772-7171, 9 หลัก→02-XXX-XXXX

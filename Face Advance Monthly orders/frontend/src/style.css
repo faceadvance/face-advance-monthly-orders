@@ -228,6 +228,8 @@ tr.rowopen .notetxt{white-space:normal;overflow:visible;word-break:break-word}
 .probline{display:flex;align-items:center;gap:.3rem}
 .probline .probtxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 tr.rowopen .probtxt{white-space:normal;overflow:visible;word-break:break-word}
+.noteline .lasttxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+tr.rowopen .lasttxt{white-space:normal;overflow:visible;word-break:break-word}
 .carriercell .carriertxt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .carriercell .carriertxt{white-space:normal;overflow:visible;word-break:break-word}
 th.rcol .hh{justify-content:flex-end}
@@ -586,6 +588,9 @@ body.noedit .acthead,body.noedit .actcell{display:none}
 .sbtotal{display:flex;align-items:center;justify-content:space-between;margin-top:.5rem;padding-top:.55rem;border-top:1px solid var(--border);font-size:.9rem;color:var(--ink)}
 .sbtotal b{font-size:1rem;color:var(--primary);font-weight:700;font-variant-numeric:tabular-nums}
 .trackbox{display:inline-block;background:#F8FAFC;border:1px solid var(--border);border-radius:.4rem;padding:.1rem .45rem;font-size:.78rem;font-weight:600;color:var(--primary)}
+.trackwrap{display:inline-flex;align-items:center;gap:.35rem}
+.trackcopy{border:none;background:transparent;color:var(--ink-3);cursor:pointer;padding:2px;border-radius:5px;display:inline-flex;align-items:center}
+.trackcopy:hover{color:var(--primary);background:rgba(37,99,235,.1)}
 
 /* ฟอร์มควบคุม */
 .sbfld{display:block;font-size:.78rem;color:var(--ink-2);font-weight:600;margin-bottom:.85rem}
@@ -694,6 +699,10 @@ thead th.filtered .hpen{color:#fff}
 .notecard{background:#FFFDF5;border:1px solid #FEF3C7;border-radius:.6rem;padding:.5rem .7rem}
 .notecard .tlhead{margin-bottom:.25rem}
 .notebody{font-size:.83rem;color:#78350F;white-space:pre-wrap;word-break:break-word;line-height:1.55}
+.noteedit{flex:none;border:none;background:transparent;color:#B45309;cursor:pointer;padding:2px;border-radius:4px;display:inline-flex;align-items:center}
+.noteedit:hover{color:var(--primary);background:rgba(37,99,235,.12)}
+.noteeditrow{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.45rem}
+.noteeditrow .fbtn,.noteeditrow .btncancel{padding:.35rem .9rem;border-radius:.5rem;font-size:.8rem}
 
 /* -- v3 fix: กันการ์ดถูกบีบใน flex column → sbbody scroll ได้ + ปุ่ม toggle ประวัติ -- */
 .sbcard{flex:none}

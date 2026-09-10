@@ -110,6 +110,11 @@ export interface TrackingResp {
   status_detail?: string;
   timeline?: TrackingEntry[];
 }
+// แก้ไขโน้ต (เฉพาะของตัวเอง + วันนี้ · server บังคับ)
+export interface EditNoteResp { authorized: boolean; ok?: boolean; error?: string; order_id?: number; note?: string; }
+export function editNote(noteId: number, note: string): Promise<EditNoteResp> {
+  return restRpc<EditNoteResp>("app_edit_note", { p_token: getToken(), p_note_id: noteId, p_note: note });
+}
 export function saveOrderTracking(orderId: number, a: SaveTrackingArgs): Promise<TrackingResp> {
   return restRpc<TrackingResp>("app_save_order_tracking", {
     p_token: getToken(),
