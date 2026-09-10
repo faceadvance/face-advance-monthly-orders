@@ -46,6 +46,14 @@ export function loadColsHidden(key: string): Set<string> {
 export function saveColsHidden(key: string, set: Set<string>): void {
   try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* localStorage เต็ม/ปิด → ข้าม */ }
 }
+// จำลำดับคอลัมน์ที่ผู้ใช้จัดเอง (array ของ key) ต่อเครื่อง
+export function loadColsOrder(key: string): string[] {
+  try { const r = localStorage.getItem(key); if (r) return JSON.parse(r) as string[]; } catch { /* */ }
+  return [];
+}
+export function saveColsOrder(key: string, arr: string[]): void {
+  try { localStorage.setItem(key, JSON.stringify(arr)); } catch { /* */ }
+}
 
 /** ลิงก์ Google Drive → URL รูปที่ฝังได้ (ไฟล์ต้องแชร์สาธารณะ) · ลิงก์รูปตรงๆ ใช้ได้เลย */
 export function imageSrc(url: string, big = false): string {

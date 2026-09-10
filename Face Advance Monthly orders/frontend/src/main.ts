@@ -18,7 +18,7 @@ import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
   cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
-  loadColsHidden, saveColsHidden,
+  loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder,
 } from "./util";
 
 const MAX_SELECT = 30;
@@ -49,6 +49,28 @@ const COLUMNS: Column[] = [
   { key: "note", label: "หมายเหตุ" },
 ];
 const ordHidden = loadColsHidden("fa_cols_orders");   // คอลัมน์ที่ซ่อน (จำใน localStorage ต่อเครื่อง)
+const ordOrder = loadColsOrder("fa_colorder_orders"); // ลำดับคอลัมน์ที่ผู้ใช้จัดเอง (keys) — ต่อเครื่อง
+// คอลัมน์เรียงตามลำดับผู้ใช้ (คอลัมน์ใหม่ที่ยังไม่มีในลำดับ → ต่อท้ายตาม default)
+function orderedColumns(): Column[] {
+  const byKey = new Map(COLUMNS.map((c) => [c.key, c]));
+  const seen = new Set<string>();
+  const out: Column[] = [];
+  for (const k of ordOrder) { const c = byKey.get(k as ColKey); if (c && !seen.has(k)) { out.push(c); seen.add(k); } }
+  for (const c of COLUMNS) if (!seen.has(c.key)) out.push(c);
+  return out;
+}
+let dragColKey: string | null = null;   // คอลัมน์ที่กำลังลากในเมนูจัดลำดับ
+// ย้ายคอลัมน์ dragKey ไปตำแหน่งของ targetKey แล้วจำ + re-render
+function moveColumn(dragKey: string, targetKey: string) {
+  const cur: string[] = orderedColumns().map((c) => c.key);
+  const from = cur.indexOf(dragKey), to = cur.indexOf(targetKey);
+  if (from < 0 || to < 0 || from === to) return;
+  cur.splice(to, 0, cur.splice(from, 1)[0]);
+  ordOrder.splice(0, ordOrder.length, ...cur);
+  saveColsOrder("fa_colorder_orders", ordOrder);
+  buildOrdColsMenu();
+  renderTable();
+}
 
 // ---------- state ----------
 const state = {
@@ -382,7 +404,11 @@ function computeVisible(): Order[] {
 //  วาดแค่ ~ช่วงที่เห็น + overscan → ไม่ค้างแม้หลายพันแถว, เลื่อนลื่น
 // ======================================================
 const OVERSCAN = 8;                          // แถวเผื่อบน/ล่างกันขอบขาดตอนเลื่อนเร็ว
-const COL_W = [98, 114, 166, 133, 240, 73, 91, 79, 181, 115, 114, 115, 100, 100, 110]; // ความกว้างคอลัมน์คงที่ (วันที่/เบอร์/ชื่อ/ที่อยู่/สินค้า/ชำระ/ยอด/ขนส่ง/แทร็ค/จัดส่ง/ปัญหา/ชำระ/ตีกลับถึง/ติดตามล่าสุด/หมายเหตุ)
+const COL_W: Record<string, number> = {   // ความกว้างคอลัมน์คงที่ (ต่อ key) — กันเพี้ยนตอน virtualize
+  date: 98, phone: 114, customer_name: 166, address: 133, items: 240, payment_method: 73,
+  total_sales: 91, carrier: 79, tracking_no: 181, delivery_status: 115, problem: 114,
+  payment_status: 115, return_arrived: 100, last_note_at: 100, note: 110,
+};
 const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
 let vTbody: HTMLElement | null = null;
 let vTop: HTMLElement | null = null;         // spacer บน (ความสูง = แถวเหนือหน้าต่างรวมกัน)
@@ -501,11 +527,9 @@ function renderTable() {
   table.style.tableLayout = "fixed";   // คอลัมน์ยึดความกว้างจากหัวตาราง → ไม่เพี้ยนตอน virtualize
   const thead = el("thead");
   const htr = el("tr");
-  for (const col of COLUMNS) htr.append(buildTh(col));
-  htr.append(el("th", { class: "acthead c" }, "อัพเดต"));
+  for (const col of orderedColumns()) { const th = buildTh(col); th.style.width = (COL_W[col.key] ?? 100) + "px"; htr.append(th); }
+  const actTh = el("th", { class: "acthead c" }, "อัพเดต"); actTh.style.width = ACT_W + "px"; htr.append(actTh);
   thead.append(htr);
-  const ths = [...htr.children] as HTMLElement[];
-  ths.forEach((th, i) => { th.style.width = (i < COL_W.length ? COL_W[i] : ACT_W) + "px"; });
 
   const tbody = el("tbody");
   vTbody = tbody; vTop = spacerRow(); vBot = spacerRow();
@@ -557,10 +581,12 @@ function updateOrdProgress() {
 function buildOrdColsMenu() {
   const pop = document.getElementById("ordColsPop"); if (!pop) return;
   pop.textContent = "";
-  pop.append(el("div", { class: "rlcolshd" }, "แสดงคอลัมน์"));
-  for (const c of COLUMNS) {
+  pop.append(el("div", { class: "rlcolshd" }, "แสดง / ลากจัดลำดับคอลัมน์"));
+  for (const c of orderedColumns()) {
+    const grip = el("span", { class: "colgrip", title: "ลากเพื่อจัดลำดับ" }, "⋮⋮");
     const cbx = el("span", { class: "cbx" + (ordHidden.has(c.key) ? " off" : "") }, icon("i-tick"));
-    const row = el("div", { class: "rlcolitem" }, cbx, c.label);
+    const row = el("div", { class: "rlcolitem", draggable: "true" }, grip, cbx, c.label);
+    row.dataset.k = c.key;
     row.addEventListener("click", (e) => {
       e.stopPropagation();
       if (ordHidden.has(c.key)) ordHidden.delete(c.key);
@@ -569,6 +595,11 @@ function buildOrdColsMenu() {
       saveColsHidden("fa_cols_orders", ordHidden);   // จำไว้ต่อเครื่อง
       applyOrdHidden();
     });
+    row.addEventListener("dragstart", (e) => { dragColKey = c.key; row.classList.add("dragging"); (e as DragEvent).dataTransfer!.effectAllowed = "move"; });
+    row.addEventListener("dragend", () => { dragColKey = null; pop.querySelectorAll(".rlcolitem").forEach((r) => r.classList.remove("dragging", "dragover")); });
+    row.addEventListener("dragover", (e) => { e.preventDefault(); if (dragColKey && dragColKey !== c.key) row.classList.add("dragover"); });
+    row.addEventListener("dragleave", () => row.classList.remove("dragover"));
+    row.addEventListener("drop", (e) => { e.preventDefault(); row.classList.remove("dragover"); if (dragColKey && dragColKey !== c.key) moveColumn(dragColKey, c.key); });
     pop.append(row);
   }
 }
@@ -643,7 +674,8 @@ function buildRow(o: Order): HTMLElement {
   const tr = el("tr") as HTMLElement;
   tr.dataset.oid = String(o.id);   // ใช้หาแถวเพื่ออัปเดตเฉพาะจุด (ไม่ re-render ทั้งตาราง)
   // ติดคลาส col-<key> ทุกช่อง → ใช้ซ่อน/โชว์คอลัมน์ (ต้องตรงกับ th ที่ buildTh ติดให้)
-  const ac = (key: string, td: HTMLElement) => { td.classList.add("col-" + key); tr.append(td); };
+  const cells: Record<string, HTMLElement> = {};
+  const ac = (key: string, td: HTMLElement) => { td.classList.add("col-" + key); cells[key] = td; };
   ac("date", el("td", { class: "datecell" }, dmy(o.date)));
   ac("phone", el("td", { class: "mono" }, o.phone || "—"));
   ac("customer_name", buildNameCell(o, tr));
@@ -672,6 +704,8 @@ function buildRow(o: Order): HTMLElement {
   const lnText = !o.last_note_at ? "—" : isToday ? "วันนี้" : dmy(o.last_note_at);
   ac("last_note_at", el("td", { class: "datecell " + (isToday ? "lntoday" : "lnpast") }, lnText));
   ac("note", buildNoteCell(o, tr));
+  // ต่อเซลล์ตามลำดับคอลัมน์ที่ผู้ใช้จัด (ต้องตรงกับ thead)
+  for (const col of orderedColumns()) { const c = cells[col.key]; if (c) tr.append(c); }
   // แก้ไข (เปิด sidebar)
   const actCell = el("td", { class: "actcell" });
   const editBtn = el("button", { class: "rowedit", title: "อัพเดต / บันทึกติดตาม" }, icon("i-editbox"));
