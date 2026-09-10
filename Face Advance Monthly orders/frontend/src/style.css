@@ -250,7 +250,7 @@ th.probcol .hh{justify-content:center}
 .g{color:#065F46;background:#D1FAE5;border-color:#34D399}.a{color:#854D0E;background:#FEF08A;border-color:#EAB308}
 .b{color:#1E3A8A;background:#BFDBFE;border-color:#3B82F6}.r{color:#fff;background:#DC2626;border-color:#B91C1C}
 .n{color:#fff;background:#475569;border-color:#334155}
-.t{color:#6D28D9;background:#EDE9FE;border-color:#A78BFA}
+.badge.t{color:#6D28D9;background:#EDE9FE;border-color:#A78BFA}
 .w{color:#fff;background:#EA580C;border-color:#C2410C}
 .cferr{display:inline-flex;align-items:center;justify-content:center;color:#D97706;cursor:default;filter:drop-shadow(0 1px 1px rgba(180,83,9,.25))}
 .cferr svg{width:1.5rem;height:1.5rem}
