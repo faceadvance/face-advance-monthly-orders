@@ -817,7 +817,7 @@ function buildTrackCell(o: Order): HTMLElement {
 }
 
 function badge(b: { cls: string; icon: string }, text: string): HTMLElement {
-  return el("span", { class: `badge ${b.cls}` }, icon(b.icon), text);
+  return b.icon ? el("span", { class: `badge ${b.cls}` }, icon(b.icon), text) : el("span", { class: `badge ${b.cls}` }, text);
 }
 
 // ======================================================
@@ -951,7 +951,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 // ======================================================
 //  การบันทึกติดตาม (Stage 5): แก้สถานะ inline + sidebar
 // ======================================================
-const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "เซ็นรับแล้ว", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
+const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ไม่เปลี่ยนเป็นเซ็นรับ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
 const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก", "ไม่ใช่งานขาย"];
 const RETURN_REASONS = [
   "ไม่สามารถติดต่อลูกค้าได้",

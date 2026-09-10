@@ -93,7 +93,7 @@ export function splitNameCode(full: string): { name: string; code: string } {
 export function deliveryBadge(s: string): { cls: string; icon: string } {
   switch (s) {
     case "ส่งสำเร็จ": return { cls: "g", icon: "i-check" };
-    case "เซ็นรับแล้ว": return { cls: "t", icon: "i-check-circle" };
+    case "ไม่เปลี่ยนเป็นเซ็นรับ": return { cls: "t", icon: "" };
     case "ส่งแล้ว":   return { cls: "b", icon: "i-truck" };
     case "รอส่ง":     return { cls: "a", icon: "i-clock" };
     case "ตีกลับ":    return { cls: "r", icon: "i-return" };

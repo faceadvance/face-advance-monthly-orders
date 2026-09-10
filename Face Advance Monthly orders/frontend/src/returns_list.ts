@@ -30,7 +30,7 @@ const hiddenStatus = loadColsHidden("fa_cols_ret_status");
 const curHidden = () => (state.mode === "status" ? hiddenStatus : hiddenDeduct);
 
 const dash = (s: string | null | undefined): string => (s && s.trim() !== "" ? s : "—");
-const badge = (cls: string, ic: string, label: string) => el("span", { class: `badge ${cls}` }, icon(ic), label);
+const badge = (cls: string, ic: string, label: string) => ic ? el("span", { class: `badge ${cls}` }, icon(ic), label) : el("span", { class: `badge ${cls}` }, label);
 
 // ---------- นิยามคอลัมน์ ----------
 interface RLCol {

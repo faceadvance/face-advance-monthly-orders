@@ -21,7 +21,7 @@ const RECENT_KEY = "fa_search_recent";
 
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector(sel) as T | null;
 const dash = (s: string | null | undefined) => (s && s.trim() !== "" ? s : "—");
-const badge = (cls: string, ic: string, label: string) => el("span", { class: `badge ${cls}` }, icon(ic), label);
+const badge = (cls: string, ic: string, label: string) => ic ? el("span", { class: `badge ${cls}` }, icon(ic), label) : el("span", { class: `badge ${cls}` }, label);
 
 // ---------- recent ----------
 function getRecent(): string[] { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch { return []; } }
