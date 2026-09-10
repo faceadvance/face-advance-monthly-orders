@@ -2443,6 +2443,7 @@ function openCodManualSidebar() {
   });
   panel.append(el("div", { class: "sbfoot" }, save));
 
+  document.body.append(root);   // ใส่ overlay เข้า DOM (ที่ขาดไป)
   addRow();   // เริ่มด้วย 1 แถว
 }
 
