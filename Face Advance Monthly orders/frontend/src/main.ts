@@ -1080,7 +1080,19 @@ function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "pay
 
 // ---- sidebar: ตัวแก้ไขหลัก + ไทม์ไลน์ ----
 let sidebarEl: HTMLElement | null = null;
-function closeSidebar() { if (sidebarEl) { sidebarEl.remove(); sidebarEl = null; } document.body.classList.remove("sbopen"); }
+let sbHasChanges: (() => boolean) | null = null;   // ให้ beforeunload เช็คว่ามีแก้ไขค้างไหม
+function closeSidebar() { if (sidebarEl) { sidebarEl.remove(); sidebarEl = null; } document.body.classList.remove("sbopen"); sbHasChanges = null; }
+// เตือนก่อนปิดแท็บ/ปิด chrome ถ้ามีการแก้ไขใน sidebar ที่ยังไม่บันทึก
+window.addEventListener("beforeunload", (e) => {
+  if (sbHasChanges && sbHasChanges()) { e.preventDefault(); e.returnValue = ""; }
+});
+// ร่างแก้ไข sidebar (กู้คืนได้ถ้าไฟดับ/ปิดโดยไม่ตั้งใจ) — เก็บต่อออเดอร์ใน localStorage เครื่องนี้
+const sbDraftKey = (id: number) => `fa_sbdraft_${id}`;
+function loadSbDraft(id: number): Record<string, string> | null {
+  try { const r = localStorage.getItem(sbDraftKey(id)); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function saveSbDraft(id: number, d: Record<string, string>) { try { localStorage.setItem(sbDraftKey(id), JSON.stringify(d)); } catch { /* quota/private */ } }
+function clearSbDraft(id: number) { try { localStorage.removeItem(sbDraftKey(id)); } catch { /* */ } }
 
 function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   if (!requireEditor()) return;
@@ -1117,7 +1129,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   const { name: custName, code: custCode } = splitNameCode(o.customer_name);
   const nameEl = el("div", { class: "sbname" }, custName || "—");
   if (custCode) nameEl.append(" ", el("span", { class: "sbnamecode" }, custCode));
-  const heroL = el("div", { class: "sbherol" }, nameEl, el("div", { class: "sbphone" }, fmtPhone(o.phone) || "—"));
+  const heroL = el("div", { class: "sbherol" }, nameEl, el("div", { class: "sbphone" }, o.phone || "—"));
   // ยอดขาย + ช่องทางชำระ อยู่แถวเดียวกับชื่อ/เบอร์ (ชิดขวา) — ช่องทางชำระบน, ยอดตัวเลขล่าง (ไม่มี label "ยอดขาย")
   // สียอดขายตามสถานะชำระ: ชำระแล้ว=เขียว · ยกเลิก=แดง · รอชำระ=ส้ม (เฉดเดียวกับการ์ด KPI)
   const payColor = o.payment_status === "ชำระแล้ว" ? "#059669" : o.payment_status === "ยกเลิก" ? "#DC2626" : "#EA580C";
@@ -1227,7 +1239,11 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
       if (!problemTa.value.trim()) ok = false;
     }
     saveBtn.disabled = !(hasChanges() && ok);
+    // เก็บร่างอัตโนมัติทุกการแก้ไข (กู้คืนถ้าไฟดับ) · ไม่มีแก้ไข → ลบร่าง
+    if (hasChanges()) saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value });
+    else clearSbDraft(o.id);
   }
+  sbHasChanges = hasChanges;   // ให้ beforeunload เช็คได้
   // ปิด sidebar: ถ้ามีการแก้ไข → เตือนก่อน (custom popup ไม่ใช้ native confirm)
   function requestClose() {
     if (!hasChanges()) { closeSidebar(); return; }
@@ -1235,7 +1251,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     const cancelB = el("button", { class: "btncancel" }, "ยกเลิก");
     cancelB.addEventListener("click", () => cf.remove());
     const okB = el("button", { class: "fbtn p" }, "ยืนยัน");
-    okB.addEventListener("click", closeSidebar);
+    okB.addEventListener("click", () => { clearSbDraft(o.id); closeSidebar(); });
     cf.append(el("div", { class: "sbconfirmbox" },
       el("div", { class: "sbconfirmtitle" }, "มีการแก้ไขที่ยังไม่บันทึก"),
       el("div", { class: "sbconfirmmsg" }, "ต้องการปิดโดยไม่บันทึกการแก้ไขหรือไม่?"),
@@ -1277,7 +1293,17 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   const closeBtn = el("button", { class: "btncancel" }, "ปิด");
   const saveBtn = el("button", { class: "fbtn p" }, "ยืนยันบันทึก");
   for (const t of [reasonExtra, problemTa, noteTa]) t.addEventListener("input", updateSaveState);
-  updateSaveState();   // เริ่มต้น: disable (ยังไม่แก้)
+  // กู้คืนร่างที่ยังไม่บันทึก (ถ้ามีจากครั้งก่อน/ไฟดับ)
+  const draft = loadSbDraft(o.id);
+  if (draft) {
+    if (draft.d) { selDelivery = draft.d; delGroup.set(selDelivery); }
+    if (draft.p) { selPayment = draft.p; payGroup.set(selPayment); }
+    selReason = draft.r || selReason; reasonG.set(selReason);
+    reasonExtra.value = draft.re || ""; problemTa.value = draft.pr || ""; noteTa.value = draft.n || "";
+    syncCond();
+    window.setTimeout(() => toast("กู้คืนร่างที่ยังไม่บันทึกไว้"), 400);
+  }
+  updateSaveState();   // เริ่มต้น: disable (ยังไม่แก้) · ถ้ากู้ร่าง → เปิดปุ่มบันทึก
   closeBtn.addEventListener("click", () => requestClose());
   saveBtn.addEventListener("click", async () => {
     if (!guardFresh()) { requestClose(); return; }   // กันแก้ทับ: มีตีกลับใหม่ → รีเฟรชก่อน
@@ -1310,6 +1336,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
       if (!r.authorized) { toLogin(); return; }
       if (!r.ok) { toast(trackErrMsg(r.error), false); saveBtn.removeAttribute("disabled"); return; }
       if (newDelivery === "มีปัญหา" && !r.noop) detailPresets.commitSaved();   // คำใหม่ → เก็บ localStorage
+      clearSbDraft(o.id);   // บันทึกสำเร็จ → ลบร่าง
       applyOrderUpdate(o, r);
       toast(r.noop ? "ไม่มีการเปลี่ยนแปลง" : "บันทึกแล้ว");
       closeSidebar();

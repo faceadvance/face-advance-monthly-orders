@@ -349,8 +349,8 @@ function formHTML(u: UUser, mode: "create" | "edit"): string {
           <span class="u2-msg"></span>
         </div>
         <div class="u2-field" data-f="idle">
-          <label>Idle timeout <em>นาที 5–480</em></label>
-          <div class="u2-stepper"><button type="button" data-step="idle" data-d="-5">−</button><input name="idle" type="number" min="5" max="480" value="${u.idle}"><button type="button" data-step="idle" data-d="5">+</button></div>
+          <label>Idle timeout <em>นาที 5–1440</em></label>
+          <div class="u2-stepper"><button type="button" data-step="idle" data-d="-5">−</button><input name="idle" type="number" min="5" max="1440" value="${u.idle}"><button type="button" data-step="idle" data-d="5">+</button></div>
           <div class="u2-presets" id="u2pidle">${presetsI}</div>
           <span class="u2-msg"></span>
         </div>
@@ -438,9 +438,10 @@ function mountForm(draft: UUser, mode: "create" | "edit") {
     if (!draft.name.trim()) errs.name = "กรุณากรอกชื่อที่แสดง";
     else if (/[​-‍﻿⁠]/.test(draft.name)) errs.name = "มีอักขระล่องหนปนอยู่ในชื่อ";
     if (draft.line && !/^U[0-9a-f]{32}$/.test(draft.line)) errs.line = "รูปแบบไม่ถูกต้อง — ต้องขึ้นต้นด้วย U ตามด้วย hex 32 ตัว";
-    if (!draft.allTeams && !draft.teams.length) errs.teams = 'เลือกอย่างน้อย 1 ทีม หรือเปิด "ทุกทีม"';
+    // บังคับเลือกทีมเฉพาะ role ที่ยึดทีม (RT+/RTs) — role ที่เห็นทุกทีม/ไม่ดูตีกลับ (Adm/OM/Vm) ไม่ต้องเลือกทีม
+    if (!ROLES[draft.role]?.allTeams && !draft.allTeams && !draft.teams.length) errs.teams = 'เลือกอย่างน้อย 1 ทีม หรือเปิด "ทุกทีม"';
     if (!(draft.hours >= 1 && draft.hours <= 72)) errs.hours = "1–72 ชั่วโมง";
-    if (!(draft.idle >= 5 && draft.idle <= 480)) errs.idle = "5–480 นาที";
+    if (!(draft.idle >= 5 && draft.idle <= 1440)) errs.idle = "5–1440 นาที";
     else if (draft.idle > draft.hours * 60) errs.idle = "idle ต้องไม่เกินอายุ session";
     ["username", "name", "line", "teams", "hours", "idle"].forEach((k) => { if (showAll || touched.has(k)) setErr(k, errs[k]); });
     const uOk = qs<HTMLElement>("#u2uOk"); if (uOk) uOk.style.display = (!errs.username && draft.username.trim() && mode === "create") ? "" : "none";
