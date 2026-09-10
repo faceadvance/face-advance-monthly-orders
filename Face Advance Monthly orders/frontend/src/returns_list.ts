@@ -4,7 +4,7 @@
 //   • สถานะตีกลับทั้งหมด → orders delivery_status='ตีกลับ' · เดือนปฏิทิน 1–สิ้นเดือน (แบบหน้า order) · การ์ด scope+จำนวน+กราฟ
 // ตัวเลือกเดือน: stepper เด่น (◀ ▶ + กดเลือกจาก grid) · default = รอบ/เดือนปัจจุบันเสมอ
 // สิทธิ์: Adm/Vm/all_teams เห็นทุกทีม · RTs เห็นทีมตัวเอง (คุมใน RPC) · funnel filter หัวคอลัมน์แบบหน้า order
-import { el, icon, nf, dmy, paymentMethodLabel, paymentStatusLabel, deliveryBadge, paymentBadge, THAI_MONTHS_SHORT, loadColsHidden, saveColsHidden } from "./util";
+import { el, icon, nf, dmy, paymentMethodLabel, paymentStatusLabel, deliveryBadge, paymentBadge, THAI_MONTHS_SHORT, loadColsHidden, saveColsHidden, attachTopScrollbar } from "./util";
 import { fetchReturnsList, type ReturnsListResp, type ReturnListRow } from "./api";
 import { makeVTable, type VTable } from "./virtual";
 
@@ -504,8 +504,16 @@ function computeVisible(): ReturnListRow[] {
   return rows;
 }
 function distinctValues(col: RLCol): { value: string; count: number }[] {
+  // cross-filter: นับเฉพาะแถวที่ผ่านตัวกรองคอลัมอื่น (ยกเว้นคอลัมนี้) เหมือน Google Sheet
+  const cols = activeCols();
+  let rows = allRows;
+  for (const [key, set] of filters) {
+    if (key === col.key) continue;
+    const c = cols.find((x) => x.key === key);
+    if (c) rows = rows.filter((r) => set.has(c.val(r)));
+  }
   const m = new Map<string, number>();
-  for (const r of allRows) { const v = col.val(r); m.set(v, (m.get(v) ?? 0) + 1); }
+  for (const r of rows) { const v = col.val(r); m.set(v, (m.get(v) ?? 0) + 1); }
   const arr = [...m.entries()].map(([value, count]) => ({ value, count }));
   arr.sort((a, b) => col.numeric ? Number(a.value) - Number(b.value) : a.value.localeCompare(b.value, "th"));
   return arr;
@@ -527,6 +535,7 @@ function paintTable() {
   table.append(thead, tbody);
   wrap.innerHTML = "";
   wrap.append(table);
+  attachTopScrollbar(wrap);   // แถบเลื่อนแนวนอนบนสุด (จับง่ายกว่าล่าง)
 
   const title = document.getElementById("rlCardTitle");
   if (title) title.textContent = state.mode === "status"

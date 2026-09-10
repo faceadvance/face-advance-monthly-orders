@@ -79,6 +79,52 @@ export function openLightbox(url: string): void {
   document.body.append(ov);
 }
 
+/**
+ * เพิ่มแถบเลื่อนแนวนอน (scrollbar) ไว้ "ใต้" ตาราง — เห็นเสมอ จับง่าย (sticky ก้นการ์ด)
+ * แก้ปัญหา Windows: scrollbar เดิมไปกองขอบจอ จับยาก → ซ่อนตัวเดิม ใช้แถบนี้แทน
+ * ทำงานได้กับทุกหน้าที่มี wrap(overflow:auto) + <table> ข้างใน · idempotent เรียกซ้ำได้
+ */
+const topSbWraps = new Set<HTMLElement>();
+let topSbResizeHooked = false;
+export function attachTopScrollbar(wrap: HTMLElement): void {
+  const card = wrap.parentElement;
+  if (!card) return;
+  let bar = card.querySelector<HTMLElement>(":scope > .hscroll-top");
+  if (!bar) {
+    bar = el("div", { class: "hscroll-top" });
+    bar.append(el("div", { class: "hscroll-top-in" }));
+    card.insertBefore(bar, wrap.nextSibling);   // วางไว้ "ใต้" ตาราง (ก้นการ์ด)
+    const b = bar;
+    let syncing = false;
+    b.addEventListener("scroll", () => { if (syncing) return; syncing = true; wrap.scrollLeft = b.scrollLeft; syncing = false; }, { passive: true });
+    wrap.addEventListener("scroll", () => { if (syncing) return; syncing = true; b.scrollLeft = wrap.scrollLeft; syncing = false; }, { passive: true });
+  }
+  topSbWraps.add(wrap);
+  if (!topSbResizeHooked) {   // resize listener กลางตัวเดียว (กันรั่วเวลา re-paint สร้าง card ใหม่)
+    topSbResizeHooked = true;
+    window.addEventListener("resize", () => {
+      for (const w of topSbWraps) {
+        if (w.isConnected) syncTopScrollbar(w);
+        else topSbWraps.delete(w);   // prune wrap ที่หลุด DOM แล้ว
+      }
+    });
+  }
+  syncTopScrollbar(wrap);
+}
+/** ปรับความกว้าง track ของแถบบนให้เท่าตาราง + ซ่อนถ้าตารางไม่ล้น (เรียกหลังตารางเปลี่ยน) */
+export function syncTopScrollbar(wrap: HTMLElement): void {
+  const card = wrap.parentElement; if (!card) return;
+  const bar = card.querySelector<HTMLElement>(":scope > .hscroll-top"); if (!bar) return;
+  const inner = bar.firstElementChild as HTMLElement | null; if (!inner) return;
+  requestAnimationFrame(() => {
+    const table = wrap.querySelector("table");
+    const sw = table ? table.offsetWidth : 0;
+    inner.style.width = sw + "px";
+    bar.style.display = sw > wrap.clientWidth + 1 ? "block" : "none";
+    bar.scrollLeft = wrap.scrollLeft;
+  });
+}
+
 export function icon(id: string, style = ""): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "ic");

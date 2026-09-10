@@ -126,6 +126,11 @@ export function saveOrderTracking(orderId: number, a: SaveTrackingArgs): Promise
     p_note: a.note ?? null,
   });
 }
+// แก้ "สถานะจัดส่ง" ทีเดียวหลายรายการ (ยกเลิก → payment=ยกเลิก ด้วย · ทำที่ server)
+export interface BulkDeliveryResp { authorized: boolean; ok?: boolean; error?: string; status?: string; delivery_changed?: number; payment_changed?: number; }
+export function bulkSetDelivery(ids: number[], status: string): Promise<BulkDeliveryResp> {
+  return restRpc<BulkDeliveryResp>("app_bulk_set_delivery", { p_token: getToken(), p_ids: ids, p_status: status });
+}
 export interface GetTrackingResp { authorized: boolean; timeline?: TrackingEntry[]; }
 export function getOrderTracking(orderId: number): Promise<GetTrackingResp> {
   return restRpc<GetTrackingResp>("app_get_order_tracking", { p_token: getToken(), p_order_id: orderId });

@@ -2,7 +2,7 @@ import "./style.css";
 import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
   importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
-  saveOrderTracking, getOrderTracking, type SaveTrackingArgs,
+  saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery,
   getDetailPresets, fetchNotifications, editNote,
 } from "./api";
 import { renderLogin } from "./auth";
@@ -18,7 +18,7 @@ import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
   cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
-  loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder,
+  loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder, attachTopScrollbar,
 } from "./util";
 
 const MAX_SELECT = 30;
@@ -97,6 +97,17 @@ const tickEls = new Map<number, HTMLElement>();
 let copyBarEl: HTMLElement | null = null;
 let headHHEl: HTMLElement | null = null;
 let headTickEl: HTMLElement | null = null;
+let visIndex = new Map<number, number>();   // id → ลำดับใน currentVisible (ใช้ตอนลากเลือก O(1))
+let selPage = 0;                            // หน้าปัจจุบันของการเลือกทั้งหมดเป็นชุดๆ ละ 30
+// สถานะการลากเลือกหลายแถว (คลิกค้างแล้วลาก) — "track"=เลือกเลขแทร็ค · "deliv"=เลือกแก้สถานะจัดส่ง
+let dragKind: "track" | "deliv" | null = null;
+let dragMoved = false, dragAnchorIdx = -1;
+let dragPointerX = 0, dragPointerY = 0, dragScrollTimer = 0;
+// เลือกหลายแถวเพื่อแก้ "สถานะจัดส่ง" ทีเดียว (แยกจากการเลือกเลขแทร็ค · ไม่จำกัดจำนวน)
+const delivTickEls = new Map<number, HTMLElement>();
+const delivSelected = new Set<number>();
+let delivBarEl: HTMLElement | null = null;    // แถบหัวคอลัมสถานะจัดส่ง (ดินสอ+count+× ตอนเลือกหลายรายการ)
+let delivHeadHH: HTMLElement | null = null;   // เนื้อหาหัวคอลัมปกติ (ซ่อนตอนโหมดเลือก)
 
 // ---------- helpers ----------
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -407,8 +418,8 @@ function computeVisible(): Order[] {
 const OVERSCAN = 8;                          // แถวเผื่อบน/ล่างกันขอบขาดตอนเลื่อนเร็ว
 const COL_W: Record<string, number> = {   // ความกว้างคอลัมน์คงที่ (ต่อ key) — กันเพี้ยนตอน virtualize
   date: 98, phone: 114, customer_name: 166, address: 133, items: 240, payment_method: 73,
-  total_sales: 91, carrier: 79, tracking_no: 181, delivery_status: 115, problem: 114,
-  payment_status: 115, return_arrived: 100, last_note_at: 100, last_note_text: 114, note: 110,
+  total_sales: 91, carrier: 79, tracking_no: 181, delivery_status: 115, problem: 137,
+  payment_status: 115, return_arrived: 100, last_note_at: 100, last_note_text: 137, note: 110,
 };
 const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
 let vTbody: HTMLElement | null = null;
@@ -445,7 +456,9 @@ function spacerRow(): HTMLElement {
 // วัด overflow (โชว์ปุ่มขยาย ▸) เฉพาะแถวในหน้าต่างที่กำลังแสดง — เบาเพราะมีแค่ ~ช่วงที่เห็น
 function measureToggles(scope: ParentNode) {
   for (const tx of scope.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt, .probtxt, .lasttxt")) {
-    if (tx.scrollWidth > tx.clientWidth + 1) {
+    // โชว์ caret เมื่อข้อความล้น (ตอนย่อ) หรือ แถวกำลังเปิดอยู่ (จะได้กดยุบกลับได้ — ตอนเปิดข้อความไม่ล้นแล้ว)
+    const rowOpen = tx.closest("tr")?.classList.contains("rowopen");
+    if (tx.scrollWidth > tx.clientWidth + 1 || rowOpen) {
       const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
       if (tog) tog.style.display = "";
     }
@@ -466,7 +479,7 @@ function renderWindow(force = false) {
   if (!force && first === vFirst && last === vLast) return;
   vFirst = first; vLast = last;
 
-  tickEls.clear();   // เหลือเฉพาะแถวที่มองเห็น
+  tickEls.clear(); delivTickEls.clear();   // เหลือเฉพาะแถวที่มองเห็น
   const frag = document.createDocumentFragment();
   for (let i = first; i <= last; i++) {
     const o = currentVisible[i];
@@ -485,6 +498,7 @@ function renderWindow(force = false) {
   applyOrdHidden();       // ซ่อนคอลัมน์กับแถวที่เพิ่งสร้าง
   measureToggles(vTbody);
   updateSelectionUI();    // สะท้อนสถานะติ๊กของแถวที่เพิ่งเข้ามา
+  updateDelivSelectionUI();
   updateOrdProgress();
 }
 
@@ -511,13 +525,14 @@ function renderLoading() {
   const wrap = document.getElementById("tableWrap");
   if (wrap) { wrap.textContent = ""; wrap.append(el("div", { class: "loadbox" }, el("span", { class: "loadspin" }), el("span", {}, "กำลังโหลดข้อมูล…"))); }
   const meta = document.getElementById("tableMeta"); if (meta) meta.textContent = "";
-  currentVisible = []; tickEls.clear(); vTbody = null;   // ตัดการอ้างอิงตารางเก่า (กัน scroll handler ทำงานกับ DOM ที่หายไป)
+  currentVisible = []; tickEls.clear(); delivTickEls.clear(); vTbody = null;   // ตัดการอ้างอิงตารางเก่า (กัน scroll handler ทำงานกับ DOM ที่หายไป)
 }
 
 function renderTable() {
   const d = state.data!;
   const rows = computeVisible();
   currentVisible = rows;
+  visIndex = new Map(rows.map((o, i) => [o.id, i]));   // สร้างดัชนี id→ลำดับ สำหรับลากเลือก
   tickEls.clear();
   expandedRows.clear();   // กรอง/เรียง/โหลดใหม่ → ยุบทุกแถว (เหมือน re-render เดิม)
   vHeights.clear();
@@ -536,6 +551,7 @@ function renderTable() {
   vTbody = tbody; vTop = spacerRow(); vBot = spacerRow();
   table.append(thead, tbody);
   wrap.append(table);
+  attachTopScrollbar(wrap);   // แถบเลื่อนแนวนอนบนสุด (จับง่ายกว่าล่าง)
 
   $("#tableMeta").textContent =
     `${nf(rows.length)} / ${nf(d.orders.length)} รายการ · คลิกกรวยที่หัวคอลัมน์เพื่อกรอง`;
@@ -546,6 +562,7 @@ function renderTable() {
     tbody.append(el("tr", {}, td));
     renderActiveFilters();
     updateSelectionUI();
+    updateDelivSelectionUI();
     return;
   }
 
@@ -668,6 +685,14 @@ function buildTh(col: Column): HTMLElement {
     copyBarEl = bar;
     th.append(bar);
   }
+  // คอลัมน์สถานะจัดส่ง: แถบ "ดินสอ+จำนวน+×" โผล่เมื่อเลือกหลายแถว (ดินสอที่หัวคอลัม)
+  if (col.key === "delivery_status") {
+    delivHeadHH = hh;
+    const bar = el("div", { class: "copybar delivbar" });
+    bar.hidden = true;
+    delivBarEl = bar;
+    th.append(bar);
+  }
   return th;
 }
 
@@ -772,6 +797,20 @@ function buildStatusCell(o: Order, field: "delivery" | "payment"): HTMLElement {
   if (locked) {
     td.title = "สถานะชำระของ COD ระบบจัดการอัตโนมัติ";
     wrap.append(el("span", { class: "stedit stghost", "aria-hidden": "true" }, icon("i-edit")));
+  } else if (field === "delivery") {
+    // ดินสอตัวเดียว: คลิก=แก้เดี่ยว · คลิกค้างลาก=เข้าโหมดเลือกหลายแถว (ดินสอกลายเป็นวงกลมเอง)
+    // มี 2 ไอคอนซ้อน: ดินสอ (ปกติ) · ติ๊ก (โชว์แทนตอนโหมดเลือก ผ่าน CSS)
+    const pen = el("span", { class: "stedit stdeliv", title: "แก้สถานะ · คลิกค้างแล้วลากเพื่อเลือกหลายรายการ" }, icon("i-edit"), icon("i-tick"));
+    pen.addEventListener("mousedown", (e) => startDrag(e, o.id, "deliv"));
+    pen.addEventListener("mouseenter", () => onDragEnter(o.id, "deliv"));
+    pen.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (dragMoved) { dragMoved = false; return; }
+      if (delivSelecting()) toggleDeliv(o.id);   // อยู่ในโหมดเลือก → ติ๊กเลือก/ยกเลิก
+      else openStatusPopup(pen, o, field);        // ปกติ → แก้เดี่ยว
+    });
+    delivTickEls.set(o.id, pen);
+    wrap.append(pen);
   } else {
     const pen = el("span", { class: "stedit", title: "แก้สถานะ" }, icon("i-edit"));
     pen.addEventListener("click", (e) => { e.stopPropagation(); openStatusPopup(pen, o, field); });
@@ -862,8 +901,13 @@ function buildTrackCell(o: Order): HTMLElement {
   const inner = el("div", { class: "trackcell" });
   inner.append(el("span", { class: "mono" }, o.tracking_no));
   const tick = el("span", { class: "tick" }, icon("i-tick"));
-  tick.title = "เลือกเพื่อคัดลอกเลขแทร็ค";
-  tick.addEventListener("click", () => toggleTick(o.id));
+  tick.title = "คลิกเลือก · คลิกค้างแล้วลากเพื่อเลือกหลายรายการ";
+  tick.addEventListener("mousedown", (e) => startDrag(e, o.id, "track"));
+  tick.addEventListener("mouseenter", () => onDragEnter(o.id, "track"));
+  tick.addEventListener("click", () => {
+    if (dragMoved) { dragMoved = false; return; }   // เพิ่งลากเลือก → ไม่ toggle ซ้ำ
+    selPage = 0; toggleTick(o.id);
+  });
   tickEls.set(o.id, tick);
   inner.append(tick);
   td.append(inner);
@@ -889,22 +933,92 @@ function selectableVisible(): Order[] {
   return currentVisible.filter((o) => o.tracking_no);
 }
 
-// เลือกเร็ว: เติมรายการที่โชว์ (มีเลขแทร็ค) จนครบ 30 — ตาม filter ปัจจุบัน
-function quickSelect() {
-  for (const o of currentVisible) {
-    if (state.selected.size >= MAX_SELECT) break;
-    if (o.tracking_no && !state.selected.has(o.id)) state.selected.add(o.id);
-  }
-}
-
 // ช่องติ๊กหัวตาราง: ติ๊ก = เลือกทั้งคอลัม (สูงสุด 30) · ติ๊กซ้ำ (เต็ม/เลือกครบแล้ว) = ล้าง
 function onHeaderTick() {
+  // ติ๊กหัวตาราง: เลือกชุดแรก (≤30) · ถ้าเลือกอยู่แล้วให้ล้าง
+  if (state.selected.size > 0) { clearSelection(); selPage = 0; updateSelectionUI(); }
+  else selectChunk(0);
+}
+
+// เลือกทั้งหมดเป็น "ชุดละ 30" — page 0 = 1-30, page 1 = 31-60 ... (ใช้กับปุ่มขึ้น/ลง)
+function totalSelPages(): number {
+  return Math.max(1, Math.ceil(selectableVisible().length / MAX_SELECT));
+}
+function selectChunk(page: number) {
   const sel = selectableVisible();
-  const allSel = sel.length > 0 && sel.every((o) => state.selected.has(o.id));
-  if (allSel || state.selected.size >= MAX_SELECT) clearSelection();
-  else quickSelect();
+  selPage = Math.min(Math.max(0, page), totalSelPages() - 1);
+  state.selected.clear();
+  for (const o of sel.slice(selPage * MAX_SELECT, selPage * MAX_SELECT + MAX_SELECT)) state.selected.add(o.id);
   updateSelectionUI();
 }
+
+// ---------- ลากเลือกหลายแถว (ใช้ร่วมกัน track + deliv) ----------
+function startDrag(e: MouseEvent, id: number, kind: "track" | "deliv") {
+  if (e.button !== 0) return;
+  e.preventDefault();                       // กัน cursor กลายเป็นลากเลือกข้อความ
+  dragKind = kind; dragMoved = false; selPage = 0;
+  dragAnchorIdx = visIndex.get(id) ?? -1;
+  dragPointerX = e.clientX; dragPointerY = e.clientY;
+  document.body.classList.add("dragselecting");
+  // โหมด deliv-selecting (ดินสอ→วงกลม) เข้าเมื่อลากจริง/มีการเลือก จัดการใน updateDelivSelectionUI
+}
+function onDragEnter(id: number, kind: "track" | "deliv") {
+  if (dragKind !== kind) return;
+  const idx = visIndex.get(id);
+  if (idx == null || dragAnchorIdx < 0) return;
+  if (idx !== dragAnchorIdx) dragMoved = true;
+  selectRange(dragAnchorIdx, idx);
+}
+function selectRange(a: number, b: number) {
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  if (dragKind === "deliv") {
+    delivSelected.clear();
+    for (let i = lo; i <= hi; i++) { const o = currentVisible[i]; if (o) delivSelected.add(o.id); }
+    updateDelivSelectionUI();
+  } else {
+    state.selected.clear();
+    for (let i = lo; i <= hi && state.selected.size < MAX_SELECT; i++) {
+      const o = currentVisible[i];
+      if (o && o.tracking_no) state.selected.add(o.id);
+    }
+    updateSelectionUI();
+  }
+}
+function onDragMove(e: MouseEvent) {
+  if (!dragKind) return;
+  dragPointerX = e.clientX; dragPointerY = e.clientY;
+  maybeAutoScroll();
+}
+function maybeAutoScroll() {
+  const wrap = document.getElementById("tableWrap");
+  if (!wrap) { stopAutoScroll(); return; }
+  const r = wrap.getBoundingClientRect(), EDGE = 46;
+  const dir = dragPointerY < r.top + EDGE ? -1 : dragPointerY > r.bottom - EDGE ? 1 : 0;
+  if (dir === 0) { stopAutoScroll(); return; }
+  if (dragScrollTimer) return;
+  dragScrollTimer = window.setInterval(() => {
+    wrap.scrollTop += dir * 26;
+    extendToPointer();                      // เนื้อหาเลื่อนใต้ cursor ที่นิ่ง → ขยายช่วงเลือกตามแถวที่อยู่ใต้ตัวชี้
+  }, 30);
+}
+function stopAutoScroll() {
+  if (dragScrollTimer) { clearInterval(dragScrollTimer); dragScrollTimer = 0; }
+}
+function extendToPointer() {
+  const elp = document.elementFromPoint(dragPointerX, dragPointerY);
+  const tr = (elp as HTMLElement | null)?.closest?.("tr[data-oid]") as HTMLElement | null;
+  if (!tr) return;
+  const idx = visIndex.get(Number(tr.dataset.oid));
+  if (idx != null && dragAnchorIdx >= 0) { dragMoved = true; selectRange(dragAnchorIdx, idx); }
+}
+function endDrag() {
+  if (!dragKind) return;
+  dragKind = null; stopAutoScroll();
+  document.body.classList.remove("dragselecting");
+  // ไม่ปิดโหมด deliv-selecting ตรงนี้ (ให้วงกลมค้างไว้เลือกต่อ/กดแก้ไข) — ปิดตอน apply/ล้าง
+}
+document.addEventListener("mousemove", onDragMove, { passive: true });
+document.addEventListener("mouseup", endDrag);
 
 function makeHeaderTick(): HTMLElement {
   const t = el("span", { class: "tick headtick", title: "เลือกเลขแทร็คที่แสดงทั้งหมด (สูงสุด 30) · ติ๊กซ้ำเพื่อล้าง" }, icon("i-tick"));
@@ -914,6 +1028,90 @@ function makeHeaderTick(): HTMLElement {
 
 function clearSelection() {
   if (state.selected.size) state.selected.clear();
+}
+
+// ---------- เลือกหลายแถวเพื่อแก้ "สถานะจัดส่ง" ทีเดียว (D) ----------
+const BULK_DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ยกเลิก"];  // ไม่มี ตีกลับ/มีปัญหา (ต้องใส่เหตุผล)
+function delivSelecting(): boolean { return document.body.classList.contains("deliv-selecting"); }
+function toggleDeliv(id: number) {
+  if (delivSelected.has(id)) delivSelected.delete(id); else delivSelected.add(id);
+  updateDelivSelectionUI();
+}
+function clearDelivSelection() { delivSelected.clear(); updateDelivSelectionUI(); }
+function updateDelivSelectionUI() {
+  const n = delivSelected.size;
+  document.body.classList.toggle("deliv-selecting", n > 0);   // ดินสอ→วงกลม ทั้งคอลัม
+  for (const [id, pick] of delivTickEls) pick.classList.toggle("on", delivSelected.has(id));
+  if (!delivBarEl || !delivHeadHH) return;
+  if (n === 0) { delivBarEl.hidden = true; delivHeadHH.hidden = false; delivBarEl.textContent = ""; return; }
+  delivHeadHH.hidden = true; delivBarEl.hidden = false; delivBarEl.textContent = "";
+  const edit = el("button", { class: "delivedit", title: "แก้สถานะจัดส่งที่เลือก" }, icon("i-edit"), el("span", { class: "cnt" }, String(n)));
+  edit.addEventListener("click", (e) => { e.stopPropagation(); openBulkStatusDrop(edit); });
+  const x = el("span", { class: "copyx", title: "ยกเลิกการเลือก" }, icon("i-close"));
+  x.addEventListener("click", (e) => { e.stopPropagation(); clearDelivSelection(); });
+  delivBarEl.append(edit, x);
+}
+function openBulkStatusDrop(anchor: HTMLElement) {
+  if (!requireEditor()) return;
+  if (openDrop && openDrop.dataset.stkey === "bulkdeliv") { closeDrop(); return; }
+  closeDrop();
+  let sel = "";
+  const pop = el("div", { class: "stpop" }) as HTMLElement;
+  pop.dataset.stkey = "bulkdeliv"; openDrop = pop;
+  const list = el("div", { class: "stlist" });
+  const rowEls = new Map<string, HTMLElement>();
+  for (const s of BULK_DELIVERY_STATUSES) {
+    const row = el("div", { class: "stopt" }, badge(deliveryBadge(s), s), el("span", { class: "sttick" }, icon("i-tick")));
+    row.addEventListener("click", () => { sel = s; for (const [k, elx] of rowEls) elx.classList.toggle("sel", k === s); });
+    rowEls.set(s, row); list.append(row);
+  }
+  pop.append(list);
+  const actions = el("div", { class: "stactions" });
+  const cancel = el("button", { class: "btncancel" }, "ยกเลิก");
+  const ok = el("button", { class: "fbtn p" }, "ถัดไป");
+  cancel.addEventListener("click", closeDrop);
+  ok.addEventListener("click", () => { if (!sel) { toast("เลือกสถานะก่อน", false); return; } closeDrop(); confirmBulkDelivery(sel); });
+  actions.append(cancel, ok); pop.append(actions);
+  document.body.append(pop);
+  const a = anchor.getBoundingClientRect();
+  const p = pop.getBoundingClientRect();
+  pop.style.left = `${Math.max(8, Math.min(a.left, window.innerWidth - p.width - 8))}px`;
+  pop.style.top = `${Math.min(a.bottom + 4, window.innerHeight - p.height - 8)}px`;
+}
+function confirmBulkDelivery(status: string) {
+  const n = delivSelected.size;
+  const ov = el("div", { class: "modal-ov" });
+  const modal = el("div", { class: "modal confirm-modal" });
+  const body = el("div", { class: "modal-body" });
+  body.append(el("p", { class: "cfmsg" }, "เปลี่ยน ", el("b", {}, `${nf(n)} รายการ`), " เป็น ", badge(deliveryBadge(status), status), " ?"));
+  if (status === "ยกเลิก") body.append(el("p", { class: "cfsub" }, "* สถานะชำระของรายการเหล่านี้จะถูกตั้งเป็น “ยกเลิก” ด้วย"));
+  modal.append(
+    el("div", { class: "modal-head" }, el("div", { class: "modal-title" }, icon("i-edit"), el("span", {}, "ยืนยันแก้สถานะจัดส่ง"))),
+    body);
+  const foot = el("div", { class: "modal-foot cf" });
+  const cancel = el("button", { class: "btncancel" }, "ยกเลิก");
+  const ok = el("button", { class: "fbtn p" }, "ยืนยัน");
+  cancel.addEventListener("click", () => ov.remove());
+  ok.addEventListener("click", async () => {
+    ok.disabled = true; ok.textContent = "กำลังบันทึก…";
+    await applyBulkDelivery(status);
+    ov.remove();
+  });
+  foot.append(cancel, ok); modal.append(foot);
+  ov.append(modal); document.body.append(ov);
+  ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
+}
+async function applyBulkDelivery(status: string) {
+  const ids = [...delivSelected];
+  if (ids.length === 0) return;
+  try {
+    const r = await bulkSetDelivery(ids, status);
+    if (!r.authorized) { toLogin(); return; }
+    if (!r.ok) { toast(r.error === "forbidden_viewer" ? "ไม่มีสิทธิ์แก้ไข" : "บันทึกไม่สำเร็จ", false); return; }
+    clearDelivSelection();
+    toast(`แก้สถานะจัดส่ง ${nf(r.delivery_changed ?? 0)} รายการแล้ว`);
+    await loadMonth(state.month);   // โหลดใหม่ให้ตรงกับ DB
+  } catch { toast("บันทึกไม่สำเร็จ", false); }
 }
 
 function updateSelectionUI() {
@@ -945,9 +1143,17 @@ function updateSelectionUI() {
   headHHEl.hidden = true;
   copyBarEl.hidden = false;
   copyBarEl.textContent = "";
-  const cbTick = makeHeaderTick();
-  styleHead(cbTick);
-  copyBarEl.append(cbTick);
+  // ปุ่มเลื่อนชุด ↑↓ (เมื่อรายการเลือกได้เกิน 30 → แบ่งชุดละ 30) · ไม่มีวงกลม/ตัวเลขหน้าแล้ว (เลขหน้าอยู่ใน tooltip)
+  const pages = totalSelPages();
+  if (pages > 1) {
+    const up = el("button", { class: "pgbtn up", title: `ชุดก่อนหน้า (30 รายการ) · ${selPage + 1}/${pages}` }, icon("i-caret")) as HTMLButtonElement;
+    up.disabled = selPage <= 0;
+    up.addEventListener("click", (e) => { e.stopPropagation(); selectChunk(selPage - 1); });
+    const down = el("button", { class: "pgbtn", title: `ชุดถัดไป (30 รายการ) · ${selPage + 1}/${pages}` }, icon("i-caret")) as HTMLButtonElement;
+    down.disabled = selPage >= pages - 1;
+    down.addEventListener("click", (e) => { e.stopPropagation(); selectChunk(selPage + 1); });
+    copyBarEl.append(el("div", { class: "pgnav" }, up, down));   // ↑↓ ซ้อนแนวตั้ง (ประหยัดที่ให้ปุ่ม ×)
+  }
   const btn = el("button", { class: "copybtn" }, icon("i-copy"), "คัดลอก");
   btn.append(el("span", { class: "cnt" }, String(count)));
   btn.addEventListener("click", doCopy);
@@ -1056,6 +1262,7 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
   applyOrdHidden();          // แถวใหม่ต้องซ่อนคอลัมน์ตามที่ตั้งไว้
   measureToggles(fresh);     // โชว์ปุ่มขยายถ้าข้อความล้น
   updateSelectionUI();       // ผูกสถานะติ๊กใหม่ (buildRow ลงทะเบียน tickEls ใหม่)
+  updateDelivSelectionUI();
 }
 
 // ---- แก้สถานะ inline: ดินสอ → popup เลือก → ยืนยัน ----
@@ -1797,9 +2004,24 @@ function closeDrop() {
   if (openDrop) { openDrop.remove(); openDrop = null; }
 }
 
+// แถวสำหรับคำนวณค่าตัวกรองของคอลัมหนึ่ง = ผ่านตัวกรองคอลัมอื่นทั้งหมด (ยกเว้นคอลัมนี้) + ค้นหา
+// → cross-filter เหมือน Google Sheet: เปิดตัวกรองคอลัมที่ 2 จะเห็นเฉพาะค่าที่เหลือหลังกรองคอลัมที่ 1
+function rowsForFacet(exceptCol: ColKey): Order[] {
+  const d = state.data!;
+  let rows = d.orders.slice();
+  for (const [col, set] of state.filters) {
+    if (col === exceptCol) continue;
+    rows = rows.filter((o) => set.has(cellValue(o, col)));
+  }
+  if (state.search.trim()) {
+    const q = state.search.trim().toLowerCase();
+    rows = rows.filter((o) => searchBlob(o).includes(q));
+  }
+  return rows;
+}
 function distinctValues(col: ColKey): { value: string; count: number }[] {
   const m = new Map<string, number>();
-  for (const o of state.data!.orders) {
+  for (const o of rowsForFacet(col)) {
     const v = cellValue(o, col);
     m.set(v, (m.get(v) ?? 0) + 1);
   }

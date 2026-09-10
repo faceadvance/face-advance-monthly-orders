@@ -1,7 +1,7 @@
 // หน้า "ค้นหา" (Stage 9c) — ค้นทั้งระบบ 4 ฟิลด์ (เบอร์/ชื่อ/ที่อยู่/แทร็คส่งออก) ข้ามรอบเดือน
 // 2 โหมด: แบบออเดอร์ / แบบหักยอดตีกลับ — ยกตาราง+funnel+การ์ดของหน้านั้นๆ มาเลย (คำนวณจากผลค้นหา · ไม่มีเดือน)
 // ตาราง+ตัวกรอง funnel + caret ใช้คลาสร่วมกับหน้า order/หักยอด · ไม่มี sidebar (ดูจากตารางพอ)
-import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, paymentMethodLabel } from "./util";
+import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, paymentMethodLabel, attachTopScrollbar } from "./util";
 import { makeVTable, type VTable } from "./virtual";
 import { searchOrders, type SearchRow, type SearchResp } from "./api";
 
@@ -141,8 +141,16 @@ function computeVisible(): SearchRow[] {
   return rows;
 }
 function distinctValues(col: Col): { value: string; count: number }[] {
+  // cross-filter: นับเฉพาะแถวที่ผ่านตัวกรองคอลัมอื่น (ยกเว้นคอลัมนี้) เหมือน Google Sheet
+  const cs = cols();
+  let rows = allRows;
+  for (const [key, set] of filters) {
+    if (key === col.key) continue;
+    const c = cs.find((x) => x.key === key);
+    if (c) rows = rows.filter((r) => set.has(c.val(r)));
+  }
   const m = new Map<string, number>();
-  for (const r of allRows) { const v = col.val(r); m.set(v, (m.get(v) ?? 0) + 1); }
+  for (const r of rows) { const v = col.val(r); m.set(v, (m.get(v) ?? 0) + 1); }
   return [...m.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => col.numeric ? Number(a.value) - Number(b.value) : a.value.localeCompare(b.value, "th"));
 }
 function closeDrop() { if (openDrop) { openDrop.remove(); openDrop = null; } }
@@ -336,6 +344,7 @@ function paint() {
   table.append(el("thead", {}, thr), tbody);
   const wrap = el("div", { class: "srch-tablewrap" }, table);
   results.append(el("div", { class: "card srch-card" }, wrap));
+  attachTopScrollbar(wrap);   // แถบเลื่อนแนวนอนบนสุด (จับง่ายกว่าล่าง)
 
   if (!rows.length) {
     tbody.append(el("tr", {}, el("td", { colspan: String(srchCols.length) }, el("div", { class: "srch-empty" }, el("p", {}, "ไม่มีรายการตรงกับตัวกรอง")))));
