@@ -42,7 +42,7 @@ const COLUMNS: Column[] = [
   { key: "carrier", label: "ขนส่ง" },
   { key: "tracking_no", label: "เลขแทร็ค" },
   { key: "delivery_status", label: "สถานะจัดส่ง", align: "center" },
-  { key: "problem", label: "รายละเอียดปัญหา", headIcon: "i-info", align: "center", thClass: "probcol" },
+  { key: "problem", label: "ปัญหา" },
   { key: "payment_status", label: "สถานะชำระ", align: "center" },
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center" },
   { key: "last_note_at", label: "ติดตามล่าสุด", thClass: "datehead" },
@@ -382,7 +382,7 @@ function computeVisible(): Order[] {
 //  วาดแค่ ~ช่วงที่เห็น + overscan → ไม่ค้างแม้หลายพันแถว, เลื่อนลื่น
 // ======================================================
 const OVERSCAN = 8;                          // แถวเผื่อบน/ล่างกันขอบขาดตอนเลื่อนเร็ว
-const COL_W = [98, 114, 166, 133, 240, 73, 91, 79, 181, 115, 50, 115, 100, 100, 110]; // ความกว้างคอลัมน์คงที่ (วันที่/เบอร์/ชื่อ/ที่อยู่/สินค้า/ชำระ/ยอด/ขนส่ง/แทร็ค/จัดส่ง/ปัญหา/ชำระ/ตีกลับถึง/ติดตามล่าสุด/หมายเหตุ)
+const COL_W = [98, 114, 166, 133, 240, 73, 91, 79, 181, 115, 114, 115, 100, 100, 110]; // ความกว้างคอลัมน์คงที่ (วันที่/เบอร์/ชื่อ/ที่อยู่/สินค้า/ชำระ/ยอด/ขนส่ง/แทร็ค/จัดส่ง/ปัญหา/ชำระ/ตีกลับถึง/ติดตามล่าสุด/หมายเหตุ)
 const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
 let vTbody: HTMLElement | null = null;
 let vTop: HTMLElement | null = null;         // spacer บน (ความสูง = แถวเหนือหน้าต่างรวมกัน)
@@ -417,7 +417,7 @@ function spacerRow(): HTMLElement {
 }
 // วัด overflow (โชว์ปุ่มขยาย ▸) เฉพาะแถวในหน้าต่างที่กำลังแสดง — เบาเพราะมีแค่ ~ช่วงที่เห็น
 function measureToggles(scope: ParentNode) {
-  for (const tx of scope.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt")) {
+  for (const tx of scope.querySelectorAll<HTMLElement>(".atxt, .ntxt, .notetxt, .probtxt")) {
     if (tx.scrollWidth > tx.clientWidth + 1) {
       const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle");
       if (tog) tog.style.display = "";
@@ -654,7 +654,7 @@ function buildRow(o: Order): HTMLElement {
   ac("carrier", el("td", { class: "carriercell" }, el("span", { class: "carriertxt", title: o.carrier || "" }, o.carrier || "—")));
   ac("tracking_no", buildTrackCell(o));
   ac("delivery_status", buildStatusCell(o, "delivery"));
-  ac("problem", buildProblemCell(o));
+  ac("problem", buildProblemCell(o, tr));
   ac("payment_status", buildStatusCell(o, "payment"));
   // ตีกลับถึงแล้ว: ⚠️ ขัดแย้ง / "ถึงแล้ว" + ผลตรวจสอบ / "—"
   const raCell = el("td", { class: "center" });
@@ -682,13 +682,17 @@ function buildRow(o: Order): HTMLElement {
 }
 
 // คอลัมน์รายละเอียดปัญหา: ว่างเปล่า ยกเว้นสถานะจัดส่ง = มีปัญหา → ไอคอน i กดดู popup
-function buildProblemCell(o: Order): HTMLElement {
-  const td = el("td", { class: "center probcol" });
-  if (o.delivery_status === "มีปัญหา") {
-    const btn = el("button", { class: "probinfo", type: "button", title: "ดูรายละเอียดปัญหา" }, icon("i-info"));
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openProblemPopup(btn, o.status_detail || ""); });
-    td.append(btn);
-  }
+function buildProblemCell(o: Order, tr: HTMLElement): HTMLElement {
+  const td = el("td", { class: "prob-cell" });
+  const txt = o.delivery_status === "มีปัญหา" ? (o.status_detail || "") : "";
+  if (!txt) { td.append("—"); return td; }
+  const line = el("div", { class: "probline" });
+  const span = el("span", { class: "probtxt", title: txt }, txt);
+  const tog = el("span", { class: "itemtoggle probtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
+  tog.style.display = "none";   // โชว์เฉพาะแถวที่ข้อความล้น (เช็ค overflow หลัง render)
+  tog.addEventListener("click", (e) => { e.stopPropagation(); toggleRowOpen(o, tr); });
+  line.append(span, tog);
+  td.append(line);
   return td;
 }
 

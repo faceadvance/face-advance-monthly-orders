@@ -225,6 +225,9 @@ tr.rowopen td{vertical-align:top}
 .noteline{display:flex;align-items:center;gap:.3rem}
 .noteline .notetxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .notetxt{white-space:normal;overflow:visible;word-break:break-word}
+.probline{display:flex;align-items:center;gap:.3rem}
+.probline .probtxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+tr.rowopen .probtxt{white-space:normal;overflow:visible;word-break:break-word}
 .carriercell .carriertxt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .carriercell .carriertxt{white-space:normal;overflow:visible;word-break:break-word}
 th.rcol .hh{justify-content:flex-end}
