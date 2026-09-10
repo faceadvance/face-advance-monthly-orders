@@ -155,6 +155,7 @@ tbody tr:hover{background:var(--hover)}
 tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .datecell{white-space:nowrap;text-align:right;font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink)}
 td.datecell.lntoday{color:var(--primary);font-weight:700}
+td.datecell.lnpast{color:var(--ink-3);font-weight:500}
 th.datehead .hh{justify-content:flex-end}
 /* กราฟแท่ง */
 .cbot{margin-top:auto;display:flex;flex-direction:column}

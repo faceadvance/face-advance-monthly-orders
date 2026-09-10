@@ -667,9 +667,10 @@ function buildRow(o: Order): HTMLElement {
     raCell.append("—");
   }
   ac("return_arrived", raCell);
-  // ติดตามล่าสุด: วันที่ user อัพเดตล่าสุด · เป็นวันนี้ → ตัวอักษรน้ำเงิน
+  // ติดตามล่าสุด: วันที่ user อัพเดตล่าสุด · วันนี้ → "วันนี้" (น้ำเงิน) · ไม่ใช่วันนี้/ไม่มี → วันที่ปกติ สีเทา
   const isToday = !!o.last_note_at && o.last_note_at === state.data?.today;
-  ac("last_note_at", el("td", { class: "datecell" + (isToday ? " lntoday" : "") }, o.last_note_at ? dmy(o.last_note_at) : "—"));
+  const lnText = !o.last_note_at ? "—" : isToday ? "วันนี้" : dmy(o.last_note_at);
+  ac("last_note_at", el("td", { class: "datecell " + (isToday ? "lntoday" : "lnpast") }, lnText));
   ac("note", buildNoteCell(o, tr));
   // แก้ไข (เปิด sidebar)
   const actCell = el("td", { class: "actcell" });
