@@ -3,6 +3,8 @@ name: Deploy web app to GitHub Pages
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'          # แก้เอกสาร/CHANGELOG อย่างเดียว → ไม่ต้อง redeploy
   workflow_dispatch:
 
 permissions:
