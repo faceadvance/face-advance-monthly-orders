@@ -7,7 +7,7 @@
 
 ## 2026-09-11
 
-### `2bf5d8b` · 09:22 — infra: ระบบ CHANGELOG + ข้ามการ deploy เมื่อแก้เอกสาร
+### `b5eed37` · 09:22 — infra: ระบบ CHANGELOG + ข้ามการ deploy เมื่อแก้เอกสาร
 - ➕ เพิ่ม `CHANGELOG.md` (โปรเจค MO) + `CLAUDE.md` (ราก Face Advance Systems · กฎ: ทุก deploy ต้องบันทึก changelog · ใช้ทุกโปรเจค)
 - 🔄 GitHub Actions: แก้ไฟล์ `.md` อย่างเดียวจะไม่ trigger deploy (`paths-ignore`)
 - _(ไม่มีการเปลี่ยนแปลงตัวแอป)_
