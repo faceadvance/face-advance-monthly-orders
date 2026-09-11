@@ -535,9 +535,8 @@ function mountForm(draft: UUser, mode: "create" | "edit") {
     qs("#u2pwEye")!.addEventListener("click", (e) => { pwInp.type = pwInp.type === "text" ? "password" : "text"; (e.currentTarget as HTMLElement).innerHTML = pwInp.type === "text" ? I.eye : I.eyeOff; });
     qs("#u2pwSave")!.addEventListener("click", () => {
       const v = pwInp.value;
-      if (v.length < 8) return setErr("pw", "อย่างน้อย 8 ตัวอักษร");
+      if (v.length < 6) return setErr("pw", "อย่างน้อย 6 ตัวอักษร");
       if (/\s/.test(v)) return setErr("pw", "ห้ามมีช่องว่าง");
-      if (strength(v) < 2) return setErr("pw", "รหัสอ่อนเกินไป — ผสมตัวพิมพ์ใหญ่/เล็ก ตัวเลข สัญลักษณ์");
       const w = qs<HTMLElement>("#u2pwConfirmWrap")!;
       w.innerHTML = `<div class="u2-confirm"><span>ยืนยันตั้งรหัสใหม่ให้ <b>${esc(nameOf(draft))}</b>? รหัสเดิมจะใช้ไม่ได้ทันที และ session ที่เปิดอยู่จะถูกตัด</span><div class="acts"><button type="button" class="u2-btn u2-ghost u2-sm" data-c="no">ยกเลิก</button><button type="button" class="u2-btn u2-primary u2-sm" data-c="yes">ยืนยัน</button></div></div>`;
       w.onclick = (e) => {
