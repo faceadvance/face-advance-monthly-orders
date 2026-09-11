@@ -1207,6 +1207,24 @@ body.sbopen #dockWrap{display:none}
 .rlsel{border:1px solid var(--border);border-radius:.55rem;padding:8px 12px;font-size:.85rem;font-family:inherit;background:#fff;color:var(--ink);cursor:pointer;min-width:170px;outline:none;transition:border-color .14s,box-shadow .14s}
 .rlsel:hover{border-color:#93C5FD}
 .rlsel:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+/* custom dropdown (ทีม/พนักงาน) — เปิดใต้ปุ่ม + มาร์คจุดเขียว */
+.rldd{position:relative}
+.rldd-btn{display:flex;align-items:center;gap:8px;width:100%;min-width:190px;border:1px solid var(--border);border-radius:.55rem;padding:8px 10px 8px 12px;font-size:.85rem;font-family:inherit;background:#fff;color:var(--ink);cursor:pointer;outline:none;transition:border-color .14s,box-shadow .14s}
+.rldd-btn:hover{border-color:#93C5FD}
+.rldd-btn[aria-expanded="true"]{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+.rldd-val{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rldd-btn>svg.ic{width:1rem;height:1rem;flex:none;fill:var(--ink-3);stroke:none;transition:transform .16s}
+.rldd-btn[aria-expanded="true"]>svg.ic{transform:rotate(180deg);fill:var(--primary)}
+.rldd-pop{position:absolute;top:calc(100% + 6px);left:0;min-width:100%;width:max-content;max-width:300px;max-height:min(340px,58vh);overflow:auto;background:#fff;border:1px solid var(--border);border-radius:.65rem;box-shadow:0 .85rem 2rem rgba(15,23,42,.16);z-index:50;padding:.3rem;display:flex;flex-direction:column;gap:1px}
+.rldd-pop[hidden]{display:none}
+.rldd-opt{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;border-radius:.44rem;padding:7px 10px 7px 8px;font-size:.85rem;font-family:inherit;color:var(--ink);cursor:pointer;text-align:left;transition:background .1s}
+.rldd-opt:hover{background:#EFF6FF}
+.rldd-opt.on{background:#DBEAFE;font-weight:700}
+.rldd-opt>svg.ic{width:.9rem;height:.9rem;flex:none;fill:var(--primary);stroke:none;visibility:hidden}
+.rldd-opt.on>svg.ic{visibility:visible}
+.rldd-opt-lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rldd-dot{width:8px;height:8px;border-radius:50%;flex:none;background:#22C55E;box-shadow:0 0 0 3px rgba(34,197,94,.16)}
+.rldd-dot.off{background:none;box-shadow:none}
 .rlgap{flex:1}
 .rlmeta{font-size:.74rem;color:var(--ink-3);align-self:flex-end;padding-bottom:.35rem;white-space:nowrap}
 /* การ์ดนับ 2 ใบ — ใหญ่ มีสีสัน */

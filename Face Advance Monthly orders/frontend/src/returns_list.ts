@@ -184,6 +184,10 @@ export function renderReturnsList(root: HTMLElement, deps: { toast: (msg: string
       if (mp && !mp.hidden && !t.closest?.("#rlMonthPick") && !t.closest?.("#rlPCenter")) mp.hidden = true;
       const cp = document.getElementById("rlColsPop");
       if (cp && !cp.hidden && !t.closest?.("#rlColsPop") && !t.closest?.("#rlColsBtn")) cp.hidden = true;
+      for (const id of ["rlTeam", "rlSeller"]) {
+        const p = document.getElementById(`${id}Pop`);
+        if (p && !p.hidden && !t.closest?.(`#${id}DD`)) closeDD(id);
+      }
     });
   }
   void load(true);
@@ -286,15 +290,10 @@ function buildShell(): HTMLElement {
     segBtn("status", "สถานะตีกลับทั้งหมด", "i-return"));
   const top = el("div", { class: "rltop" }, head, modeWrap);
 
-  const teamSel = el("select", { class: "rlsel", id: "rlTeam" }) as HTMLSelectElement;
-  const sellerSel = el("select", { class: "rlsel", id: "rlSeller" }) as HTMLSelectElement;
-  const teamField = el("label", { class: "rlfield", id: "rlTeamField" }, el("span", {}, "ทีม"), teamSel);
-  const sellerField = el("label", { class: "rlfield" }, el("span", {}, "พนักงาน"), sellerSel);
-  teamSel.addEventListener("change", () => {
-    state.teamId = teamSel.value ? Number(teamSel.value) : null;
-    state.sellerCode = null; fillSellerOptions(); void load(false);
-  });
-  sellerSel.addEventListener("change", () => { state.sellerCode = sellerSel.value || null; void load(false); });
+  const teamField = buildDD("rlTeam", "ทีม");
+  const sellerField = buildDD("rlSeller", "พนักงาน");
+  (teamField.querySelector("#rlTeamBtn") as HTMLElement).addEventListener("click", (e) => { e.stopPropagation(); toggleDD("rlTeam"); });
+  (sellerField.querySelector("#rlSellerBtn") as HTMLElement).addEventListener("click", (e) => { e.stopPropagation(); toggleDD("rlSeller"); });
 
   const bar = el("div", { class: "rlbar" }, buildPeriod(), el("span", { class: "rlbardiv" }), teamField, sellerField);
   // การ์ดสร้างครั้งเดียว (คงที่) → อัปเดตแค่ค่าข้างในตอนข้อมูลเปลี่ยน (เลขวิ่ง/พิมพ์ดีด)
@@ -335,29 +334,65 @@ function buildShell(): HTMLElement {
   return el("div", { class: "rlpage" }, top, bar, cards, card);
 }
 
-// ---------- team/seller dropdown ----------
+// ---------- team/seller dropdown (custom — เปิดใต้ปุ่ม + มาร์คจุดเขียว) ----------
+interface DDOpt { v: string; label: string; }
+function buildDD(id: string, label: string): HTMLElement {
+  return el("div", { class: "rlfield", id: `${id}Field` },
+    el("span", {}, label),
+    el("div", { class: "rldd", id: `${id}DD` },
+      el("button", { class: "rldd-btn", id: `${id}Btn`, type: "button", "aria-haspopup": "listbox", "aria-expanded": "false" },
+        el("span", { class: "rldd-val", id: `${id}Val` }, ""),
+        icon("i-chev")),
+      el("div", { class: "rldd-pop", id: `${id}Pop`, role: "listbox", hidden: "" })));
+}
+function closeDD(id: string) {
+  const pop = document.getElementById(`${id}Pop`); if (pop) pop.hidden = true;
+  document.getElementById(`${id}Btn`)?.setAttribute("aria-expanded", "false");
+}
+function toggleDD(id: string, open?: boolean) {
+  const pop = document.getElementById(`${id}Pop`); const btn = document.getElementById(`${id}Btn`);
+  if (!pop || !btn) return;
+  for (const other of ["rlTeam", "rlSeller"]) if (other !== id) closeDD(other);
+  const willOpen = open ?? pop.hidden;
+  pop.hidden = !willOpen;
+  btn.setAttribute("aria-expanded", String(willOpen));
+  if (willOpen) pop.querySelector<HTMLElement>(".rldd-opt.on")?.scrollIntoView({ block: "nearest" });
+}
+function renderDD(id: string, opts: DDOpt[], cur: string, dot: Set<string>, onPick: (v: string) => void) {
+  const pop = document.getElementById(`${id}Pop`); const valEl = document.getElementById(`${id}Val`);
+  if (!pop || !valEl) return;
+  pop.innerHTML = "";
+  for (const o of opts) {
+    const on = o.v === cur;
+    const optEl = el("button",
+      { class: "rldd-opt" + (on ? " on" : ""), type: "button", role: "option", "data-v": o.v, "aria-selected": String(on) },
+      icon("i-check"),
+      el("span", { class: "rldd-opt-lbl" }, o.label),
+      el("span", { class: "rldd-dot" + (dot.has(o.v) ? "" : " off"), title: dot.has(o.v) ? "มีตีกลับในรอบนี้" : "" }));
+    optEl.addEventListener("click", (e) => { e.stopPropagation(); closeDD(id); if (o.v !== cur) onPick(o.v); });
+    pop.append(optEl);
+  }
+  valEl.textContent = opts.find((o) => o.v === cur)?.label ?? opts[0]?.label ?? "";
+}
 function fillTeamOptions() {
-  const field = document.querySelector("#rlTeamField") as HTMLElement | null;
-  const sel = document.querySelector("#rlTeam") as HTMLSelectElement | null;
-  if (!field || !sel) return;
+  const field = document.getElementById("rlTeamField"); if (!field) return;
   const teams = data?.teams ?? [];
   field.style.display = teams.length > 1 || !!data?.all_teams ? "" : "none";
-  sel.innerHTML = "";
-  sel.append(el("option", { value: "" }, "ทุกทีม"));
-  for (const t of teams) sel.append(el("option", { value: String(t.id) }, t.name));
-  sel.value = state.teamId ? String(state.teamId) : "";
+  const opts: DDOpt[] = [{ v: "", label: "ทุกทีม" }, ...teams.map((t) => ({ v: String(t.id), label: t.name }))];
+  renderDD("rlTeam", opts, state.teamId ? String(state.teamId) : "", new Set(), (v) => {
+    state.teamId = v ? Number(v) : null; state.sellerCode = null; fillSellerOptions(); void load(false);
+  });
 }
 function fillSellerOptions() {
-  const sel = document.querySelector("#rlSeller") as HTMLSelectElement | null;
-  if (!sel) return;
+  if (!document.getElementById("rlSellerPop")) return;
   const all = data?.sellers ?? [];
   const list = state.teamId == null ? all
     : all.filter((s) => (state.teamId === -1 ? s.team_id == null : s.team_id === state.teamId));
-  sel.innerHTML = "";
-  sel.append(el("option", { value: "" }, "ทุกคน"));
-  for (const s of list) sel.append(el("option", { value: s.code }, s.name ? `${s.code} — ${s.name}` : s.code));
-  sel.value = state.sellerCode && list.some((s) => s.code === state.sellerCode) ? state.sellerCode : "";
-  if (sel.value === "") state.sellerCode = null;
+  const cur = state.sellerCode && list.some((s) => s.code === state.sellerCode) ? state.sellerCode : "";
+  if (cur === "") state.sellerCode = null;
+  const withRet = new Set(data?.sellers_with_returns ?? []);   // จุดเขียว = พนักงานที่มีตีกลับในรอบนี้
+  const opts: DDOpt[] = [{ v: "", label: "ทุกคน" }, ...list.map((s) => ({ v: s.code, label: s.name ? `${s.code} — ${s.name}` : s.code }))];
+  renderDD("rlSeller", opts, cur, withRet, (v) => { state.sellerCode = v || null; void load(false); });
 }
 
 // ---------- load ----------
@@ -375,7 +410,8 @@ async function load(first: boolean) {
   if (!resp.ok) { paintMessage(resp.error === "forbidden" ? "ไม่มีสิทธิ์ดูหน้านี้" : "เกิดข้อผิดพลาดในการโหลดข้อมูล"); return; }
   if (state.cycle == null) state.cycle = resp.cycle?.value ?? null;
   allRows = resp.rows ?? [];
-  if (first) { fillTeamOptions(); fillSellerOptions(); }
+  if (first) fillTeamOptions();
+  fillSellerOptions();   // เรียกทุกครั้ง — จุดเขียวเปลี่ยนตามรอบ/โหมด
   paintPeriod();
   paintCards();
   paintTable();

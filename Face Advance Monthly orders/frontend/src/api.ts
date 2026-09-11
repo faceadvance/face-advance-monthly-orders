@@ -219,6 +219,7 @@ export interface ReturnsListResp {
   role?: string; all_teams?: boolean; mode?: string;
   cycle?: ReturnCycleOpt; cycles?: ReturnCycleOpt[];
   teams?: ReturnTeamOpt[]; sellers?: ReturnSellerOpt[];
+  sellers_with_returns?: string[];   // employee_code ที่มีตีกลับในรอบ/ทีมที่เลือก (มาร์คจุดเขียว)
   stats?: { orders: number; sales: number };
   prev?: { orders: number; sales: number };
   rows?: ReturnListRow[];
