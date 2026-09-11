@@ -98,6 +98,13 @@ export function attachTopScrollbar(wrap: HTMLElement): void {
     let syncing = false;
     b.addEventListener("scroll", () => { if (syncing) return; syncing = true; wrap.scrollLeft = b.scrollLeft; syncing = false; }, { passive: true });
     wrap.addEventListener("scroll", () => { if (syncing) return; syncing = true; b.scrollLeft = wrap.scrollLeft; syncing = false; }, { passive: true });
+    // wrap เป็น overflow-x:hidden (ตัด scrollbar เดิม) → รับ trackpad ปัดแนวนอน + shift+wheel มาเลื่อนเอง
+    wrap.addEventListener("wheel", (e) => {
+      let dx = 0;
+      if (e.shiftKey && e.deltaX === 0) dx = e.deltaY;                 // shift+wheel = แนวนอน
+      else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) dx = e.deltaX; // trackpad ปัดแนวนอน
+      if (dx !== 0 && wrap.scrollWidth > wrap.clientWidth) { wrap.scrollLeft += dx; e.preventDefault(); }
+    }, { passive: false });
   }
   topSbWraps.add(wrap);
   if (!topSbResizeHooked) {   // resize listener กลางตัวเดียว (กันรั่วเวลา re-paint สร้าง card ใหม่)

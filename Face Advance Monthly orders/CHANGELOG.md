@@ -7,6 +7,10 @@
 
 ## 2026-09-11
 
+### `__HASH__` · __TIME__ — แก้ scrollbar แนวนอนเดิมโผล่ตอนเลื่อน
+- 🔧 ปิด scrollbar แนวนอนเดิมของตารางทุกแบบ (รวม overlay macOS ที่โผล่ตอนเลื่อนแล้วดูซ้อนแปลก) ด้วย `overflow-x:hidden` — 3 หน้า (ออเดอร์/ตีกลับ/ค้นหา) · เหลือแถบเลื่อนใต้ตารางตัวเดียว
+- ➕ wheel handler: trackpad ปัดแนวนอน + shift+wheel ยังเลื่อนตารางซ้ายขวาได้ (เลื่อนแนวตั้งปกติไม่กระทบ)
+
 ### `b5eed37` · 09:22 — infra: ระบบ CHANGELOG + ข้ามการ deploy เมื่อแก้เอกสาร
 - ➕ เพิ่ม `CHANGELOG.md` (โปรเจค MO) + `CLAUDE.md` (ราก Face Advance Systems · กฎ: ทุก deploy ต้องบันทึก changelog · ใช้ทุกโปรเจค)
 - 🔄 GitHub Actions: แก้ไฟล์ `.md` อย่างเดียวจะไม่ trigger deploy (`paths-ignore`)
