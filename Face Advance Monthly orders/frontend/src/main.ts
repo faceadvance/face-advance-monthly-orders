@@ -162,8 +162,8 @@ function computeKpiDaily(d: OrdersResponse) {
     else if (o.payment_status === "error") { kpi.sales_error += amt; }
     // จำนวน/อัตรา/กราฟ + ยอดตีกลับจากสถานะ = ใช้สถานะจัดส่ง "ตีกลับ"
     if (o.delivery_status === "ตีกลับ") { kpi.returned_count++; kpi.returned_amount_status += amt; if (inRange) { daily.returned[idx]++; daily.returned_amount_status[idx] += amt; } }
-    // ยอดที่ตีกลับถึงแล้ว = ผลรวมเฉพาะออเดอร์ที่ return_arrived
-    if (o.return_arrived) { kpi.returned_amount += amt; if (inRange) daily.returned_amount[idx] += amt; }
+    // ยอดที่ตีกลับถึงแล้ว = return_arrived + สถานะจัดส่ง=ตีกลับ (กันเคสแลกเปลี่ยน: ถึงแล้วแต่ส่งสำเร็จ → นับเป็นสำเร็จ ไม่ใช่ตีกลับ)
+    if (o.return_arrived && o.delivery_status === "ตีกลับ") { kpi.returned_amount += amt; if (inRange) daily.returned_amount[idx] += amt; }
   }
   d.kpi = kpi;
   d.daily = daily;

@@ -324,6 +324,10 @@ export function adminResetPassword(id: string, newPassword: string): Promise<Adm
 export function edithDeleteRecon(kind: "cod" | "return", orderId: number): Promise<EdithActionResp> {
   return restRpc<EdithActionResp>("app_edith_delete_recon", { p_token: getToken(), p_kind: kind, p_order_id: orderId });
 }
+// เคสแลกเปลี่ยน: เก็บเงิน + รับของคืน → ส่งสำเร็จ+ชำระแล้ว+ถึงแล้ว (ไม่ลบ record · ไม่หักยอด)
+export function edithExchange(orderId: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_exchange", { p_token: getToken(), p_order_id: orderId });
+}
 export function edithRestoreRecon(kind: "cod" | "return", payload: Record<string, unknown>): Promise<EdithActionResp> {
   return restRpc<EdithActionResp>("app_edith_restore_recon", { p_token: getToken(), p_kind: kind, p_payload: payload });
 }

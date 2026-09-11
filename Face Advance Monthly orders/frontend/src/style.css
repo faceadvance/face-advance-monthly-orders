@@ -1569,6 +1569,57 @@ td.rlteam{white-space:nowrap}
 .ed-btn.danger:hover{background:#FEE2E2;border-color:var(--ed-error)}
 .ed-btn.loading{opacity:.7;pointer-events:none}
 .ed-note{font-size:12.5px;color:var(--ed-muted);margin:16px 0 10px;line-height:1.7}
+/* ป้าย "ลงตีกลับแบบ" (หักยอด / ไม่หักยอด) */
+.ed-tag{display:inline-block;padding:1px 8px;border-radius:6px;background:var(--ed-hover);border:1px solid var(--ed-line);font-size:12px;font-weight:600;color:var(--ed-ink)}
+.ed-tag.nodeduct{background:#ECFDF5;border-color:#A7F3D0;color:#047857}
+/* ทางเลือกที่ 3: แลกเปลี่ยน */
+.ed-exchange{margin-top:14px;padding:12px 14px;border:1px dashed var(--ed-accent);border-radius:10px;background:#F4F8FF}
+.ed-exchange p{font-size:12.5px;color:var(--ed-muted);line-height:1.6;margin:0 0 10px}
+.ed-exchange .ed-btn{width:100%}
+/* Audit log: ปฏิทินเลือกช่วง (ลากเลือก) + เวลา 2 ช่อง */
+.ed-cal{margin-top:10px;padding:12px;border:1px solid var(--ed-line);border-radius:12px;background:var(--ed-paper);user-select:none;box-shadow:0 4px 14px rgba(15,23,42,.05)}
+.ed-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.ed-cal-title{font-size:13.5px;font-weight:700;color:var(--ed-ink)}
+.ed-cal-nav{width:28px;height:28px;border-radius:8px;border:1px solid var(--ed-line);background:var(--ed-paper);color:var(--ed-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.ed-cal-nav:hover{background:var(--ed-hover)}
+.ed-cal-nav .ic{width:15px;height:15px}
+.ed-cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:3px}
+.ed-cal-dow span{text-align:center;font-size:11px;font-weight:600;color:var(--ed-muted);padding:2px 0}
+.ed-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.ed-cal-empty{aspect-ratio:1/1}
+.ed-cal-day{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:var(--ed-ink);border-radius:9px;cursor:pointer;transition:background .08s}
+.ed-cal-day:hover{background:var(--ed-hover)}
+.ed-cal-day.today{font-weight:800;box-shadow:inset 0 0 0 1.5px var(--ed-accent)}
+.ed-cal-day.inrange{background:#E8EFFF;border-radius:0}
+.ed-cal-day.sel{background:var(--ed-accent);color:#fff;font-weight:700;box-shadow:none}
+.ed-cal-range{text-align:center;font-size:12.5px;font-weight:700;color:var(--ed-accent);margin:9px 0 7px}
+.ed-cal-time{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ed-cal-tlab{font-size:12px;color:var(--ed-muted);flex:none}
+.ed-cal-dash{color:var(--ed-muted);flex:none}
+/* custom time picker (2 คอลัม HH|MM · ไม่ลูป · เลื่อนได้) */
+.ed-tf{position:relative;flex:1;min-width:0}
+.ed-tf-btn{width:100%;min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid var(--ed-line);border-radius:8px;background:var(--ed-paper);color:var(--ed-ink);font-family:inherit;font-size:14px;font-weight:600;padding:0 10px;cursor:pointer;font-variant-numeric:tabular-nums}
+.ed-tf-btn:hover{border-color:var(--ed-accent)}
+.ed-tf-btn .ic{width:11px;height:11px;color:var(--ed-muted);flex:none;fill:currentColor}
+.ed-tf-pop{position:absolute;bottom:calc(100% + 6px);left:0;right:0;display:flex;gap:4px;padding:5px;background:var(--ed-paper);border:1px solid var(--ed-line);border-radius:10px;box-shadow:0 10px 28px rgba(15,23,42,.18);z-index:60}
+.ed-tf-pop[hidden]{display:none}
+.ed-tf-col{flex:1;max-height:148px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;scrollbar-width:thin}
+.ed-tf-col::-webkit-scrollbar{width:6px}
+.ed-tf-col::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+.ed-tf-opt{text-align:center;padding:5px 0;font-size:13px;font-weight:600;color:var(--ed-ink);border-radius:6px;cursor:pointer;font-variant-numeric:tabular-nums}
+.ed-tf-opt:hover{background:var(--ed-hover)}
+.ed-tf-opt.on{background:var(--ed-accent);color:#fff}
+.ed-cal-apply{width:100%}
+/* ช่องสรุปช่วง (ยุบ) + ปฏิทินลอยเวลากาง (ไม่ดันเนื้อหา) */
+.ed-rangewrap{position:relative;margin-top:8px}
+.ed-rangefield{width:100%;min-height:36px;display:flex;align-items:center;gap:8px;border:1px solid var(--ed-line);border-radius:9px;background:var(--ed-paper);color:var(--ed-ink);font-family:inherit;font-size:13px;font-weight:600;padding:0 10px;cursor:pointer}
+.ed-rangefield:hover{border-color:var(--ed-accent)}
+.ed-rangefield.open{border-color:var(--ed-accent);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.ed-rangefield .ic{width:14px;height:14px;color:var(--ed-muted);flex:none;fill:currentColor}
+.ed-rf-txt{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-rangefield .ic:last-child{transition:transform .15s}
+.ed-rangefield.open .ic:last-child{transform:rotate(180deg)}
+.ed-rangewrap .ed-cal{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:50;margin-top:0}
 .ed-dual{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .ed-dismiss-row{display:flex;justify-content:center;margin-top:13px;padding-top:13px;border-top:1px dashed var(--ed-line)}
 .ed-dismiss{color:var(--ed-muted);border-color:var(--ed-line)}

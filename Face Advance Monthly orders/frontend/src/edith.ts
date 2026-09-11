@@ -1,10 +1,10 @@
 // หน้า EDITH (Stage 9b) — ศูนย์จัดการเคสทั้งระบบ · Adm only
 // ดีไซน์: layout เดซี่ v3 (KPI + คิว time-bucket + โต๊ะตรวจ + audit filter) · พาเลตมืดเดซี่ v1
 // ปัญหา 4 ชนิด: error(COD ยอดไม่ตรง) · conflict(บันทึกตีกลับชน) · recon(COD+ตีกลับ) · dedup(ลูกค้าซ้ำ)
-import { el, icon, nf, imageSrc, openLightbox } from "./util";
+import { el, icon, nf, imageSrc, openLightbox, THAI_MONTHS_FULL } from "./util";
 import {
   fetchEdithIssues, fetchEdithDetail, fetchEdithLog,
-  edithDeleteRecon, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
+  edithDeleteRecon, edithExchange, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
   edithResolveError, edithSetPaymentStatus,
   type EdithIssue, type EdithIssueType, type EdithCounts, type EdithLogRow,
 } from "./api";
@@ -21,9 +21,20 @@ let bucketFilter: Bucket | null = null;
 let searchText = "";
 let logRows: EdithLogRow[] = [];
 let logUsers: string[] = [];
-const logFilter = { user: "", group: "" as "" | "data" | "auth" | "view", range: "1h" as "1h" | "today" | "7d" | "all", q: "" };
+const logFilter = { user: "", group: "" as "" | "data" | "auth" | "view", range: "1h" as "1h" | "today" | "7d" | "all" | "custom", q: "", customFrom: "", customTo: "" };
+// สถานะปฏิทินเลือกช่วง (ลากเลือก) — start/end = YYYY-MM-DD · from/to = HH:MM · view = เดือนที่โชว์
+const logRange = { start: "", end: "", from: "00:00", to: "23:59", view: (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })() };
+let calDragging = false;
+let calOpen = false;   // ปฏิทินกาง/ยุบ (ยุบเป็นช่องสรุปช่วง คลิกถึงกาง · apply แล้วยุบ)
+document.addEventListener("mouseup", () => { calDragging = false; });   // จบการลากเลือกช่วง (ครั้งเดียว)
+document.addEventListener("click", () => { document.querySelectorAll(".ed-tf-pop").forEach((p) => { (p as HTMLElement).hidden = true; }); });  // คลิกนอก → ปิด time picker
+function ymdLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 let pollTimer = 0;
 let busy = false;
+let lastIssuesSig = "";   // ลายเซ็นข้อมูลล่าสุดที่วาด (poll เงียบ = ไม่วาดใหม่ถ้าเหมือนเดิม → กันกระพริบ)
+let lastLogSig = "";
 
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector(sel) as T | null;
 
@@ -443,6 +454,8 @@ function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement
   box.append(workHeader("i-wallet", "Recon ขัดแย้ง", `ออเดอร์ ${g(o, "order_no") || "#" + orderId} · มีทั้ง COD และตีกลับ`));
   box.append(el("div", { class: "ed-info" },
     kv("ลูกค้า", g(o, "customer_name")),
+    kv("เบอร์โทร", el("span", { class: "ed-mono" }, g(o, "phone") || "—")),
+    kv("วันที่สั่งซื้อ", g(o, "ordered_date") || "—"),
     kv("แทร็คส่งออก", el("span", { class: "ed-mono" }, g(o, "tracking_no") || "—")),
     kv("ยอดออเดอร์", "฿" + nf(Number(o.total_sales || 0))),
     kv("รายการ", g(o, "items") || "—")));
@@ -456,6 +469,8 @@ function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement
     pickDeleteBtn("cod", orderId, "ลบ COD นี้"));
   const retCard = el("div", { class: "ed-vcard" },
     el("div", { class: "ed-vh ret" }, icon("i-boxret-solid"), "รายการตีกลับถึง"),
+    kv("ลงตีกลับแบบ", el("span", { class: retj && retj.no_deduct ? "ed-tag nodeduct" : "ed-tag" },
+      retj ? (retj.no_deduct ? "ไม่หักยอด" : "หักยอด") : "—")),
     kv("ผลตรวจ", retj ? g(retj, "inspection_result") : "—"),
     ...(retj && g(retj, "damage_detail") ? [kv("รายละเอียดเสียหาย", g(retj, "damage_detail"))] : []),
     kv("แทร็คตีกลับ", el("span", { class: "ed-mono" }, retj ? g(retj, "tracking_return") || "—" : "—")),
@@ -465,6 +480,15 @@ function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement
     pickDeleteBtn("return", orderId, "ลบตีกลับนี้"));
   dual.append(codCard, retCard);
   box.append(el("p", { class: "ed-note" }, "ตรวจเลขแทร็คให้ตรงกัน แล้วเลือกลบรายการที่ผิด — ระบบจะคืนสถานะอัตโนมัติ"), dual);
+  // ทางเลือกที่ 3: ปรับเป็นถึงแล้ว (เก็บทั้งคู่ ไม่ลบ · ไม่แตะ no_deduct)
+  const exBtn = el("button", { class: "ed-btn primary sm" }, icon("i-boxret-solid"),
+    "ปรับเป็นถึงแล้ว") as HTMLButtonElement;
+  exBtn.addEventListener("click", () => runAction(exBtn, () => edithExchange(orderId),
+    "บันทึกแล้ว — ส่งสำเร็จ · ชำระแล้ว · ถึงแล้ว"));
+  box.append(el("div", { class: "ed-exchange" },
+    el("p", {}, el("b", {}, "จ่ายเงินแล้ว + ของกลับมาถึง? "),
+      "ปรับเป็น ส่งสำเร็จ · ชำระแล้ว · ถึงแล้ว → เก็บทั้ง COD และตีกลับไว้ ไม่ลบ · นับเป็นยอดขายสำเร็จ (หักยอดหรือไม่ = ตามที่ลงบันทึกตีกลับ)"),
+    exBtn));
   return box;
 }
 function pickDeleteBtn(kind: "cod" | "return", orderId: number, label: string): HTMLElement {
@@ -669,13 +693,132 @@ function paintLogFilters() {
   usel.value = logFilter.user;
   usel.addEventListener("change", () => { logFilter.user = usel.value; void loadLog(); });
 
-  const ranges: [string, string][] = [["1h", "1 ชม. ล่าสุด"], ["today", "วันนี้"], ["7d", "7 วัน"], ["all", "ทั้งหมด"]];
+  const ranges: [string, string][] = [["1h", "1 ชม. ล่าสุด"], ["today", "วันนี้"], ["7d", "7 วัน"], ["all", "ทั้งหมด"], ["custom", "กำหนดเอง…"]];
   const rsel = el("select", { class: "ed-sel", "aria-label": "ช่วงเวลา" }) as HTMLSelectElement;
   for (const [rk, lab] of ranges) rsel.append(el("option", { value: rk }, lab));
   rsel.value = logFilter.range;
-  rsel.addEventListener("change", () => { logFilter.range = rsel.value as typeof logFilter.range; void loadLog(); });
+  rsel.addEventListener("change", () => {
+    logFilter.range = rsel.value as typeof logFilter.range;
+    if (rsel.value === "custom") calOpen = true;   // เพิ่งเลือก custom → กางปฏิทินให้เลือกเลย
+    paintLogFilters();   // เปลี่ยนเป็น custom → โชว์ช่องวันที่
+    if (logFilter.range !== "custom" || (logFilter.customFrom && logFilter.customTo)) void loadLog();
+  });
 
-  box.append(chips, search, el("div", { class: "ed-arow" }, usel, rsel));
+  const arow = el("div", { class: "ed-arow" }, usel, rsel);
+  box.append(chips, search, arow);
+  // ช่วงเวลากำหนดเอง — ปฏิทินเดียว ลากเลือกช่วง + เวลา 2 ช่อง
+  if (logFilter.range === "custom") box.append(buildRangePicker());
+}
+// ช่องเวลาแบบกำหนดเอง (custom) — 2 คอลัม HH|MM เลื่อนได้ · 00→เลขสุดท้าย ไม่ลูป · แต่ง CSS เอง
+function buildTimeField(get: () => string, set: (v: string) => void): HTMLElement {
+  const wrap = el("div", { class: "ed-tf" });
+  const valEl = el("span", { class: "ed-tf-val" });
+  const btn = el("button", { class: "ed-tf-btn", type: "button" }, valEl, icon("i-caret"));
+  const pop = el("div", { class: "ed-tf-pop" }); pop.hidden = true;
+  const hCol = el("div", { class: "ed-tf-col" });
+  const mCol = el("div", { class: "ed-tf-col" });
+  pop.append(hCol, mCol);
+  const parse = () => { const p = (get() || "00:00").split(":"); return { h: (p[0] || "00").padStart(2, "0"), m: (p[1] || "00").padStart(2, "0") }; };
+  const label = () => { const { h, m } = parse(); valEl.textContent = `${h}:${m}`; };
+  const fill = (col: HTMLElement, max: number, cur: string, onPick: (v: string) => void) => {
+    col.textContent = "";
+    for (let i = 0; i < max; i++) {
+      const v = String(i).padStart(2, "0");
+      const o = el("span", { class: "ed-tf-opt" + (v === cur ? " on" : "") }, v);
+      o.addEventListener("click", (e) => { e.stopPropagation(); onPick(v); });
+      col.append(o);
+    }
+  };
+  const render = () => {
+    const { h, m } = parse();
+    fill(hCol, 24, h, (v) => { set(`${v}:${parse().m}`); label(); render(); });
+    fill(mCol, 60, m, (v) => { set(`${parse().h}:${v}`); label(); render(); });
+    requestAnimationFrame(() => {
+      for (const col of [hCol, mCol]) { const on = col.querySelector<HTMLElement>(".on"); if (on) col.scrollTop = on.offsetTop - col.clientHeight / 2 + on.clientHeight / 2; }
+    });
+  };
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = pop.hidden;
+    document.querySelectorAll(".ed-tf-pop").forEach((p) => { (p as HTMLElement).hidden = true; });
+    if (willOpen) { pop.hidden = false; render(); }
+  });
+  wrap.append(btn, pop);
+  label();
+  return wrap;
+}
+// ปฏิทินเลือกช่วงวัน (ลากเลือก) + เวลา 2 ช่อง → set logFilter.customFrom/To
+function buildRangePicker(): HTMLElement {
+  const TH_DOW = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+  const panel = el("div", { class: "ed-cal" });
+  const title = el("span", { class: "ed-cal-title" });
+  const prev = el("button", { class: "ed-cal-nav", type: "button", "aria-label": "เดือนก่อน" }, icon("i-chev-l"));
+  const next = el("button", { class: "ed-cal-nav", type: "button", "aria-label": "เดือนถัดไป" }, icon("i-chev-r"));
+  const grid = el("div", { class: "ed-cal-grid" });
+  const rangeLbl = el("div", { class: "ed-cal-range" });
+  const cells = new Map<string, HTMLElement>();
+
+  const lo = () => (logRange.start && logRange.end && logRange.start > logRange.end ? logRange.end : logRange.start);
+  const hi = () => (logRange.start && logRange.end && logRange.start > logRange.end ? logRange.start : logRange.end);
+  const fmtTh = (ds: string) => { const [y, m, d] = ds.split("-"); return `${+d} ${THAI_MONTHS_FULL[+m - 1]}`; };
+
+  function paintSel() {
+    const a = lo(), b = hi();
+    for (const [ds, cell] of cells) {
+      cell.classList.toggle("sel", !!a && (ds === a || ds === b));
+      cell.classList.toggle("inrange", !!a && !!b && a !== b && ds > a && ds < b);
+    }
+    rangeLbl.textContent = a && b ? (a === b ? fmtTh(a) : `${fmtTh(a)} – ${fmtTh(b)}`) : "ลากเลือกช่วงวันบนปฏิทิน";
+  }
+  function buildGrid() {
+    title.textContent = `${THAI_MONTHS_FULL[logRange.view.getMonth()]} ${logRange.view.getFullYear()}`;
+    grid.textContent = ""; cells.clear();
+    const y = logRange.view.getFullYear(), mo = logRange.view.getMonth();
+    const startDow = new Date(y, mo, 1).getDay();
+    const days = new Date(y, mo + 1, 0).getDate();
+    const today = ymdLocal(new Date());
+    for (let i = 0; i < startDow; i++) grid.append(el("span", { class: "ed-cal-empty" }));
+    for (let d = 1; d <= days; d++) {
+      const ds = ymdLocal(new Date(y, mo, d));
+      const cell = el("span", { class: "ed-cal-day" + (ds === today ? " today" : "") }, String(d));
+      cell.addEventListener("mousedown", (e) => { e.preventDefault(); calDragging = true; logRange.start = ds; logRange.end = ds; paintSel(); });
+      cell.addEventListener("mouseenter", () => { if (calDragging) { logRange.end = ds; paintSel(); } });
+      cells.set(ds, cell); grid.append(cell);
+    }
+    paintSel();
+  }
+  prev.addEventListener("click", () => { logRange.view = new Date(logRange.view.getFullYear(), logRange.view.getMonth() - 1, 1); buildGrid(); });
+  next.addEventListener("click", () => { logRange.view = new Date(logRange.view.getFullYear(), logRange.view.getMonth() + 1, 1); buildGrid(); });
+
+  const dow = el("div", { class: "ed-cal-dow" }); for (const d of TH_DOW) dow.append(el("span", {}, d));
+  const fromT = buildTimeField(() => logRange.from, (v) => { logRange.from = v; });
+  const toT = buildTimeField(() => logRange.to, (v) => { logRange.to = v; });
+  const apply = el("button", { class: "ed-btn primary sm ed-cal-apply", type: "button" }, "ใช้ช่วงนี้") as HTMLButtonElement;
+  apply.addEventListener("click", () => {
+    if (!logRange.start || !logRange.end) { toastFn("ลากเลือกช่วงวันก่อน", false); return; }
+    logFilter.customFrom = `${lo()}T${logRange.from || "00:00"}`;
+    logFilter.customTo = `${hi()}T${logRange.to || "23:59"}`;
+    calOpen = false;   // ยุบปฏิทินหลังกดใช้
+    void loadLog();
+  });
+
+  panel.append(
+    el("div", { class: "ed-cal-head" }, prev, title, next),
+    dow, grid, rangeLbl,
+    el("div", { class: "ed-cal-time" }, el("span", { class: "ed-cal-tlab" }, "เวลา"), fromT, el("span", { class: "ed-cal-dash" }, "–"), toT),
+    apply);
+  buildGrid();
+
+  // ช่องสรุป (ยุบ) — คลิกเพื่อกาง/ยุบปฏิทิน
+  const summary = () => (logRange.start && logRange.end)
+    ? `${fmtTh(lo())} ${logRange.from} – ${fmtTh(hi())} ${logRange.to}`
+    : "เลือกช่วงเวลา…";
+  const field = el("button", { class: "ed-rangefield", type: "button" },
+    icon("i-cal"), el("span", { class: "ed-rf-txt" }, summary()), icon("i-caret")) as HTMLButtonElement;
+  const setOpen = (o: boolean) => { calOpen = o; panel.hidden = !o; field.classList.toggle("open", o); };
+  field.addEventListener("click", (e) => { e.stopPropagation(); setOpen(!calOpen); });
+  setOpen(calOpen);
+  return el("div", { class: "ed-rangewrap" }, field, panel);
 }
 function eventsForGroup(): string[] | null {
   if (!logFilter.group) return null;
@@ -706,14 +849,19 @@ function detailSummary(d: Record<string, unknown>): string {
 }
 
 // ---------- data ----------
-async function loadIssues() {
-  const box = q("#edQueue");   // ล้างคิวเดิม + โชว์กำลังโหลด (feedback สม่ำเสมอทุกหน้า)
-  if (box) box.innerHTML = `<div class="loadbox"><span class="loadspin"></span><span>กำลังโหลด…</span></div>`;
+async function loadIssues(quiet = false): Promise<boolean> {
+  const box = q("#edQueue");   // ล้างคิวเดิม + โชว์กำลังโหลด (เฉพาะโหลดครั้งแรก/กดรีเฟรช · poll เงียบไม่โชว์ กันกระพริบ)
+  if (!quiet && box) box.innerHTML = `<div class="loadbox"><span class="loadspin"></span><span>กำลังโหลด…</span></div>`;
   const res = await fetchEdithIssues();
-  if (!res.ok) { if (res.authorized === false) toastFn("session หมดอายุ", false); return; }
+  if (!res.ok) { if (res.authorized === false) toastFn("session หมดอายุ", false); return false; }
   issues = res.issues || [];
   counts = res.counts || counts;
+  // ตัด age_minutes ออกจาก sig (มันเพิ่มทุก poll) → เทียบเฉพาะเนื้อหาจริง กันวาดใหม่เพราะอายุขยับ
+  const sig = JSON.stringify([counts, issues.map((i) => { const { age_minutes, ...r } = i; void age_minutes; return r; })]);
+  if (quiet && sig === lastIssuesSig) return false;   // ข้อมูลเดิม (poll) → ไม่วาดใหม่ กันกระพริบ
+  lastIssuesSig = sig;
   paintKpis(); paintChips(); paintAging(); paintQueue();
+  return true;
 }
 function rangeFrom(): string | null {
   const now = Date.now();
@@ -722,12 +870,18 @@ function rangeFrom(): string | null {
   if (logFilter.range === "7d") return new Date(now - 7 * 864e5).toISOString();
   return null; // all
 }
-async function loadLog() {
+async function loadLog(quiet = false) {
   const filter: Record<string, unknown> = { limit: 120 };
   if (logFilter.user) filter.user = logFilter.user;
   if (logFilter.q) filter.q = logFilter.q;
-  const from = rangeFrom();
-  if (from) filter.from = from;
+  if (logFilter.range === "custom") {
+    // ช่วงกำหนดเอง: datetime-local (เวลาเครื่อง) → ISO · backend cast timestamptz
+    if (logFilter.customFrom) filter.from = new Date(logFilter.customFrom).toISOString();
+    if (logFilter.customTo) filter.to = new Date(logFilter.customTo).toISOString();
+  } else {
+    const from = rangeFrom();
+    if (from) filter.from = from;
+  }
   const evs = eventsForGroup();
   if (evs) filter.events = evs;
   const res = await fetchEdithLog(filter);
@@ -735,16 +889,22 @@ async function loadLog() {
   logRows = res.rows || [];
   if (res.users) logUsers = res.users;
   const lc = q("#edLCount"); if (lc) lc.textContent = String(res.total ?? logRows.length);
+  const sig = JSON.stringify([res.total, logRows, logUsers]);
+  if (quiet && sig === lastLogSig) return;   // log เดิม (poll) → ไม่วาดใหม่ กันกระพริบ
+  lastLogSig = sig;
   paintLogFilters(); paintLog();
 }
-async function refreshAll() { await Promise.all([loadIssues(), loadLog()]); if (!selected) renderOverview(); }
+async function refreshAll(quiet = false) {
+  const [issuesChanged] = await Promise.all([loadIssues(quiet), loadLog(quiet)]);
+  if (!selected && (!quiet || issuesChanged)) renderOverview();   // poll เงียบ: วาด overview ใหม่เฉพาะเมื่อ issues เปลี่ยน
+}
 
 // ---------- entry ----------
 export function renderEdith(container: HTMLElement, opts: { toast: (m: string, ok?: boolean) => void }) {
   toastFn = opts.toast;
   // reset ทุกครั้งที่เข้าใหม่
   qFilter.clear(); bucketFilter = null; searchText = ""; selected = null;
-  logFilter.user = ""; logFilter.group = ""; logFilter.range = "1h"; logFilter.q = "";
+  logFilter.user = ""; logFilter.group = ""; logFilter.range = "1h"; logFilter.q = ""; logFilter.customFrom = ""; logFilter.customTo = "";
   resetUserModal();
   buildShell(container);
   paintChips(); paintAging();
@@ -752,7 +912,7 @@ export function renderEdith(container: HTMLElement, opts: { toast: (m: string, o
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = window.setInterval(() => {
     // หยุด poll เมื่อออกจากหน้า EDITH (renderPage ถอด class edith-host ออก)
-    if (root.isConnected && root.classList.contains("edith-host") && root.querySelector("#edKpis")) void refreshAll();
+    if (root.isConnected && root.classList.contains("edith-host") && root.querySelector("#edKpis")) void refreshAll(true);   // quiet: ไม่โชว์ spinner + ไม่วาดใหม่ถ้าข้อมูลเดิม (กันกระพริบ)
     else { clearInterval(pollTimer); pollTimer = 0; }
   }, 45000);
 }
