@@ -1241,11 +1241,25 @@ function trackErrMsg(err?: string): string {
 }
 
 // อัปเดต order ใน state จาก response แล้ว re-render (KPI ตีกลับเปลี่ยนตามด้วย)
-function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_status?: string; return_reason?: string; status_detail?: string }) {
+// คำนวณ last_note_at / last_note_text จาก timeline (สูตรเดียวกับ get_orders):
+//   last_note_at   = วันที่ล่าสุดที่ user แตะ tracking (โน้ต/เปลี่ยนสถานะ · by ไม่ว่าง)
+//   last_note_text = ข้อความโน้ตล่าสุด (entry type='note' ที่มีข้อความ)
+function deriveLastNote(o: Order, timeline: TrackingEntry[]) {
+  let atMax = "", noteMax = "", noteText: string | null = null;
+  for (const e of timeline) {
+    if (e.by && e.at > atMax) atMax = e.at;
+    if (e.type === "note" && (e.note ?? "").trim() !== "" && e.at > noteMax) { noteMax = e.at; noteText = e.note; }
+  }
+  o.last_note_at = atMax ? atMax.slice(0, 10) : null;
+  o.last_note_text = noteText;
+}
+function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_status?: string; return_reason?: string; status_detail?: string; timeline?: TrackingEntry[] }) {
   if (r.delivery_status) o.delivery_status = r.delivery_status;
   if (r.payment_status) o.payment_status = r.payment_status;
   o.return_reason = r.return_reason ?? "";
   o.status_detail = r.status_detail ?? "";
+  // ติดตามล่าสุด/โน๊ตล่าสุด: คำนวณจาก timeline ที่ RPC คืนมา (ตรงกับสูตร get_orders) → คอลัมอัปเดตสดโดยไม่ต้อง refetch
+  if (r.timeline) deriveLastNote(o, r.timeline);
   computeKpiDaily(state.data!);
   renderKpi(state.data!);
   // อัปเดต "เฉพาะแถวที่เปลี่ยน" (ไม่ re-render ทั้งตาราง/ไม่ cascade ใหม่)
@@ -1889,7 +1903,7 @@ async function loadTimeline(orderId: number, noteBox: HTMLElement, logBox: HTMLE
     const all = r.timeline ?? [];
     const notes = all.filter((e) => e.type === "note");
     if (noteCount) noteCount.textContent = notes.length ? `(${notes.length})` : "";
-    renderNotes(noteBox, notes);
+    renderNotes(noteBox, notes, orderId);
     renderTimeline(logBox, all.filter((e) => e.type !== "note"));
   } catch {
     for (const b of [noteBox, logBox]) { b.textContent = ""; b.append(el("div", { class: "tlempty err" }, "โหลดไม่สำเร็จ")); }
@@ -1897,11 +1911,13 @@ async function loadTimeline(orderId: number, noteBox: HTMLElement, logBox: HTMLE
 }
 
 // ประวัติโน้ต (แยก) — บับเบิลครีม
-function renderNotes(box: HTMLElement, notes: TrackingEntry[]) {
+function renderNotes(box: HTMLElement, notes: TrackingEntry[], orderId: number) {
   box.textContent = "";
   if (notes.length === 0) { box.append(el("div", { class: "tlempty" }, "ยังไม่มีโน้ต")); return; }
   const me = displayName();
   const today = state.data?.today;
+  // โน้ตล่าสุด (at ล่าสุด · เสมอ→id มากสุด) → ใช้เช็คว่าแก้แล้วต้องอัปเดตคอลัม "โน๊ตล่าสุด" ในตารางไหม
+  const latest = notes.reduce<TrackingEntry | null>((b, e) => (!b || e.at > b.at || (e.at === b.at && e.id > b.id) ? e : b), null);
   for (const e of notes) {
     const item = el("div", { class: "notecard" });
     const head = el("div", { class: "tlhead" },
@@ -1911,14 +1927,29 @@ function renderNotes(box: HTMLElement, notes: TrackingEntry[]) {
     // แก้ไขได้เฉพาะโน้ตของตัวเอง + เป็นวันนี้ (server บังคับซ้ำอีกชั้น)
     if (e.type === "note" && !!today && e.at.slice(0, 10) === today && !!me && e.by === me) {
       const editBtn = el("button", { class: "noteedit", type: "button", title: "แก้ไขโน้ต" }, icon("i-edit"));
-      editBtn.addEventListener("click", () => startEditNote(item, body, e));
+      editBtn.addEventListener("click", () => startEditNote(item, body, e, orderId, e.id === latest?.id));
       head.append(editBtn);
     }
     box.append(item);
   }
 }
+// อัปเดตเฉพาะ 2 คอลัม (ติดตามล่าสุด/โน๊ตล่าสุด) ในแถวเดิม — ไม่วาดทั้งแถว ไม่มีไฮไลต์/กระพริบ
+function refreshLastNoteCells(o: Order) {
+  const tr = document.querySelector<HTMLElement>(`#tableWrap tbody tr[data-oid="${o.id}"]`);
+  if (!tr) return;
+  const atOld = tr.querySelector<HTMLElement>(".col-last_note_at");
+  if (atOld) {
+    const isToday = !!o.last_note_at && o.last_note_at === state.data?.today;
+    const lbl = !o.last_note_at ? "—" : isToday ? "วันนี้" : dmy(o.last_note_at);
+    atOld.replaceWith(el("td", { class: "datecell col-last_note_at " + (isToday ? "lntoday" : "lnpast") }, lbl));
+  }
+  const txtOld = tr.querySelector<HTMLElement>(".col-last_note_text");
+  if (txtOld) { const fresh = buildLastNoteCell(o, tr); fresh.classList.add("col-last_note_text"); txtOld.replaceWith(fresh); }
+  applyOrdHidden();
+  measureToggles(tr);
+}
 // แก้ไขโน้ต inline
-function startEditNote(item: HTMLElement, body: HTMLElement, e: TrackingEntry) {
+function startEditNote(item: HTMLElement, body: HTMLElement, e: TrackingEntry, orderId: number, isLatest: boolean) {
   if (item.querySelector(".noteeditta")) return;
   const ta = el("textarea", { class: "sbtextarea noteeditta", rows: "2" }) as HTMLTextAreaElement;
   ta.value = e.note ?? "";
@@ -1939,6 +1970,8 @@ function startEditNote(item: HTMLElement, body: HTMLElement, e: TrackingEntry) {
       if (!r.authorized) { toLogin(); return; }
       if (!r.ok) { toast(r.error === "not_editable" ? "แก้ได้เฉพาะโน้ตของตัวเอง (วันนี้)" : "แก้ไม่สำเร็จ", false); save.removeAttribute("disabled"); return; }
       e.note = v; body.textContent = v; close();
+      // แก้โน้ตล่าสุด → อัปเดตคอลัม "โน๊ตล่าสุด" ในตารางทันที (เงียบ ไม่กระพริบ)
+      if (isLatest) { const o = state.data?.orders.find((x) => x.id === orderId); if (o) { o.last_note_text = v; refreshLastNoteCells(o); } }
       toast("แก้โน้ตแล้ว");
     } catch { toast("แก้ไม่สำเร็จ", false); save.removeAttribute("disabled"); }
   });
