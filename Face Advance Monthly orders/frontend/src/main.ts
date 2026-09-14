@@ -2736,6 +2736,7 @@ function setImportTitle(text: string) {
 // เมนูเลือกประเภทไฟล์ที่จะนำเข้า
 function showImportMenu(body: HTMLElement) {
   setImportTitle("นำเข้าไฟล์");
+  setModalWide(false);
   body.textContent = "";
   body.append(el("div", { class: "impmenuhd" }, "เลือกประเภทไฟล์ที่จะนำเข้า"));
   const menu = el("div", { class: "impmenu" });
@@ -2889,8 +2890,8 @@ function showCodImport(body: HTMLElement) {
     el("div", { class: "codtplrow" }, dl, gs),
     el("div", { class: "importnote" }, "⚠️ วันที่ · ที่มา (ไฟล์หลักฐาน) · ผู้บันทึก ระบบใส่ให้อัตโนมัติ — อย่าเพิ่มคอลัมน์เอง"));
 
-  const tabs = importTabs("upload", () => {}, () => void showImportHistory(body, "cod"));
-  body.append(back, tabs, drop, tpl);
+  setModalWide(true);
+  body.append(back, importSplit("cod", [drop, tpl]));
 }
 
 async function handleCodFile(file: File, body: HTMLElement) {
@@ -2925,6 +2926,7 @@ async function handleCodFile(file: File, body: HTMLElement) {
 }
 
 function codImportError(body: HTMLElement, msg: string) {
+  setModalWide(false);
   body.textContent = "";
   body.append(el("div", { class: "importstate err" }, icon("i-x"), msg));
   const again = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
@@ -3110,37 +3112,33 @@ function showImportPick(body: HTMLElement) {
     const f = e.dataTransfer?.files?.[0];
     if (f) void handleImportFile(f, body);
   });
-  const tabs = importTabs("upload", () => {}, () => void showImportHistory(body, "orders"));
-  body.append(back, tabs, drop,
-    el("div", { class: "importnote" }, "ระบบจะข้ามออเดอร์ที่ยกเลิก · ตรวจวันซ้ำ/แบรนด์ · ให้ยืนยันก่อนบันทึกจริง"));
+  setModalWide(true);
+  body.append(back, importSplit("orders", [drop,
+    el("div", { class: "importnote" }, "ระบบจะข้ามออเดอร์ที่ยกเลิก · ตรวจวันซ้ำ/แบรนด์ · ให้ยืนยันก่อนบันทึกจริง")]));
 }
 
-// ───── แท็บ "อัพไฟล์ | ประวัตินำเข้า" (ใช้ร่วมทั้งหน้าออเดอร์และ COD) ─────
-// โชว์เฉพาะหน้าเลือกไฟล์ · หลังเลือกไฟล์/เข้า preview จะไม่มีแท็บ (กันสถานะ preview หาย)
-function importTabs(active: "upload" | "history", onUpload: () => void, onHistory: () => void): HTMLElement {
-  const mk = (key: "upload" | "history", label: string, onClick: () => void) => {
-    const b = el("button", { class: "imptab" + (key === active ? " on" : ""), type: "button" }, label);
-    if (key !== active) b.addEventListener("click", onClick);
-    return b;
-  };
-  return el("div", { class: "imptabs" },
-    mk("upload", "อัพไฟล์", onUpload),
-    mk("history", "ประวัตินำเข้า", onHistory));
+// ───── modal นำเข้า: หน้าเดียว แบ่ง 2 ส่วน (ซ้าย=อัพไฟล์ · ขวา=ประวัตินำเข้า) ─────
+/** ขยาย/ย่อความกว้าง modal — กว้างเฉพาะหน้าที่แบ่ง 2 ส่วน · หน้า preview/เมนู ใช้ขนาดเดิม */
+function setModalWide(on: boolean) {
+  (document.querySelector(".modal-ov .modal") as HTMLElement | null)?.classList.toggle("wide", on);
+}
+/** วางโครง 2 คอลัม: ซ้าย = ที่อัปโหลด (ส่งมาจากผู้เรียก) · ขวา = ประวัติ (โหลดเอง) */
+function importSplit(kind: "orders" | "cod", leftNodes: (Node | string)[]): HTMLElement {
+  const histBox = el("div", { class: "imphistbox" },
+    el("div", { class: "importstate" }, el("span", { class: "spin" }), "กำลังโหลดประวัติ…"));
+  void loadImportHistory(histBox, kind);
+  return el("div", { class: "impsplit" },
+    el("div", { class: "impsplit-sec" },
+      el("div", { class: "impsplit-hd" }, icon("i-upload"), "อัพไฟล์"),
+      ...leftNodes),
+    el("div", { class: "impsplit-sec right" },
+      el("div", { class: "impsplit-hd" }, icon("i-clock"), "ประวัตินำเข้า"),
+      histBox));
 }
 
 /** ตารางประวัตินำเข้า — kind 'orders' = วันที่ทำรายการ/ช่วงข้อมูล(ตั้งแต่–ถึง)/จำนวนออเดอร์/ผู้ทำรายการ
  *                       kind 'cod'    = วันที่ทำรายการ/ประเภท/จำนวนรายการ/ผู้ทำรายการ */
-async function showImportHistory(body: HTMLElement, kind: "orders" | "cod") {
-  setImportTitle(kind === "orders" ? "นำเข้าไฟล์ออเดอร์ (GoSell)" : "นำเข้า COD รับเงินแล้ว");
-  body.textContent = "";
-  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "เลือกประเภทอื่น");
-  back.addEventListener("click", () => showImportMenu(body));
-  const tabs = importTabs("history",
-    () => { if (kind === "orders") showImportPick(body); else showCodImport(body); },
-    () => {});
-  const box = el("div", { class: "imphistbox" }, el("div", { class: "importstate" }, el("span", { class: "spin" }), "กำลังโหลดประวัติ…"));
-  body.append(back, tabs, box);
-
+async function loadImportHistory(box: HTMLElement, kind: "orders" | "cod") {
   let r: ImportHistResp;
   try {
     r = await fetchImportHistory(kind);
@@ -3148,6 +3146,7 @@ async function showImportHistory(body: HTMLElement, kind: "orders" | "cod") {
     box.textContent = ""; box.append(el("div", { class: "importstate err" }, icon("i-x"), "โหลดประวัติไม่สำเร็จ"));
     return;
   }
+  if (!box.isConnected) return;   // ผู้ใช้เปลี่ยนหน้าไปแล้วระหว่างรอ → ไม่ต้องวาด
   if (!r.authorized) { closeImportModal(); toLogin(); return; }
   box.textContent = "";
   if (!r.ok) {
@@ -3164,10 +3163,10 @@ async function showImportHistory(body: HTMLElement, kind: "orders" | "cod") {
     thead.append(
       el("tr", {},
         el("th", { rowspan: "2" }, "วันที่ทำรายการ"),
-        el("th", { colspan: "2", class: "grp" }, "ช่วงข้อมูลที่นำเข้า"),
+        el("th", { colspan: "2", class: "grp rng" }, "ช่วงข้อมูลที่นำเข้า"),
         el("th", { rowspan: "2", class: "tar" }, "จำนวนออเดอร์"),
         el("th", { rowspan: "2" }, "ผู้ทำรายการ")),
-      el("tr", {}, el("th", { class: "sub" }, "ตั้งแต่"), el("th", { class: "sub" }, "ถึง")));
+      el("tr", {}, el("th", { class: "sub rng" }, "ตั้งแต่"), el("th", { class: "sub rng" }, "ถึง")));
   } else {
     thead.append(el("tr", {},
       el("th", {}, "วันที่ทำรายการ"), el("th", {}, "ประเภท"),
@@ -3178,8 +3177,8 @@ async function showImportHistory(body: HTMLElement, kind: "orders" | "cod") {
     tb.append(kind === "orders"
       ? el("tr", {},
           el("td", {}, dmy(h.at)),
-          el("td", {}, h.date_from ? dmy(h.date_from) : "—"),
-          el("td", {}, h.date_to ? dmy(h.date_to) : "—"),
+          el("td", { class: "rng" }, h.date_from ? dmy(h.date_from) : "—"),
+          el("td", { class: "rng" }, h.date_to ? dmy(h.date_to) : "—"),
           el("td", { class: "tar num" }, nf(h.orders ?? 0)),
           el("td", {}, h.by_name || "—"))
       : el("tr", {},
@@ -3193,10 +3192,12 @@ async function showImportHistory(body: HTMLElement, kind: "orders" | "cod") {
 }
 
 function importLoading(body: HTMLElement, msg: string) {
+  setModalWide(false);   // เข้าโหมดตรวจไฟล์/preview → กลับเป็นความกว้างเดิม
   body.textContent = "";
   body.append(el("div", { class: "importstate" }, el("span", { class: "spin" }), msg));
 }
 function importError(body: HTMLElement, msg: string) {
+  setModalWide(false);
   body.textContent = "";
   body.append(el("div", { class: "importstate err" }, icon("i-x"), msg));
   const again = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");

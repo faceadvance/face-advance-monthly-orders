@@ -205,12 +205,12 @@ thead th.filtered .funnel,thead th.filtered .funnel.on{color:#fff;opacity:1;back
 thead th.filtered .hh{color:#fff}
 .name{font-weight:500}.code{color:var(--ink-3);font-weight:400}
 /* ชื่อลูกค้า: โชว์บรรทัดเดียว · ล้น → ปุ่มขยายดูเต็ม (ลด 20% จาก ~13rem) */
-.name-cell{max-width:10.4rem;vertical-align:top}
+.name-cell{max-width:10.4rem}
 .nameline{display:flex;align-items:flex-start;gap:.35rem}
 .nameline .ntxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .ntxt{white-space:normal;overflow:visible;word-break:break-word}
 /* ที่อยู่: โชว์บรรทัดเดียว · ล้น → ปุ่มขยาย · ตอนขยายแยกส่วน (รายละเอียด/ตำบล/อำเภอ/จังหวัด/ไปรษณีย์) บรรทัดละส่วน */
-.addr-cell{color:var(--ink-2);max-width:8.3rem;vertical-align:top}
+.addr-cell{color:var(--ink-2);max-width:8.3rem}
 .addrline{display:flex;align-items:flex-start;gap:.35rem}
 .addrline .atxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .addrparts{display:none;min-width:0}
@@ -218,7 +218,7 @@ tr.rowopen .ntxt{white-space:normal;overflow:visible;word-break:break-word}
 tr.rowopen .atxt{display:none}
 tr.rowopen .addrparts{display:block}
 /* รายการสินค้า: โชว์บรรทัดแรก + ปุ่มสามเหลี่ยมทึบ (▼) เมื่อมี ≥2 · กดขยาย = โชว์ครบ (เว้นบรรทัดคั่น) */
-.items{color:var(--ink-2);max-width:15rem;vertical-align:top}
+.items{color:var(--ink-2);max-width:15rem}
 .iln0{display:flex;align-items:flex-start;gap:.35rem}
 .iln0 .itxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .itemtoggle{cursor:pointer;color:var(--ink-3);flex:none;display:inline-flex;transition:transform .15s;margin-left:auto}  /* ชิดขวาทุกคอลัม ตำแหน่งคงที่ (ไม่ขยับตอนขยาย) */
@@ -231,7 +231,7 @@ tr.rowopen .iln0 .itxt{white-space:normal;overflow:visible;word-break:break-word
 tr.rowopen .itemtoggle{transform:rotate(180deg)}
 tr.rowopen td{vertical-align:top}
 .amount{text-align:right;font-weight:500}.center{text-align:center}.tar{text-align:right}
-.note-cell{max-width:6rem;vertical-align:top;color:var(--ink-3);font-size:.78rem}
+.note-cell{max-width:6rem;color:var(--ink-3)}
 td.note-cell.col-last_note_text{color:var(--ink)}   /* โน๊ตล่าสุด = ดำ (คอลัม "หมายเหตุ" ยังเทาเดิม) */
 .noteline{display:flex;align-items:center;gap:.3rem}
 .noteline .notetxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -393,20 +393,30 @@ body.dragselecting .trackcell,body.dragselecting .statuscell{cursor:ns-resize}
 .impopt.soon .impopticon{background:var(--hover);color:var(--ink-3)}
 .impback{display:inline-flex;align-items:center;gap:.3rem;border:none;background:transparent;color:var(--primary);font-family:inherit;font-size:.8rem;cursor:pointer;padding:0;margin-bottom:.8rem}
 .impback svg{width:1.1em;height:1.1em;transform:rotate(90deg);fill:currentColor;stroke:none}
-/* แท็บ อัพไฟล์ | ประวัตินำเข้า */
-.imptabs{display:flex;gap:.3rem;padding:.25rem;background:#F1F5F9;border-radius:.6rem;margin-bottom:.9rem}
-.imptab{flex:1;border:none;background:transparent;border-radius:.45rem;padding:7px 12px;font-family:inherit;font-size:.83rem;font-weight:600;color:var(--ink-2);cursor:pointer;transition:background .13s,color .13s,box-shadow .13s}
-.imptab:hover:not(.on){color:var(--primary)}
-.imptab.on{background:#fff;color:var(--primary);box-shadow:0 1px 3px rgba(15,23,42,.10);cursor:default}
+/* modal นำเข้า: แบ่ง 2 ส่วน — ซ้าย อัพไฟล์ · ขวา ประวัตินำเข้า */
+.modal.wide{max-width:58rem}
+.impsplit{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.3fr);gap:1.4rem;align-items:start}
+.impsplit-sec{display:flex;flex-direction:column;min-width:0}
+.impsplit-sec.right{padding-left:1.4rem;border-left:1px solid var(--border)}   /* ห้ามใช้ .r — ชนคลาสสีป้ายแดงของระบบ */
+.impsplit-hd{display:flex;align-items:center;gap:7px;font-size:.8rem;font-weight:700;color:var(--ink-2);margin-bottom:.7rem;letter-spacing:.01em}
+.impsplit-hd svg{width:.95rem;height:.95rem;color:var(--primary)}
+@media (max-width:820px){
+  .impsplit{grid-template-columns:1fr;gap:1.1rem}
+  .impsplit-sec.right{padding-left:0;border-left:none;border-top:1px solid var(--border);padding-top:1.1rem}
+}
 /* ตารางประวัตินำเข้า */
 .imphistbox{max-height:min(52vh,420px);overflow:auto;border:1px solid var(--border);border-radius:.65rem}
 .imphistempty{padding:2.2rem 1rem;text-align:center;color:var(--ink-3);font-size:.85rem}
-table.imphist{width:100%;border-collapse:collapse;font-size:.82rem}
-table.imphist thead th{position:sticky;top:0;z-index:1;background:#F8FAFC;color:var(--ink-2);font-weight:700;font-size:.75rem;text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
-table.imphist thead th.grp{text-align:center;border-left:1px solid var(--border);border-right:1px solid var(--border)}
-table.imphist thead th.sub{top:31px;font-weight:600;color:var(--ink-3);border-left:1px solid var(--border)}
+table.imphist{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:auto}
+table.imphist thead th{position:sticky;top:0;z-index:1;background:#F8FAFC;color:var(--ink-2);font-weight:700;font-size:.72rem;text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+/* หัวกลุ่ม "ช่วงข้อมูลที่นำเข้า" — ไม่ใช้เส้นตั้ง (ขาดห้วนตรงรอยต่อ head/body) ใช้แรเงาอ่อนแทน */
+table.imphist thead th.grp{text-align:center;color:var(--ink-3);font-weight:600;padding-bottom:4px}
+table.imphist thead th.sub{top:29px;font-weight:600;color:var(--ink-2);font-size:.7rem;padding-top:2px}
+table.imphist .rng{background:#F4F7FB}
+table.imphist tbody td.rng{background:#FAFCFE}
+table.imphist tbody tr:hover td.rng{background:#F1F5F9}
 table.imphist thead th.tar,table.imphist td.tar{text-align:right}
-table.imphist tbody td{padding:8px 10px;border-bottom:1px solid #F1F5F9;color:var(--ink);white-space:nowrap}
+table.imphist tbody td{padding:7px 8px;border-bottom:1px solid #F1F5F9;color:var(--ink);white-space:nowrap}
 table.imphist tbody tr:last-child td{border-bottom:none}
 table.imphist tbody tr:hover{background:#F8FAFC}
 table.imphist td.num{font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums;font-weight:600}
