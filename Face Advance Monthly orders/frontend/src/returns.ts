@@ -5,6 +5,7 @@
 import { el, icon, nf, imageSrc, openLightbox } from "./util";
 import { lookupReturnTracking, saveReturns, fetchReturnsStats, checkReturnPhoto, type ReturnOrder, type ReturnsStats } from "./api";
 import { displayName } from "./session";
+import { guardSaveVersion } from "./version";
 
 export const INSPECTIONS = [
   { v: "สินค้าครบ ไม่เสียหาย", cls: "g", short: "ครบ ไม่เสียหาย" },
@@ -58,13 +59,15 @@ function kindsFor(ins: string): DamageKind[] {
 
 
 // ---------- ร่าง (กันไฟดับ/ปิดระบบระหว่างกรอก) ----------
+/** เขียนร่างลง localStorage ทันที (ไม่ debounce) — ใช้ตอนต้องรีเฟรชกะทันหัน เช่นมีอัปเดตระบบ */
+function saveDraftNow() {
+  const keep = { queue, draft: draft.tracking_out.trim() ? draft : null };
+  if (!keep.queue.length && !keep.draft) { localStorage.removeItem(draftKey()); return; }
+  try { localStorage.setItem(draftKey(), JSON.stringify(keep)); } catch { /* เต็ม/ปิดอยู่ → ข้าม */ }
+}
 function saveDraft() {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    const keep = { queue, draft: draft.tracking_out.trim() ? draft : null };
-    if (!keep.queue.length && !keep.draft) { localStorage.removeItem(draftKey()); return; }
-    try { localStorage.setItem(draftKey(), JSON.stringify(keep)); } catch { /* เต็ม/ปิดอยู่ → ข้าม */ }
-  }, 350);
+  saveTimer = window.setTimeout(saveDraftNow, 350);
 }
 function readDraft(): { queue: Row[]; draft: Row | null } | null {
   try {
@@ -641,6 +644,8 @@ function focusField(which: "out" | "back" | "photo") {
 async function doSave() {
   const rows = queue;   // บันทึกเฉพาะรายการที่ยืนยันแล้ว · draft (ใบที่กำลังกรอก) ไม่นับ
   if (!rows.length) return;
+  // มีอัปเดตระบบ → บล็อกไว้ก่อน (คิว+ใบที่กรอกค้างเซฟลง localStorage อยู่แล้ว → กู้คืนเองหลังรีเฟรช)
+  if (!(await guardSaveVersion(saveDraftNow))) return;
   const btn = document.querySelector("#rtSave") as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
   try {

@@ -15,6 +15,7 @@ import { renderEdith } from "./edith";
 import { renderSearch } from "./search";
 import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
+import { isStale, reloadForUpdate, showUpdateModal, guardSaveVersion, startVersionWatch } from "./version";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
@@ -531,14 +532,35 @@ function renderLoading() {
   currentVisible = []; tickEls.clear(); delivTickEls.clear(); vTbody = null;   // ตัดการอ้างอิงตารางเก่า (กัน scroll handler ทำงานกับ DOM ที่หายไป)
 }
 
-function renderTable() {
+/** วาดตารางใหม่
+ *  keepScroll = คงตำแหน่ง scroll + แถวที่กางไว้ (ใช้หลัง "บันทึก/อัปเดต" — ตารางต้องอยู่ที่เดิม)
+ *  anchorId   = id แถวอ้างอิง: เลื่อนให้แถวนี้อยู่จุดเดิมในจอเป๊ะ แม้แถวข้างบนจะหาย/เพิ่ม
+ *  ไม่ส่งอะไร = พฤติกรรมเดิม (กรอง/เรียง/ค้นหา/เปลี่ยนเดือน → ขึ้นบนสุด + ยุบแถว) */
+function renderTable(opts?: { keepScroll?: boolean; anchorId?: number }) {
   const d = state.data!;
+  const keep = !!opts?.keepScroll;
+  const wrapEl = document.getElementById("tableWrap");
+  const prevScroll = keep && wrapEl ? wrapEl.scrollTop : 0;
+  // ตำแหน่งเดิมของแถวอ้างอิง (คิดจาก offsets ชุดก่อนวาด) → ใช้ชดเชยเมื่อแถวข้างบนหาย/เพิ่ม
+  let prevAnchorOff: number | null = null;
+  if (keep && opts?.anchorId != null) {
+    const i = visIndex.get(opts.anchorId);
+    if (i != null && vOffsets[i] != null) prevAnchorOff = vOffsets[i];
+  }
+
   const rows = computeVisible();
   currentVisible = rows;
   visIndex = new Map(rows.map((o, i) => [o.id, i]));   // สร้างดัชนี id→ลำดับ สำหรับลากเลือก
   tickEls.clear();
-  expandedRows.clear();   // กรอง/เรียง/โหลดใหม่ → ยุบทุกแถว (เหมือน re-render เดิม)
-  vHeights.clear();
+  if (!keep) {
+    expandedRows.clear();   // กรอง/เรียง/โหลดใหม่ → ยุบทุกแถว (เหมือน re-render เดิม)
+    vHeights.clear();
+  } else {
+    // คงแถวที่กางไว้ แต่ทิ้งความสูงของแถวที่หลุดชุดข้อมูลไปแล้ว (กัน map บวมและ offsets เพี้ยน)
+    const live = new Set(rows.map((o) => o.id));
+    for (const id of [...expandedRows]) if (!live.has(id)) expandedRows.delete(id);
+    for (const id of [...vHeights.keys()]) if (!live.has(id)) vHeights.delete(id);
+  }
 
   const wrap = $("#tableWrap");
   wrap.textContent = "";
@@ -577,9 +599,24 @@ function renderTable() {
   tbody.textContent = ""; tickEls.clear();
 
   buildOffsets();
-  vFirst = vLast = -1; vInitAnim = true;
-  wrap.scrollTop = 0;
-  renderWindow(true);
+  vFirst = vLast = -1;
+  vInitAnim = !keep;   // คงตำแหน่ง = ไม่เล่นอนิเมชันแถวเข้า (จะดูเหมือนกระพริบ)
+  if (keep) {
+    // ⚠️ ต้องวาดรอบแรกก่อน เพื่อให้ spacer สูงเท่าจริง (scrollHeight ถูก) ไม่งั้นเบราว์เซอร์บีบ scrollTop เหลือ 0
+    renderWindow(true);
+    // ชดเชยตามแถวอ้างอิง: แถวนั้นต้องอยู่จุดเดิมในจอ · ไม่มีแถวอ้างอิง → คงตำแหน่งเดิมเฉยๆ
+    let target = prevScroll;
+    if (prevAnchorOff != null && opts?.anchorId != null) {
+      const ni = visIndex.get(opts.anchorId);
+      if (ni != null) target = prevScroll + (vOffsets[ni] - prevAnchorOff);
+    }
+    const max = Math.max(0, vTotal() - wrap.clientHeight);
+    wrap.scrollTop = Math.min(Math.max(0, target), max);
+    renderWindow(true);   // วาดรอบสองที่ตำแหน่งจริง (เบา — แค่ ~แถวที่เห็น)
+  } else {
+    wrap.scrollTop = 0;
+    renderWindow(true);
+  }
 
   renderActiveFilters();
 }
@@ -1107,13 +1144,28 @@ function confirmBulkDelivery(status: string) {
 async function applyBulkDelivery(status: string) {
   const ids = [...delivSelected];
   if (ids.length === 0) return;
+  if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อก (การเลือกยังอยู่ กดใหม่ได้หลังรีเฟรช)
   try {
     const r = await bulkSetDelivery(ids, status);
     if (!r.authorized) { toLogin(); return; }
     if (!r.ok) { toast(r.error === "forbidden_viewer" ? "ไม่มีสิทธิ์แก้ไข" : "บันทึกไม่สำเร็จ", false); return; }
+    // หาแถวอ้างอิง = แถวบนสุดที่แก้ (ต้องหาก่อนอัปเดต เพราะ clearDelivSelection ล้าง selection)
+    let anchor: number | undefined; let bestIdx = Infinity;
+    for (const id of ids) { const i = visIndex.get(id); if (i != null && i < bestIdx) { bestIdx = i; anchor = id; } }
     clearDelivSelection();
     toast(`แก้สถานะจัดส่ง ${nf(r.delivery_changed ?? 0)} รายการแล้ว`);
-    await loadMonth(state.month);   // โหลดใหม่ให้ตรงกับ DB
+    // อัปเดตในหน้าเฉพาะ id ที่แก้ (ให้ตรงกับที่ RPC ทำ) — ไม่โหลดใหม่ทั้งเดือน
+    // → ตารางอยู่ตำแหน่งเดิม + เร็วขึ้นมาก (ไม่ refetch หลายพันแถว)
+    const idset = new Set(ids);
+    for (const o of state.data!.orders) {
+      if (!idset.has(o.id)) continue;
+      o.delivery_status = status;
+      o.return_reason = ""; o.status_detail = "";
+      if (status === "ยกเลิก") o.payment_status = "ยกเลิก";   // RPC ตั้งให้ด้วย
+    }
+    computeKpiDaily(state.data!);
+    renderKpi(state.data!);
+    renderTable({ keepScroll: true, anchorId: anchor });
   } catch { toast("บันทึกไม่สำเร็จ", false); }
 }
 
@@ -1271,7 +1323,8 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
   const affectsView = (state.sort != null && cols.includes(state.sort.col))
     || [...state.filters.keys()].some((k) => cols.includes(k));
   const tr = document.querySelector<HTMLElement>(`#tableWrap tbody tr[data-oid="${o.id}"]`);
-  if (affectsView || !tr) { renderTable(); return; }
+  // ต้องวาดใหม่ (มีตัวกรอง/เรียงบนคอลัมสถานะ) → คงตำแหน่งเดิม + ยึดแถวที่เพิ่งแก้เป็นหลัก
+  if (affectsView || !tr) { renderTable({ keepScroll: true, anchorId: o.id }); return; }
   const fresh = buildRow(o);
   if (expandedRows.has(o.id)) fresh.classList.add("rowopen");   // คงสภาพกางไว้
   fresh.classList.add("rowflash");   // ไฮไลต์ยืนยันสั้นๆ
@@ -1323,6 +1376,7 @@ function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "pay
       return;
     }
     closeDrop();
+    if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อก (เลือกใหม่ได้ ไม่มีข้อมูลให้เสีย)
     const args: SaveTrackingArgs = field === "delivery" ? { delivery_status: sel } : { payment_status: sel };
     try {
       const r = await saveOrderTracking(o.id, args);
@@ -1377,6 +1431,24 @@ function loadSbDraft(id: number): Record<string, string> | null {
 }
 function saveSbDraft(id: number, d: Record<string, string>) { try { localStorage.setItem(sbDraftKey(id), JSON.stringify(d)); } catch { /* quota/private */ } }
 function clearSbDraft(id: number) { try { localStorage.removeItem(sbDraftKey(id)); } catch { /* */ } }
+// จำว่าตอนถูกบล็อก (มีอัปเดตระบบ) ค้างอยู่ที่ออเดอร์ไหน+เดือนไหน → หลังรีเฟรชเปิดคืนให้อัตโนมัติ
+const PENDING_SB_KEY = "fa_pending_sb";
+function setPendingSidebar(id: number) {
+  try { localStorage.setItem(PENDING_SB_KEY, JSON.stringify({ id, month: state.month })); } catch { /* */ }
+}
+/** หลังรีเฟรช: กลับไปเดือนเดิม เปิด sidebar ออเดอร์นั้น (ร่างกู้คืนเองใน openSidebar) */
+async function resumePendingSidebar() {
+  let p: { id?: number; month?: string } | null = null;
+  try { const r = localStorage.getItem(PENDING_SB_KEY); p = r ? JSON.parse(r) : null; } catch { p = null; }
+  if (!p?.id) return;
+  try { localStorage.removeItem(PENDING_SB_KEY); } catch { /* */ }
+  if (!loadSbDraft(p.id)) return;   // ไม่มีร่างเหลือ (บันทึกไปแล้ว/ถูกล้าง) → ไม่ต้องเปิด
+  if (state.page !== "orders") await setPage("orders");
+  if (p.month && p.month !== state.month) await loadMonth(p.month);
+  else await ensureOrders();
+  const o = state.data?.orders.find((x) => x.id === p!.id);
+  if (o) { openSidebar(o); toast("กลับมาที่รายการเดิม — ข้อมูลที่กรอกไว้ถูกกู้คืนแล้ว"); }
+}
 
 function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   if (!requireEditor()) return;
@@ -1408,6 +1480,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     ? `${o.seller_code || "—"}${o.seller_name ? " · " + o.seller_name : ""}` : "ไม่ระบุ";
 
   const infoC = infoCard("i-user", "ico-blue", "ข้อมูลออเดอร์");
+  infoC.card.classList.add("sbinfo");   // ลากคัดลอกในการ์ดนี้ → ได้บรรทัดเดียว (ดูที่ตัวดัก copy)
   infoC.card.querySelector(".sbcardhd")!.append(el("span", { class: "sbheaddate" }, dmy(o.date)));
   // hero: ชื่อลูกค้าเด่น + เบอร์โทร
   const { name: custName, code: custCode } = splitNameCode(o.customer_name);
@@ -1590,6 +1663,13 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   closeBtn.addEventListener("click", () => requestClose());
   saveBtn.addEventListener("click", async () => {
     if (!guardFresh()) { requestClose(); return; }   // กันแก้ทับ: มีตีกลับใหม่ → รีเฟรชก่อน
+    // มีอัปเดตระบบ → บล็อกการบันทึก · เซฟร่าง + จำว่าค้างที่ออเดอร์ไหน แล้วเด้ง popup ให้รีเฟรช
+    // (หลังรีเฟรช ระบบเปิด sidebar เดิมให้เอง + กู้ค่าที่กรอกไว้ครบ → กดบันทึกต่อได้เลย)
+    const okVer = await guardSaveVersion(() => {
+      saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value });
+      setPendingSidebar(o.id);
+    });
+    if (!okVer) return;
     const newDelivery = selDelivery;
     const newPayment = selPayment;
     const note = noteTa.value.trim();
@@ -2396,6 +2476,20 @@ async function bootstrap() {
     searchTimer = window.setTimeout(() => { if (state.data) renderTable(); }, 160); // debounce กันค้าง
   });
 
+  // คัดลอกในการ์ด "ข้อมูลออเดอร์" (sidebar) → ได้บรรทัดเดียว เว้นวรรคแทนการขึ้นบรรทัดใหม่
+  // (ชื่อ/เบอร์/ที่อยู่ เป็น div แยกบรรทัด เลยติด \n มาด้วย · เอาไปวางในแชตจะขึ้นหลายบรรทัด)
+  // ไม่แตะ UI เลย — แก้แค่ค่าที่ลงคลิปบอร์ด · การ์ดอื่น (โน้ต/ประวัติ) คัดลอกได้ตามปกติ
+  document.addEventListener("copy", (e) => {
+    const sel = document.getSelection();
+    const txt = sel?.toString() ?? "";
+    if (!txt.includes("\n")) return;
+    const inInfo = (n: Node | null | undefined) => !!(n && (n.nodeType === 1 ? (n as Element) : n.parentElement)?.closest?.(".sbinfo"));
+    if (!inInfo(sel?.anchorNode) || !inInfo(sel?.focusNode)) return;   // เลือกคร่อมออกนอกการ์ด → ปล่อยตามเดิม
+    const flat = txt.replace(/[ \t]*\r?\n+[ \t]*/g, " ").replace(/\s{2,}/g, " ").trim();
+    e.clipboardData?.setData("text/plain", flat);
+    e.preventDefault();
+  });
+
   // คีย์ลัด Cmd/Ctrl+F → ไปหน้า "ค้นหา" (ช่องค้นหาโฟกัสเองตอน render) แทน find ของเบราว์เซอร์
   document.addEventListener("keydown", (e) => {
     if (e.key.toLowerCase() !== "f" || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
@@ -2463,6 +2557,9 @@ async function startApp() {
   }
   startAppRetry = 0;
   if (!m.authorized) { toLogin(); return; }   // session หมด/เสียจริง → ออกไป login เท่านั้น
+  // เพิ่งล็อกอิน/เปิดแอปด้วยโค้ดเก่า (เช่นเปิดค้างหน้า login ข้ามคืนแล้วมี deploy)
+  // → รีเฟรชเงียบๆ ตรงนี้เลย (token อยู่ใน localStorage แล้ว กลับมาก็ยังล็อกอินอยู่ · ไม่มีงานค้างให้เสีย)
+  if (await isStale(true)) { reloadForUpdate(); return; }
   try {
     currentRole = m.role || getRole(); setRole(currentRole);   // role จริงจาก server
     document.body.classList.toggle("noedit", !canEdit(currentRole));   // role แก้ไม่ได้ → ซ่อนดินสอ
@@ -2479,6 +2576,8 @@ async function startApp() {
     const target: PageKey = accessible.includes(state.page) ? state.page : (accessible[0] ?? "orders");
     await setPage(target);
     void loadNotifs();   // เติม badge กระดิ่งตอนเข้าระบบ
+    startVersionWatch(() => showUpdateModal());   // เฝ้าเวอร์ชั่น: ทุก 5 นาที + ตอนกลับมาโฟกัสแท็บ
+    void resumePendingSidebar();                  // ถูกบล็อกเพราะมีอัปเดต → เปิด sidebar เดิมคืน + กู้ร่าง
   } catch {
     // โหลดหน้าแรกพลาด (ไม่ใช่เรื่อง auth) → คงอยู่ในระบบ ไม่เตะออก
     toast("โหลดข้อมูลไม่สำเร็จ ลองรีเฟรชอีกครั้ง");
@@ -2632,6 +2731,9 @@ function layoutDock(cursorY: number | null, smooth = false) {
 
 function toLogin() {
   clearSession();
+  // session หลุด/idle timeout → ถ้าโค้ดเก่า ให้รีเฟรชตรงนี้เลย (ล้าง session แล้ว = ไม่วนลูป)
+  // เดิมเด้งหน้า login แบบไม่รีเฟรช → พนักงานล็อกอินใหม่แล้วยังใช้โค้ดเก่าค้างอยู่
+  void isStale().then((stale) => { if (stale) reloadForUpdate(); });
   window.clearTimeout(idleTimer);     // หยุดนับ idle เมื่อออกจากระบบ
   closeImportModal();
   closeSidebar();
@@ -2831,6 +2933,7 @@ function openCodManualSidebar() {
       .map((r) => ({ tracking_out: r.tracking.value.trim(), amount: r.amount.value.trim() === "" ? null : Number(r.amount.value), received_from: r.from.value, note: r.note.value.trim() || null }))
       .filter((r) => r.tracking_out !== "");
     if (!data.length) { toast("กรุณากรอกอย่างน้อย 1 รายการ (เลขแทร็ค)", false); return; }
+    if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อก (ค่าที่กรอกยังอยู่ในฟอร์ม)
     save.disabled = true;
     result.textContent = "กำลังบันทึก…";
     try {
@@ -3054,6 +3157,7 @@ function showCodEvidence(body: HTMLElement) {
 
 async function doCodConfirm(body: HTMLElement) {
   if (!codEvidence) { showCodEvidence(body); return; }
+  if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อกก่อนอัปโหลด/นำเข้าจริง
   importLoading(body, "กำลังอัปโหลดไฟล์หลักฐาน...");
   const up = await uploadCodEvidence(codEvidence);
   if (!up.ok || !up.path) {
@@ -3172,10 +3276,14 @@ async function loadImportHistory(box: HTMLElement, kind: "orders" | "cod") {
     thead.append(
       el("tr", {},
         el("th", { rowspan: "2" }, "วันที่ทำรายการ"),
-        el("th", { colspan: "2", class: "grp rng" }, "ช่วงข้อมูลที่นำเข้า"),
+        el("th", { colspan: "3", class: "grp rng" }, "ช่วงข้อมูลที่นำเข้า"),
         el("th", { rowspan: "2", class: "tar" }, "จำนวนออเดอร์"),
         el("th", { rowspan: "2" }, "ผู้ทำรายการ")),
-      el("tr", {}, el("th", { class: "sub rng" }, "ตั้งแต่"), el("th", { class: "sub rng" }, "ถึง")));
+      // 3 คอลัม: ตั้งแต่ (ชิดขวา) · ขีดคั่น (แคบ จัดกลาง) · ถึง (ชิดซ้าย) → วันที่มาบรรจบกันตรงขีด
+      el("tr", {},
+        el("th", { class: "sub rng from" }, "ตั้งแต่"),
+        el("th", { class: "sub rng mid" }, ""),
+        el("th", { class: "sub rng to" }, "ถึง")));
   } else {
     thead.append(el("tr", {},
       el("th", {}, "วันที่ทำรายการ"), el("th", {}, "ประเภท"),
@@ -3186,9 +3294,9 @@ async function loadImportHistory(box: HTMLElement, kind: "orders" | "cod") {
     tb.append(kind === "orders"
       ? el("tr", {},
           el("td", {}, dmy(h.at)),
-          el("td", { class: "rng" }, h.date_from ? dmy(h.date_from) : "—"),
-          // ใส่ขีดคั่นหน้าวันที่ปลายช่วง (CSS ::before) → อ่านเป็น "1/7/2026 – 31/7/2026"
-          el("td", { class: h.date_to ? "rng to" : "rng" }, h.date_to ? dmy(h.date_to) : "—"),
+          el("td", { class: "rng from" }, h.date_from ? dmy(h.date_from) : "—"),
+          el("td", { class: "rng mid" }, h.date_from && h.date_to ? "–" : ""),
+          el("td", { class: "rng to" }, h.date_to ? dmy(h.date_to) : "—"),
           el("td", { class: "tar num" }, nf(h.orders ?? 0)),
           el("td", {}, h.by_name || "—"))
       : el("tr", {},
@@ -3298,6 +3406,7 @@ function showImportPreview(body: HTMLElement, fname: string, parsed: ParseResult
 }
 
 async function doImportConfirm(body: HTMLElement) {
+  if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อกก่อนนำเข้าจริง (ไฟล์เลือกใหม่ได้)
   importLoading(body, "กำลังนำเข้าข้อมูล...");
   let res: ImportResp;
   try {

@@ -360,6 +360,18 @@ body.dragselecting .trackcell,body.dragselecting .statuscell{cursor:ns-resize}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)}
 .modal-title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;color:var(--ink)}
 .modal-title svg{width:1.2em;height:1.2em;stroke:var(--primary);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* popup "ระบบมีการอัปเดต" — ปิดไม่ได้ มีปุ่มตกลงเดียว (กดแล้วรีเฟรช) */
+.vupd-ov{z-index:9000}
+.modal.vupd{max-width:25rem}
+.vupd-body{display:flex;gap:.9rem;padding:1.35rem 1.35rem .35rem}
+.vupd-ic{width:2.6rem;height:2.6rem;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#DBEAFE;color:var(--primary)}
+.vupd-ic svg{width:1.35rem;height:1.35rem}
+.vupd-t{font-weight:700;font-size:1.02rem;color:var(--ink);margin-bottom:.25rem}
+.vupd-d{font-size:.85rem;color:var(--ink-2);line-height:1.55}
+.vupd-v{margin-top:.5rem;font-size:.72rem;color:var(--ink-3);font-family:"Inter",sans-serif}
+.vupd-v b{color:var(--ink-2);font-weight:600}
+.vupd-foot{display:flex;justify-content:flex-end;padding:1rem 1.35rem 1.25rem}
+.vupd-foot .fbtn{min-width:6.5rem;justify-content:center}
 /* ปุ่มย้อนกลับในหัว modal (แทนแถบ "เลือกประเภทอื่น" ที่กินพื้นที่ทั้งแถว) */
 .modal-back{width:1.85rem;height:1.85rem;flex:none;border:1px solid var(--border);background:#fff;border-radius:50%;color:var(--ink-2);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-right:.15rem;transition:background .13s,color .13s,border-color .13s,transform .13s}
 .modal-back:hover{background:#EFF6FF;border-color:var(--primary);color:var(--primary);transform:translateX(-1px)}
@@ -418,7 +430,11 @@ table.imphist thead th{position:sticky;top:0;z-index:1;background:#F8FAFC;color:
 table.imphist thead th.grp{text-align:center;color:var(--ink-3);font-weight:600;padding-bottom:4px}
 table.imphist thead th.sub{top:29px;font-weight:600;color:var(--ink-2);font-size:.7rem;padding-top:2px}
 table.imphist .rng{background:#F4F7FB}
-table.imphist tbody td.rng.to::before{content:"–";color:var(--ink-3);margin-right:6px;font-weight:400}   /* ขีดคั่นช่วงวันที่ */
+/* ช่วงวันที่: ตั้งแต่ ชิดขวา | ขีด กลาง | ถึง ชิดซ้าย — วันที่มาบรรจบกันตรงขีด */
+table.imphist .rng.from{text-align:right;padding-right:5px}
+table.imphist thead th.sub.from{text-align:right}   /* หัวคอลัมตรงแนวกับข้อมูล */
+table.imphist .rng.mid{width:1px;white-space:nowrap;text-align:center;padding-left:0;padding-right:0;color:var(--ink-3)}
+table.imphist .rng.to{text-align:left;padding-left:5px}
 table.imphist tbody td.rng{background:#FAFCFE}
 table.imphist tbody tr:hover td.rng{background:#F1F5F9}
 table.imphist thead th.tar,table.imphist td.tar{text-align:right}
