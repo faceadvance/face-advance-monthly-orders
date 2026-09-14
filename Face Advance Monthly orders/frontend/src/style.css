@@ -418,6 +418,7 @@ table.imphist thead th{position:sticky;top:0;z-index:1;background:#F8FAFC;color:
 table.imphist thead th.grp{text-align:center;color:var(--ink-3);font-weight:600;padding-bottom:4px}
 table.imphist thead th.sub{top:29px;font-weight:600;color:var(--ink-2);font-size:.7rem;padding-top:2px}
 table.imphist .rng{background:#F4F7FB}
+table.imphist tbody td.rng.to::before{content:"–";color:var(--ink-3);margin-right:6px;font-weight:400}   /* ขีดคั่นช่วงวันที่ */
 table.imphist tbody td.rng{background:#FAFCFE}
 table.imphist tbody tr:hover td.rng{background:#F1F5F9}
 table.imphist thead th.tar,table.imphist td.tar{text-align:right}

@@ -3187,7 +3187,8 @@ async function loadImportHistory(box: HTMLElement, kind: "orders" | "cod") {
       ? el("tr", {},
           el("td", {}, dmy(h.at)),
           el("td", { class: "rng" }, h.date_from ? dmy(h.date_from) : "—"),
-          el("td", { class: "rng" }, h.date_to ? dmy(h.date_to) : "—"),
+          // ใส่ขีดคั่นหน้าวันที่ปลายช่วง (CSS ::before) → อ่านเป็น "1/7/2026 – 31/7/2026"
+          el("td", { class: h.date_to ? "rng to" : "rng" }, h.date_to ? dmy(h.date_to) : "—"),
           el("td", { class: "tar num" }, nf(h.orders ?? 0)),
           el("td", {}, h.by_name || "—"))
       : el("tr", {},
