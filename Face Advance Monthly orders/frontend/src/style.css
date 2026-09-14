@@ -360,6 +360,11 @@ body.dragselecting .trackcell,body.dragselecting .statuscell{cursor:ns-resize}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border)}
 .modal-title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;color:var(--ink)}
 .modal-title svg{width:1.2em;height:1.2em;stroke:var(--primary);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* ปุ่มย้อนกลับในหัว modal (แทนแถบ "เลือกประเภทอื่น" ที่กินพื้นที่ทั้งแถว) */
+.modal-back{width:1.85rem;height:1.85rem;flex:none;border:1px solid var(--border);background:#fff;border-radius:50%;color:var(--ink-2);cursor:pointer;display:flex;align-items:center;justify-content:center;margin-right:.15rem;transition:background .13s,color .13s,border-color .13s,transform .13s}
+.modal-back:hover{background:#EFF6FF;border-color:var(--primary);color:var(--primary);transform:translateX(-1px)}
+.modal-back svg{width:1rem;height:1rem}
+.modal-back[hidden]{display:none}
 .modal-x{width:2rem;height:2rem;border:none;background:transparent;border-radius:.5rem;color:var(--ink-3);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .modal-x:hover{background:var(--hover);color:var(--ink)}
 .modal-x svg{width:1.1em;height:1.1em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}

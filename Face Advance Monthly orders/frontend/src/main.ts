@@ -2713,8 +2713,10 @@ function openImportModal() {
   closeImportModal();
   const ov = el("div", { class: "modal-ov" });
   const modal = el("div", { class: "modal" });
+  // ปุ่มย้อนกลับอยู่ในหัว modal (ไม่กินพื้นที่ในเนื้อหา) — โชว์เฉพาะเมื่ออยู่หน้าย่อย
+  const backBtn = el("button", { class: "modal-back", id: "importBack", type: "button", title: "เลือกประเภทอื่น", hidden: "" }, icon("i-chev-l"));
   const head = el("div", { class: "modal-head" },
-    el("div", { class: "modal-title" }, icon("i-upload"), el("span", { id: "importTitleTxt" }, "นำเข้าไฟล์")));
+    el("div", { class: "modal-title" }, backBtn, icon("i-upload"), el("span", { id: "importTitleTxt" }, "นำเข้าไฟล์")));
   const closeX = el("button", { class: "modal-x", title: "ปิด" }, icon("i-close"));
   closeX.addEventListener("click", closeImportModal);
   head.append(closeX);
@@ -2732,11 +2734,19 @@ function setImportTitle(text: string) {
   const t = document.getElementById("importTitleTxt");
   if (t) t.textContent = text;
 }
+/** ปุ่มย้อนกลับในหัว modal — ส่ง null = ซ่อน (อยู่หน้าแรก / กำลังตรวจไฟล์) */
+function setImportBack(fn: (() => void) | null) {
+  const b = document.getElementById("importBack") as HTMLButtonElement | null;
+  if (!b) return;
+  b.hidden = !fn;
+  b.onclick = fn ? () => fn() : null;
+}
 
 // เมนูเลือกประเภทไฟล์ที่จะนำเข้า
 function showImportMenu(body: HTMLElement) {
   setImportTitle("นำเข้าไฟล์");
   setModalWide(false);
+  setImportBack(null);
   body.textContent = "";
   body.append(el("div", { class: "impmenuhd" }, "เลือกประเภทไฟล์ที่จะนำเข้า"));
   const menu = el("div", { class: "impmenu" });
@@ -2851,10 +2861,9 @@ const COD_SHEET_URL = "https://docs.google.com/spreadsheets/d/11UXsCzzIozZDYqxFJ
 // หน้า COD รับเงินแล้ว — อัปโหลดไฟล์ = พระเอก · template = แถบรอง (ครั้งแรกใช้)
 function showCodImport(body: HTMLElement) {
   setImportTitle("นำเข้าไฟล์ COD รับเงินแล้ว");
+  setImportBack(() => showImportMenu(body));
   body.textContent = "";
   codRows = []; codFix.clear();
-  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "เลือกประเภทอื่น");
-  back.addEventListener("click", () => showImportMenu(body));
 
   // ── อัปโหลด (เด่นสุด) ──
   const drop = el("label", { class: "importdrop big" });
@@ -2891,7 +2900,7 @@ function showCodImport(body: HTMLElement) {
     el("div", { class: "importnote" }, "⚠️ วันที่ · ที่มา (ไฟล์หลักฐาน) · ผู้บันทึก ระบบใส่ให้อัตโนมัติ — อย่าเพิ่มคอลัมน์เอง"));
 
   setModalWide(true);
-  body.append(back, importSplit("cod", [drop, tpl]));
+  body.append(importSplit("cod", [drop, tpl]));
 }
 
 async function handleCodFile(file: File, body: HTMLElement) {
@@ -2927,6 +2936,7 @@ async function handleCodFile(file: File, body: HTMLElement) {
 
 function codImportError(body: HTMLElement, msg: string) {
   setModalWide(false);
+  setImportBack(() => showImportMenu(body));
   body.textContent = "";
   body.append(el("div", { class: "importstate err" }, icon("i-x"), msg));
   const again = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
@@ -3094,9 +3104,8 @@ async function handleCodPreflightRefresh(body: HTMLElement) {
 
 function showImportPick(body: HTMLElement) {
   setImportTitle("นำเข้าไฟล์ออเดอร์ (GoSell)");
+  setImportBack(() => showImportMenu(body));
   body.textContent = "";
-  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "เลือกประเภทอื่น");
-  back.addEventListener("click", () => showImportMenu(body));
   const drop = el("label", { class: "importdrop" });
   const inp = el("input", { type: "file", accept: ".xlsx", hidden: "" }) as HTMLInputElement;
   drop.append(
@@ -3113,7 +3122,7 @@ function showImportPick(body: HTMLElement) {
     if (f) void handleImportFile(f, body);
   });
   setModalWide(true);
-  body.append(back, importSplit("orders", [drop,
+  body.append(importSplit("orders", [drop,
     el("div", { class: "importnote" }, "ระบบจะข้ามออเดอร์ที่ยกเลิก · ตรวจวันซ้ำ/แบรนด์ · ให้ยืนยันก่อนบันทึกจริง")]));
 }
 
@@ -3193,11 +3202,13 @@ async function loadImportHistory(box: HTMLElement, kind: "orders" | "cod") {
 
 function importLoading(body: HTMLElement, msg: string) {
   setModalWide(false);   // เข้าโหมดตรวจไฟล์/preview → กลับเป็นความกว้างเดิม
+  setImportBack(null);   // ซ่อนปุ่มย้อนกลับ (กันกดแล้วผลตรวจไฟล์หาย)
   body.textContent = "";
   body.append(el("div", { class: "importstate" }, el("span", { class: "spin" }), msg));
 }
 function importError(body: HTMLElement, msg: string) {
   setModalWide(false);
+  setImportBack(() => showImportMenu(body));   // หน้า error ไม่มีผลตรวจให้เสีย → ให้ย้อนกลับได้
   body.textContent = "";
   body.append(el("div", { class: "importstate err" }, icon("i-x"), msg));
   const again = el("button", { class: "fbtn" }, "เลือกไฟล์ใหม่");
