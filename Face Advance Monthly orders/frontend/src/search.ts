@@ -238,7 +238,7 @@ function rlkpi(cls: string, ic: string, lbl: string, valCls: string, val: Node |
 }
 function buildCards(rows: SearchRow[]): HTMLElement {
   if (view === "order") {
-    const exported = rows.filter((r) => r.delivery_status && r.delivery_status !== "รอส่ง").length;
+    const exported = rows.filter((r) => r.delivery_status && r.delivery_status !== "กำลังส่ง").length;
     const delivered = rows.filter((r) => r.delivery_status === "ส่งสำเร็จ").length;
     const succRate = exported ? (delivered / exported) * 100 : 0;
     const paid = rows.filter((r) => r.payment_status === "ชำระแล้ว").reduce((a, r) => a + (r.total_sales || 0), 0);

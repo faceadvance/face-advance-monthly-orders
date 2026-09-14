@@ -165,7 +165,7 @@ tbody tr:hover{background:var(--hover)}
 tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
 .datecell{white-space:nowrap;text-align:right;font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink)}
 td.datecell.lntoday{color:var(--primary);font-weight:700}
-td.datecell.lnpast{color:var(--ink-3);font-weight:500}
+td.datecell.lnpast{color:var(--ink);font-weight:500}
 th.datehead .hh{justify-content:flex-end}
 /* กราฟแท่ง */
 .cbot{margin-top:auto;display:flex;flex-direction:column}
@@ -232,6 +232,7 @@ tr.rowopen .itemtoggle{transform:rotate(180deg)}
 tr.rowopen td{vertical-align:top}
 .amount{text-align:right;font-weight:500}.center{text-align:center}.tar{text-align:right}
 .note-cell{max-width:6rem;vertical-align:top;color:var(--ink-3);font-size:.78rem}
+td.note-cell.col-last_note_text{color:var(--ink)}   /* โน๊ตล่าสุด = ดำ (คอลัม "หมายเหตุ" ยังเทาเดิม) */
 .noteline{display:flex;align-items:center;gap:.3rem}
 .noteline .notetxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .notetxt{white-space:normal;overflow:visible;word-break:break-word}
@@ -392,6 +393,25 @@ body.dragselecting .trackcell,body.dragselecting .statuscell{cursor:ns-resize}
 .impopt.soon .impopticon{background:var(--hover);color:var(--ink-3)}
 .impback{display:inline-flex;align-items:center;gap:.3rem;border:none;background:transparent;color:var(--primary);font-family:inherit;font-size:.8rem;cursor:pointer;padding:0;margin-bottom:.8rem}
 .impback svg{width:1.1em;height:1.1em;transform:rotate(90deg);fill:currentColor;stroke:none}
+/* แท็บ อัพไฟล์ | ประวัตินำเข้า */
+.imptabs{display:flex;gap:.3rem;padding:.25rem;background:#F1F5F9;border-radius:.6rem;margin-bottom:.9rem}
+.imptab{flex:1;border:none;background:transparent;border-radius:.45rem;padding:7px 12px;font-family:inherit;font-size:.83rem;font-weight:600;color:var(--ink-2);cursor:pointer;transition:background .13s,color .13s,box-shadow .13s}
+.imptab:hover:not(.on){color:var(--primary)}
+.imptab.on{background:#fff;color:var(--primary);box-shadow:0 1px 3px rgba(15,23,42,.10);cursor:default}
+/* ตารางประวัตินำเข้า */
+.imphistbox{max-height:min(52vh,420px);overflow:auto;border:1px solid var(--border);border-radius:.65rem}
+.imphistempty{padding:2.2rem 1rem;text-align:center;color:var(--ink-3);font-size:.85rem}
+table.imphist{width:100%;border-collapse:collapse;font-size:.82rem}
+table.imphist thead th{position:sticky;top:0;z-index:1;background:#F8FAFC;color:var(--ink-2);font-weight:700;font-size:.75rem;text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.imphist thead th.grp{text-align:center;border-left:1px solid var(--border);border-right:1px solid var(--border)}
+table.imphist thead th.sub{top:31px;font-weight:600;color:var(--ink-3);border-left:1px solid var(--border)}
+table.imphist thead th.tar,table.imphist td.tar{text-align:right}
+table.imphist tbody td{padding:8px 10px;border-bottom:1px solid #F1F5F9;color:var(--ink);white-space:nowrap}
+table.imphist tbody tr:last-child td{border-bottom:none}
+table.imphist tbody tr:hover{background:#F8FAFC}
+table.imphist td.num{font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums;font-weight:600}
+.imphsrc{display:inline-flex;align-items:center;border-radius:.35rem;padding:1px 8px;font-size:.73rem;font-weight:700;color:#1E3A8A;background:#DBEAFE}
+.imphsrc.manual{color:#854D0E;background:#FEF08A}
 /* COD import — template hub */
 .codhd{margin-bottom:.85rem}
 .codhdt{font-weight:600;color:var(--ink);font-size:.95rem}

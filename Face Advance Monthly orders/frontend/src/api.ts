@@ -46,6 +46,23 @@ export function importOrders(rows: unknown[], mode: "preflight" | "confirm"): Pr
   return restRpc<ImportResp>("app_import_orders", { p_token: getToken(), p_rows: rows, p_mode: mode });
 }
 
+// ---- ประวัติการนำเข้า (อ่านจาก audit_log · Adm/OM) ----
+export interface ImportHistRow {
+  at: string;                    // วันที่ทำรายการ YYYY-MM-DD (เวลาไทย)
+  by_name: string;               // ผู้ทำรายการ (display_name)
+  date_from?: string;            // orders: ช่วงข้อมูล ตั้งแต่
+  date_to?: string;              // orders: ช่วงข้อมูล ถึง
+  orders?: number;               // orders: จำนวนออเดอร์
+  src?: string;                  // cod: "ไฟล์" / "แก้มือ"
+  items?: number;                // cod: จำนวนรายการ
+}
+export interface ImportHistResp {
+  authorized: boolean; ok?: boolean; error?: string; kind?: string; rows?: ImportHistRow[];
+}
+export function fetchImportHistory(kind: "orders" | "cod"): Promise<ImportHistResp> {
+  return restRpc<ImportHistResp>("app_import_history", { p_token: getToken(), p_kind: kind, p_limit: 50 });
+}
+
 // ---- import COD รับเงินแล้ว ----
 export interface CodProblem { tracking: string; reason: string; }
 export interface CodMismatch {

@@ -17,10 +17,11 @@ const PAYMENT_STATUS: Record<string, string> = {
   "canceled": "รอชำระ",
   "ยกเลิก": "รอชำระ",
 };
+// ยุบ รอส่ง+ส่งแล้ว → "กำลังส่ง" (ยืนยันกับ boss 2026-09-14) · 3 ค่าแรกของ GoSell = ยังไม่ถึงลูกค้า
 const DELIVERY_STATUS: Record<string, string> = {
-  "กำลังแพ็ค": "รอส่ง",   // ยังไม่ส่ง = รอส่ง (ยืนยันกับ boss 2026-08-31)
-  "พร้อมจัดส่ง": "รอส่ง",
-  "จัดส่งแล้ว": "ส่งแล้ว",
+  "กำลังแพ็ค": "กำลังส่ง",
+  "พร้อมจัดส่ง": "กำลังส่ง",
+  "จัดส่งแล้ว": "กำลังส่ง",
   "จัดส่งสำเร็จ": "ส่งสำเร็จ",
   "ตีกลับ": "ตีกลับ",
   "ยกเลิก": "ยกเลิก",
@@ -167,7 +168,7 @@ export function parseWorkbook(buf: ArrayBuffer): ParseResult {
 
     const dsRaw = firstStr("สถานะการจัดส่ง");
     let ds = dsRaw ? DELIVERY_STATUS[dsRaw] : undefined;
-    if (!ds) { if (dsRaw) warnings.push(`${okey}: สถานะจัดส่งไม่รู้จัก "${dsRaw}" → รอส่ง`); ds = "รอส่ง"; }
+    if (!ds) { if (dsRaw) warnings.push(`${okey}: สถานะจัดส่งไม่รู้จัก "${dsRaw}" → กำลังส่ง`); ds = "กำลังส่ง"; }
 
     let total = toInt(firstStr("รวมทั้งสิ้น")) ?? 0;
     if (total < 0) { warnings.push(`${okey}: ยอดติดลบ → 0`); total = 0; }

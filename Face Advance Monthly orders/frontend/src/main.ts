@@ -4,6 +4,7 @@ import {
   importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery,
   getDetailPresets, fetchNotifications, editNote,
+  fetchImportHistory, type ImportHistResp,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole } from "./session";
@@ -387,10 +388,12 @@ function dot(color: string, label: string, val: string): HTMLElement {
 // ======================================================
 //  ตาราง
 // ======================================================
+/** วันนี้ (YYYY-MM-DD เวลาไทย จาก server) — ส่งให้ cellValue เพื่อให้ "ติดตามล่าสุด" โชว์/กรองเป็น "วันนี้" */
+const today = (): string | undefined => state.data?.today;
 function computeVisible(): Order[] {
   const d = state.data!;
   let rows = d.orders.slice();
-  for (const [col, set] of state.filters) rows = rows.filter((o) => set.has(cellValue(o, col)));
+  for (const [col, set] of state.filters) rows = rows.filter((o) => set.has(cellValue(o, col, today())));
   if (state.search.trim()) {
     const q = state.search.trim().toLowerCase();
     rows = rows.filter((o) => searchBlob(o).includes(q));
@@ -403,7 +406,7 @@ function computeVisible(): Order[] {
       // วันที่: เรียงด้วย ordered_at (มีเวลา) แม้ตารางโชว์แค่วัน → วันเดียวกันเรียงตามเวลา
       else if (col === "date") r = a.ordered_at < b.ordered_at ? -1 : a.ordered_at > b.ordered_at ? 1 : 0;
       else if (col === "last_note_at") { const av = a.last_note_at || "", bv = b.last_note_at || ""; r = av < bv ? -1 : av > bv ? 1 : 0; }
-      else r = cellValue(a, col).localeCompare(cellValue(b, col), "th");
+      else r = cellValue(a, col, today()).localeCompare(cellValue(b, col, today()), "th");
       return dir === "asc" ? r : -r;
     });
   }
@@ -419,7 +422,7 @@ const OVERSCAN = 8;                          // แถวเผื่อบน/�
 const COL_W: Record<string, number> = {   // ความกว้างคอลัมน์คงที่ (ต่อ key) — กันเพี้ยนตอน virtualize
   date: 98, phone: 114, customer_name: 166, address: 133, items: 240, payment_method: 73,
   total_sales: 91, carrier: 79, tracking_no: 181, delivery_status: 115, problem: 137,
-  payment_status: 115, return_arrived: 100, last_note_at: 100, last_note_text: 137, note: 110,
+  payment_status: 115, return_arrived: 100, last_note_at: 100, last_note_text: 181, note: 110,   // โน๊ตล่าสุด = กว้างเท่าเลขแทร็ค
 };
 const ACT_W = 58;                            // คอลัมน์ปุ่มแก้ไข (ขวาสุด, sticky)
 let vTbody: HTMLElement | null = null;
@@ -1031,7 +1034,7 @@ function clearSelection() {
 }
 
 // ---------- เลือกหลายแถวเพื่อแก้ "สถานะจัดส่ง" ทีเดียว (D) ----------
-const BULK_DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ยกเลิก"];  // ไม่มี ตีกลับ/มีปัญหา (ต้องใส่เหตุผล)
+const BULK_DELIVERY_STATUSES = ["กำลังส่ง", "ส่งสำเร็จ", "ยกเลิก"];  // ไม่มี ตีกลับ/มีปัญหา (ต้องใส่เหตุผล)
 function delivSelecting(): boolean { return document.body.classList.contains("deliv-selecting"); }
 function toggleDeliv(id: number) {
   if (delivSelected.has(id)) delivSelected.delete(id); else delivSelected.add(id);
@@ -1211,7 +1214,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 // ======================================================
 //  การบันทึกติดตาม (Stage 5): แก้สถานะ inline + sidebar
 // ======================================================
-const DELIVERY_STATUSES = ["รอส่ง", "ส่งแล้ว", "ส่งสำเร็จ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
+const DELIVERY_STATUSES = ["กำลังส่ง", "ส่งสำเร็จ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
 const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก", "ไม่ใช่งานขาย"];
 const RETURN_REASONS = [
   "ไม่สามารถติดต่อลูกค้าได้",
@@ -2044,7 +2047,7 @@ function rowsForFacet(exceptCol: ColKey): Order[] {
   let rows = d.orders.slice();
   for (const [col, set] of state.filters) {
     if (col === exceptCol) continue;
-    rows = rows.filter((o) => set.has(cellValue(o, col)));
+    rows = rows.filter((o) => set.has(cellValue(o, col, today())));
   }
   if (state.search.trim()) {
     const q = state.search.trim().toLowerCase();
@@ -2055,12 +2058,17 @@ function rowsForFacet(exceptCol: ColKey): Order[] {
 function distinctValues(col: ColKey): { value: string; count: number }[] {
   const m = new Map<string, number>();
   for (const o of rowsForFacet(col)) {
-    const v = cellValue(o, col);
+    const v = cellValue(o, col, today());
     m.set(v, (m.get(v) ?? 0) + 1);
   }
   const arr = [...m.entries()].map(([value, count]) => ({ value, count }));
   arr.sort((a, b) => {
     if (col === "total_sales") return Number(a.value) - Number(b.value);
+    // "วันนี้" (ติดตามล่าสุด) ดันขึ้นบนสุด — ใช้บ่อยสุด ไม่ให้ไปจมท้ายรายการ
+    if (col === "last_note_at") {
+      if (a.value === "วันนี้") return -1;
+      if (b.value === "วันนี้") return 1;
+    }
     return a.value.localeCompare(b.value, "th");
   });
   return arr;
@@ -2869,7 +2877,8 @@ function showCodImport(body: HTMLElement) {
     el("div", { class: "codtplrow" }, dl, gs),
     el("div", { class: "importnote" }, "⚠️ วันที่ · ที่มา (ไฟล์หลักฐาน) · ผู้บันทึก ระบบใส่ให้อัตโนมัติ — อย่าเพิ่มคอลัมน์เอง"));
 
-  body.append(back, drop, tpl);
+  const tabs = importTabs("upload", () => {}, () => void showImportHistory(body, "cod"));
+  body.append(back, tabs, drop, tpl);
 }
 
 async function handleCodFile(file: File, body: HTMLElement) {
@@ -3089,8 +3098,86 @@ function showImportPick(body: HTMLElement) {
     const f = e.dataTransfer?.files?.[0];
     if (f) void handleImportFile(f, body);
   });
-  body.append(back, drop,
+  const tabs = importTabs("upload", () => {}, () => void showImportHistory(body, "orders"));
+  body.append(back, tabs, drop,
     el("div", { class: "importnote" }, "ระบบจะข้ามออเดอร์ที่ยกเลิก · ตรวจวันซ้ำ/แบรนด์ · ให้ยืนยันก่อนบันทึกจริง"));
+}
+
+// ───── แท็บ "อัพไฟล์ | ประวัตินำเข้า" (ใช้ร่วมทั้งหน้าออเดอร์และ COD) ─────
+// โชว์เฉพาะหน้าเลือกไฟล์ · หลังเลือกไฟล์/เข้า preview จะไม่มีแท็บ (กันสถานะ preview หาย)
+function importTabs(active: "upload" | "history", onUpload: () => void, onHistory: () => void): HTMLElement {
+  const mk = (key: "upload" | "history", label: string, onClick: () => void) => {
+    const b = el("button", { class: "imptab" + (key === active ? " on" : ""), type: "button" }, label);
+    if (key !== active) b.addEventListener("click", onClick);
+    return b;
+  };
+  return el("div", { class: "imptabs" },
+    mk("upload", "อัพไฟล์", onUpload),
+    mk("history", "ประวัตินำเข้า", onHistory));
+}
+
+/** ตารางประวัตินำเข้า — kind 'orders' = วันที่ทำรายการ/ช่วงข้อมูล(ตั้งแต่–ถึง)/จำนวนออเดอร์/ผู้ทำรายการ
+ *                       kind 'cod'    = วันที่ทำรายการ/ประเภท/จำนวนรายการ/ผู้ทำรายการ */
+async function showImportHistory(body: HTMLElement, kind: "orders" | "cod") {
+  setImportTitle(kind === "orders" ? "นำเข้าไฟล์ออเดอร์ (GoSell)" : "นำเข้า COD รับเงินแล้ว");
+  body.textContent = "";
+  const back = el("button", { class: "impback", type: "button" }, icon("i-caret"), "เลือกประเภทอื่น");
+  back.addEventListener("click", () => showImportMenu(body));
+  const tabs = importTabs("history",
+    () => { if (kind === "orders") showImportPick(body); else showCodImport(body); },
+    () => {});
+  const box = el("div", { class: "imphistbox" }, el("div", { class: "importstate" }, el("span", { class: "spin" }), "กำลังโหลดประวัติ…"));
+  body.append(back, tabs, box);
+
+  let r: ImportHistResp;
+  try {
+    r = await fetchImportHistory(kind);
+  } catch {
+    box.textContent = ""; box.append(el("div", { class: "importstate err" }, icon("i-x"), "โหลดประวัติไม่สำเร็จ"));
+    return;
+  }
+  if (!r.authorized) { closeImportModal(); toLogin(); return; }
+  box.textContent = "";
+  if (!r.ok) {
+    box.append(el("div", { class: "importstate err" }, icon("i-x"),
+      r.error === "forbidden_viewer" ? "ไม่มีสิทธิ์ดูประวัตินำเข้า" : "โหลดประวัติไม่สำเร็จ"));
+    return;
+  }
+  const rows = r.rows ?? [];
+  if (rows.length === 0) { box.append(el("div", { class: "imphistempty" }, "ยังไม่มีประวัติการนำเข้า")); return; }
+
+  const table = el("table", { class: "imphist" });
+  const thead = el("thead");
+  if (kind === "orders") {
+    thead.append(
+      el("tr", {},
+        el("th", { rowspan: "2" }, "วันที่ทำรายการ"),
+        el("th", { colspan: "2", class: "grp" }, "ช่วงข้อมูลที่นำเข้า"),
+        el("th", { rowspan: "2", class: "tar" }, "จำนวนออเดอร์"),
+        el("th", { rowspan: "2" }, "ผู้ทำรายการ")),
+      el("tr", {}, el("th", { class: "sub" }, "ตั้งแต่"), el("th", { class: "sub" }, "ถึง")));
+  } else {
+    thead.append(el("tr", {},
+      el("th", {}, "วันที่ทำรายการ"), el("th", {}, "ประเภท"),
+      el("th", { class: "tar" }, "จำนวนรายการ"), el("th", {}, "ผู้ทำรายการ")));
+  }
+  const tb = el("tbody");
+  for (const h of rows) {
+    tb.append(kind === "orders"
+      ? el("tr", {},
+          el("td", {}, dmy(h.at)),
+          el("td", {}, h.date_from ? dmy(h.date_from) : "—"),
+          el("td", {}, h.date_to ? dmy(h.date_to) : "—"),
+          el("td", { class: "tar num" }, nf(h.orders ?? 0)),
+          el("td", {}, h.by_name || "—"))
+      : el("tr", {},
+          el("td", {}, dmy(h.at)),
+          el("td", {}, el("span", { class: "imphsrc" + (h.src === "แก้มือ" ? " manual" : "") }, h.src || "—")),
+          el("td", { class: "tar num" }, nf(h.items ?? 0)),
+          el("td", {}, h.by_name || "—")));
+  }
+  table.append(thead, tb);
+  box.append(table);
 }
 
 function importLoading(body: HTMLElement, msg: string) {

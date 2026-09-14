@@ -154,6 +154,8 @@ export function splitNameCode(full: string): { name: string; code: string } {
 export function deliveryBadge(s: string): { cls: string; icon: string } {
   switch (s) {
     case "ส่งสำเร็จ": return { cls: "g", icon: "i-check" };
+    case "กำลังส่ง":  return { cls: "a", icon: "i-truck" };
+    // 2 ตัวล่างเลิกใช้แล้ว (ยุบเป็น "กำลังส่ง" 2026-09-14) — คงไว้ให้ประวัติเก่าใน timeline แสดงป้ายถูกสี
     case "ส่งแล้ว":   return { cls: "b", icon: "i-truck" };
     case "รอส่ง":     return { cls: "a", icon: "i-clock" };
     case "ตีกลับ":    return { cls: "r", icon: "i-return" };
@@ -199,7 +201,8 @@ export function returnArrivedLabel(v: boolean): string {
   return v ? "ถึงแล้ว" : "-";
 }
 
-export function cellValue(o: Order, col: ColKey): string {
+/** `today` (YYYY-MM-DD) — ใส่มาเพื่อให้ "ติดตามล่าสุด" ของวันนี้แสดง/กรองเป็นคำว่า "วันนี้" ตรงกับในตาราง */
+export function cellValue(o: Order, col: ColKey, today?: string): string {
   switch (col) {
     case "date": return dmy(o.date);
     case "total_sales": return String(o.total_sales);
@@ -207,7 +210,9 @@ export function cellValue(o: Order, col: ColKey): string {
     case "items": return itemsLabel(o.items);
     case "return_arrived": return returnArrivedLabel(o.return_arrived);
     case "problem": return o.delivery_status === "มีปัญหา" ? (o.status_detail || "") : "";
-    case "last_note_at": return o.last_note_at ? dmy(o.last_note_at) : "";
+    case "last_note_at":
+      if (!o.last_note_at) return "";
+      return o.last_note_at === today ? "วันนี้" : dmy(o.last_note_at);
     case "last_note_text": return o.last_note_text ?? "";
     default: return (o[col] ?? "") as string;
   }
