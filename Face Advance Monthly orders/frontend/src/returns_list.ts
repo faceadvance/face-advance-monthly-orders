@@ -20,6 +20,7 @@ const state = {
 let pickerYear = new Date().getFullYear();
 let prevOrders = 0, prevSales = 0;
 // funnel filter/sort (client-side)
+let search = "";   // ค้นหาในตาราง: เบอร์ · ชื่อ · ที่อยู่ · แทร็คส่งออก (แบบหน้าออเดอร์)
 const filters = new Map<string, Set<string>>();
 let sort: { key: string; dir: "asc" | "desc" } | null = null;
 let openDrop: HTMLElement | null = null;
@@ -166,6 +167,7 @@ function rlMeasureToggles(scope: ParentNode) {
 export function renderReturnsList(root: HTMLElement, deps: { toast: (msg: string, ok?: boolean) => void }) {
   toastFn = deps.toast;
   root.innerHTML = "";
+  search = "";   // shell สร้างใหม่ (ช่องค้นหาว่าง) → ล้างคำค้นให้ตรงกัน
   root.append(buildShell());
   // spotlight: การ์ดเรืองแสงตามเมาส์ (bind ครั้งเดียว · #rlCards คงอยู่)
   document.getElementById("rlCards")?.addEventListener("mousemove", (e) => {
@@ -324,8 +326,23 @@ function buildShell(): HTMLElement {
   const colsBtn = el("button", { class: "rlcolsbtn", id: "rlColsBtn", type: "button", title: "เลือกคอลัมน์" }, icon("i-grid"), el("span", {}, "คอลัมน์")) as HTMLElement;
   const colsPop = el("div", { class: "rlcolspop", id: "rlColsPop", hidden: "" });
   colsBtn.addEventListener("click", (e) => { e.stopPropagation(); colsPop.hidden = !colsPop.hidden; if (!colsPop.hidden) buildColsMenu(); });
+  // ค้นหาในตาราง (เบอร์ · ชื่อ · ที่อยู่ · แทร็คส่งออก) — แบบหน้าออเดอร์
+  const srchInp = el("input", { id: "rlSearch", type: "search", placeholder: "ค้นหา เบอร์ · ชื่อ · ที่อยู่ · แทร็ค", autocomplete: "off", spellcheck: "false" }) as HTMLInputElement;
+  const srchClear = el("button", { class: "rlsrch-x", type: "button", title: "ล้างคำค้น", hidden: "" }, icon("i-close"));
+  let srchTimer: number | undefined;
+  const runSearch = () => {
+    search = srchInp.value;
+    srchClear.hidden = search.length === 0;
+    window.clearTimeout(srchTimer);
+    srchTimer = window.setTimeout(() => { closeDrop(); paintTable(); }, 160);   // debounce กันค้างตอนพิมพ์
+  };
+  srchInp.addEventListener("input", runSearch);
+  srchInp.addEventListener("keydown", (e) => { if (e.key === "Escape") { srchInp.value = ""; runSearch(); } });
+  srchClear.addEventListener("click", () => { srchInp.value = ""; runSearch(); srchInp.focus(); });
+  const srchWrap = el("span", { class: "rlsrch" }, icon("i-search"), srchInp, srchClear);
   const cardTop = el("div", { class: "card-top" },
     el("div", { class: "t", id: "rlCardTitle" }, "ออเดอร์ตีกลับ"),
+    srchWrap,
     el("div", { class: "meta", id: "rlMeta" }, ""),
     el("div", { class: "rlcolswrap" }, colsBtn, colsPop));
   const prog = el("div", { class: "rlprogress" }, el("i", {}));
@@ -523,9 +540,17 @@ function paintCards() {
 }
 
 // ---------- table + funnel filter ----------
+/** ข้อความที่ใช้จับ search — เบอร์ · ชื่อลูกค้า · ที่อยู่ · แทร็คส่งออก (ตามที่ boss สั่ง 2026-09-14) */
+function searchBlobRl(r: ReturnListRow): string {
+  return [r.phone, r.customer_name, r.address, r.tracking_out].filter(Boolean).join(" ").toLowerCase();
+}
+function applySearch(rows: ReturnListRow[]): ReturnListRow[] {
+  const q = search.trim().toLowerCase();
+  return q ? rows.filter((r) => searchBlobRl(r).includes(q)) : rows;
+}
 function computeVisible(): ReturnListRow[] {
   const cols = activeCols();
-  let rows = allRows;
+  let rows = applySearch(allRows);
   for (const [key, set] of filters) {
     const col = cols.find((c) => c.key === key);
     if (col) rows = rows.filter((r) => set.has(col.val(r)));
@@ -540,9 +565,9 @@ function computeVisible(): ReturnListRow[] {
   return rows;
 }
 function distinctValues(col: RLCol): { value: string; count: number }[] {
-  // cross-filter: นับเฉพาะแถวที่ผ่านตัวกรองคอลัมอื่น (ยกเว้นคอลัมนี้) เหมือน Google Sheet
+  // cross-filter: นับเฉพาะแถวที่ผ่านตัวกรองคอลัมอื่น (ยกเว้นคอลัมนี้) + คำค้น เหมือน Google Sheet
   const cols = activeCols();
-  let rows = allRows;
+  let rows = applySearch(allRows);
   for (const [key, set] of filters) {
     if (key === col.key) continue;
     const c = cols.find((x) => x.key === key);
@@ -589,7 +614,8 @@ function paintTable() {
 
   if (!curVisible.length) {
     tbody.append(el("tr", {}, el("td", { colspan: String(curCols.length) },
-      el("div", { class: "rlempty" }, allRows.length ? "ไม่มีรายการตรงกับตัวกรอง" : "ไม่มีออเดอร์ตีกลับในเดือนนี้"))));
+      el("div", { class: "rlempty" }, !allRows.length ? "ไม่มีออเดอร์ตีกลับในเดือนนี้"
+        : search.trim() ? `ไม่พบรายการที่ตรงกับ "${search.trim()}"` : "ไม่มีรายการตรงกับตัวกรอง"))));
     wrap.onscroll = updateProg; updateProg();
     return;
   }

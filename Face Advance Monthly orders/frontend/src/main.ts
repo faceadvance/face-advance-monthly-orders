@@ -2396,6 +2396,18 @@ async function bootstrap() {
     searchTimer = window.setTimeout(() => { if (state.data) renderTable(); }, 160); // debounce กันค้าง
   });
 
+  // คีย์ลัด Cmd/Ctrl+F → ไปหน้า "ค้นหา" (ช่องค้นหาโฟกัสเองตอน render) แทน find ของเบราว์เซอร์
+  document.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() !== "f" || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+    if (!pagesFor(currentRole).includes("search")) return;
+    e.preventDefault();
+    if (state.page === "search") {
+      (document.getElementById("srchInput") as HTMLInputElement | null)?.focus();   // อยู่หน้านี้แล้ว → โฟกัสช่องค้นหา
+      return;
+    }
+    void setPage("search");
+  });
+
   // ปุ่มนำเข้าไฟล์ (Stage 2)
   $("#importBtn").addEventListener("click", () => { if (!requireEditor()) return; openImportModal(); });
 
