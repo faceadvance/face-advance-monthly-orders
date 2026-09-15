@@ -4,7 +4,7 @@ import {
   importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery,
   getDetailPresets, fetchNotifications, editNote,
-  fetchImportHistory, type ImportHistResp,
+  fetchImportHistory, type ImportHistResp, type NotifKind,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole } from "./session";
@@ -2417,20 +2417,57 @@ async function loadNotifs() {
   } catch { /* เงียบ */ }
 }
 function markOrdersFresh() { state.ordersBaseReturns = returnsTotal(); state.ordersStale = false; }
-function renderNotifList() {
+// หมวดแจ้งเตือน — server กรองตามสิทธิ์เข้าถึงหน้ามาแล้ว (app_notifications) · หน้าเว็บโชว์เฉพาะหมวดที่มีข้อมูล
+const NOTIF_CATS: { kind: NotifKind; label: string; icon: string; verb: string }[] = [
+  { kind: "returns", label: "ตีกลับ", icon: "i-boxret-solid", verb: "บันทึกตีกลับเพิ่ม" },
+  { kind: "orders", label: "นำเข้าออเดอร์", icon: "i-upload", verb: "นำเข้าออเดอร์" },
+  { kind: "cod", label: "นำเข้า COD", icon: "i-coin", verb: "นำเข้าไฟล์ COD" },
+];
+let notifFilter: NotifKind | "all" = "all";
+const notifKindOf = (n: import("./api").NotifItem): NotifKind => n.kind ?? "returns";
+
+function renderNotifChips() {
+  const box = $("#notifChips") as HTMLElement;
+  box.innerHTML = "";
+  const present = NOTIF_CATS.filter((c) => notifItems.some((n) => notifKindOf(n) === c.kind));
+  if (present.length < 2) { box.hidden = true; notifFilter = "all"; return; }   // มีหมวดเดียว → ไม่ต้องโชว์ชิป
+  box.hidden = false;
+  const mk = (key: NotifKind | "all", label: string, count: number) => {
+    const b = el("button", { class: "notifchip" + (notifFilter === key ? " on" : ""), type: "button" },
+      el("span", {}, label), el("span", { class: "nc-n" }, nf(count)));
+    b.addEventListener("click", (e) => { e.stopPropagation(); notifFilter = key; renderNotifChips(); renderNotifRows(); });
+    return b;
+  };
+  box.append(mk("all", "ทั้งหมด", notifItems.length));
+  for (const c of present) box.append(mk(c.kind, c.label, notifItems.filter((n) => notifKindOf(n) === c.kind).length));
+}
+function renderNotifRows() {
   const seen = notifSeenAt();
   const list = $("#notifList") as HTMLElement;
   list.innerHTML = "";
-  if (!notifItems.length) { list.innerHTML = `<div class="notifempty">ยังไม่มีแจ้งเตือน</div>`; return; }
-  for (const n of notifItems) {
+  const rows = notifFilter === "all" ? notifItems : notifItems.filter((n) => notifKindOf(n) === notifFilter);
+  if (!rows.length) {
+    list.innerHTML = `<div class="notifempty">${notifItems.length ? "ไม่มีแจ้งเตือนในหมวดนี้" : "ยังไม่มีแจ้งเตือน"}</div>`;
+    return;
+  }
+  for (const n of rows) {
+    const kind = notifKindOf(n);
+    const cat = NOTIF_CATS.find((c) => c.kind === kind) ?? NOTIF_CATS[0];
     const isNew = !seen || n.at > seen;
-    const row = document.createElement("div");
-    row.className = `notifitem${isNew ? " new" : ""} ni-${n.kind || "returns"}`;
-    const verb = n.kind === "orders" ? "นำเข้าออเดอร์" : "บันทึกตีกลับเพิ่ม";
-    row.innerHTML = `<div class="ni-top"><b>${n.by_name || "ไม่ทราบ"}</b> ${verb} <span class="ni-n">${n.n} รายการ</span></div>
-      <div class="ni-sub">${fmtDateTime(n.at)}</div>`;
+    const row = el("div", { class: `notifitem${isNew ? " new" : ""} ni-${kind}` });
+    const top = el("div", { class: "ni-top" },
+      el("span", { class: "ni-ic" }, icon(cat.icon)),
+      el("b", {}, n.by_name || "ไม่ทราบ"), ` ${cat.verb} `,
+      el("span", { class: "ni-n" }, `${nf(n.n)} รายการ`));
+    row.append(top, el("div", { class: "ni-sub" }, fmtDateTime(n.at)));
     list.append(row);
   }
+}
+function renderNotifList() {
+  const hint = document.getElementById("notifHint");
+  if (hint) hint.textContent = notifItems.length ? `${nf(notifItems.length)} รายการล่าสุด` : "";
+  renderNotifChips();
+  renderNotifRows();
 }
 function openNotifPop() {
   renderNotifList();

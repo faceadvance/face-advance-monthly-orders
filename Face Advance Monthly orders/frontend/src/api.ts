@@ -210,7 +210,10 @@ export interface ReturnsSignal { authorized: boolean; ok?: boolean; count?: numb
 export function fetchReturnsSignal(): Promise<ReturnsSignal> {
   return restRpc<ReturnsSignal>("app_returns_signal", { p_token: getToken() });
 }
-export interface NotifItem { at: string; by_name: string; n: number; trackings: string; kind?: "returns" | "orders" }
+/** หมวดแจ้งเตือน (server กรองตามสิทธิ์เข้าถึงหน้าให้แล้ว — ดู app_notifications + app_can_page)
+ *  returns = บันทึกตีกลับ · orders = นำเข้าออเดอร์ · cod = นำเข้าไฟล์ COD */
+export type NotifKind = "returns" | "orders" | "cod";
+export interface NotifItem { at: string; by_name: string; n: number; trackings: string; kind?: NotifKind }
 export interface NotifResp { authorized: boolean; ok?: boolean; items?: NotifItem[] }
 export function fetchNotifications(): Promise<NotifResp> {
   return restRpc<NotifResp>("app_notifications", { p_token: getToken() });

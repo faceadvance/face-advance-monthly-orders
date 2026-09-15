@@ -22,6 +22,10 @@ let prevOrders = 0, prevSales = 0;
 // funnel filter/sort (client-side)
 let search = "";   // ค้นหาในตาราง: เบอร์ · ชื่อ · ที่อยู่ · แทร็คส่งออก (แบบหน้าออเดอร์)
 const filters = new Map<string, Set<string>>();
+// เลือกแถวเพื่อคัดลอกเฉพาะที่เลือก (คอลัมขวาสุด ตรึงไว้) · ล้างทุกครั้งที่ข้อมูลในตารางเปลี่ยน
+const rlSel = new Set<number>();          // เก็บ id ของแถวที่เลือก
+const rlTickEls = new Map<number, HTMLElement>();   // id → ช่องติ๊ก (เฉพาะแถวที่มองเห็น)
+let selDragging = false, selDragAnchor = -1, selDragAdd = true;
 let sort: { key: string; dir: "asc" | "desc" } | null = null;
 let openDrop: HTMLElement | null = null;
 let outsideBound = false;
@@ -137,12 +141,15 @@ function buildRlRow(i: number): HTMLElement {
   const rowEl = el("tr", {}) as HTMLElement;
   rowEl.dataset.idx = String(i);
   if (rlExpanded.has(i)) rowEl.classList.add("rowopen");
+  rowEl.dataset.id = String(r.id);
+  if (rlSel.has(r.id)) rowEl.classList.add("selrow");
   for (const col of curCols) {
     const cls = [col.tdClass ?? "", col.align === "center" ? "center" : "", col.align === "right" && !col.tdClass ? "tar" : ""].filter(Boolean).join(" ");
     const td = el("td", cls ? { class: cls } : {});
     td.append(col.render(r));
     rowEl.append(td);
   }
+  rowEl.append(buildSelCell(r, i));   // คอลัมเลือก — ขวาสุด ตรึงไว้ (เหมือนคอลัม "อัพเดต" หน้าออเดอร์)
   return rowEl;
 }
 // เปิด/ปิดรายละเอียดทั้งแถว + อัปเดตความสูง virtual ให้ spacer ถูก
@@ -190,6 +197,12 @@ export function renderReturnsList(root: HTMLElement, deps: { toast: (msg: string
         const p = document.getElementById(`${id}Pop`);
         if (p && !p.hidden && !t.closest?.(`#${id}DD`)) closeDD(id);
       }
+    });
+    // จบการลากเลือกแถว (ปล่อยเมาส์ที่ไหนก็จบ)
+    document.addEventListener("mouseup", () => {
+      if (!selDragging) return;
+      selDragging = false; selDragAnchor = -1;
+      document.body.classList.remove("rldragsel");
     });
   }
   void load(true);
@@ -340,9 +353,13 @@ function buildShell(): HTMLElement {
   srchInp.addEventListener("keydown", (e) => { if (e.key === "Escape") { srchInp.value = ""; runSearch(); } });
   srchClear.addEventListener("click", () => { srchInp.value = ""; runSearch(); srchInp.focus(); });
   const srchWrap = el("span", { class: "rlsrch" }, icon("i-search"), srchInp, srchClear);
+  // ปุ่มคัดลอกข้อมูลทั้งตาราง (ตามที่กรอง/ค้นหาอยู่) เป็นแพทเทิร์นเอาไปวางในแชตได้เลย
+  const copyBtn = el("button", { class: "rlcopybtn", id: "rlCopyBtn", type: "button", title: "คัดลอกรายการที่เลือก · ไม่ได้เลือก = ทุกแถวที่แสดงอยู่" },
+    icon("i-copy"), el("span", { id: "rlCopyLbl" }, "คัดลอกข้อมูล")) as HTMLButtonElement;
+  copyBtn.addEventListener("click", () => void copyVisibleRows(copyBtn));
   const cardTop = el("div", { class: "card-top" },
     el("div", { class: "t", id: "rlCardTitle" }, "ออเดอร์ตีกลับ"),
-    srchWrap,
+    srchWrap, copyBtn,
     el("div", { class: "meta", id: "rlMeta" }, ""),
     el("div", { class: "rlcolswrap" }, colsBtn, colsPop));
   const prog = el("div", { class: "rlprogress" }, el("i", {}));
@@ -539,6 +556,101 @@ function paintCards() {
   prevOrders = orders; prevSales = sales;
 }
 
+// ---------- เลือกแถว (คอลัมขวาสุด ตรึงไว้) ----------
+function rlSelClear() {
+  if (!rlSel.size) { updateSelUI(); return; }
+  rlSel.clear();
+  updateSelUI();
+}
+/** อัปเดตหน้าตา: ช่องติ๊กที่มองเห็น · ปุ่มคัดลอก · ปุ่ม × ที่หัวคอลัม */
+function updateSelUI() {
+  const n = rlSel.size;
+  for (const [id, elx] of rlTickEls) elx.classList.toggle("on", rlSel.has(id));
+  document.querySelectorAll<HTMLElement>("#rlWrap tbody tr[data-id]")
+    .forEach((tr) => tr.classList.toggle("selrow", rlSel.has(Number(tr.dataset.id))));
+  const lbl = document.getElementById("rlCopyLbl");
+  if (lbl) lbl.textContent = n ? `คัดลอก (${nf(n)})` : "คัดลอกข้อมูล";
+  const clr = document.getElementById("rlSelClear");
+  if (clr) clr.hidden = n === 0;
+  const cnt = document.getElementById("rlSelCnt");
+  if (cnt) { cnt.textContent = n ? nf(n) : ""; cnt.hidden = n === 0; }
+}
+function toggleSel(id: number, on?: boolean) {
+  const want = on ?? !rlSel.has(id);
+  if (want) rlSel.add(id); else rlSel.delete(id);
+  updateSelUI();
+}
+/** ลากคลุม: เลือก/ยกเลิกทุกแถวระหว่างจุดเริ่มถึงจุดปัจจุบัน (อ้างลำดับที่เห็นในตาราง) */
+function selRange(fromIdx: number, toIdx: number, add: boolean) {
+  const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+  for (let i = lo; i <= hi; i++) {
+    const r = curVisible[i];
+    if (!r) continue;
+    if (add) rlSel.add(r.id); else rlSel.delete(r.id);
+  }
+  updateSelUI();
+}
+/** ช่องติ๊กในแถว (คอลัมขวาสุด) — คลิก = สลับ · คลิกค้างแล้วลาก = เลือกหลายแถว */
+function buildSelCell(r: ReturnListRow, idx: number): HTMLElement {
+  const td = el("td", { class: "rlselcell" });
+  const tick = el("span", { class: "rlseltick" + (rlSel.has(r.id) ? " on" : ""), title: "เลือกรายการนี้ (ลากเพื่อเลือกหลายรายการ)" }, icon("i-tick"));
+  rlTickEls.set(r.id, tick);
+  tick.addEventListener("mousedown", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    selDragging = true; selDragAnchor = idx; selDragAdd = !rlSel.has(r.id);
+    document.body.classList.add("rldragsel");
+    toggleSel(r.id, selDragAdd);
+  });
+  tick.addEventListener("mouseenter", () => {
+    if (selDragging && selDragAnchor >= 0) selRange(selDragAnchor, idx, selDragAdd);
+  });
+  td.append(tick);
+  return td;
+}
+
+// ---------- คัดลอกข้อมูลทั้งตาราง (ตามที่กรอง/ค้นหาอยู่) ----------
+/** แพทเทิร์นตามที่เจ้านายกำหนด (2026-09-15):
+ *    เบอร์โทร : xxx
+ *    ชื่อลูกค้า : xxx
+ *    ยอดขาย : x,xxx
+ *    เลขแทร็ค : xxx
+ *  คั่นแต่ละแถวด้วย  \n\n---\n\n  (บรรทัดว่าง · --- · บรรทัดว่าง) */
+function rowToText(r: ReturnListRow): string {
+  const v = (s: string | null | undefined) => (s && s.trim() !== "" ? s.trim() : "-");
+  return [
+    `เบอร์โทร : ${v(r.phone)}`,
+    `ชื่อลูกค้า : ${v(r.customer_name)}`,
+    `ยอดขาย : ${nf(r.total_sales)}`,
+    `เลขแทร็ค : ${v(r.tracking_out)}`,
+  ].join("\n");
+}
+async function copyVisibleRows(btn: HTMLButtonElement) {
+  if (!curVisible.length) { toastFn("ไม่มีรายการให้คัดลอก", false); return; }
+  // เลือกไว้ → คัดลอกเฉพาะที่เลือก (เรียงตามที่เห็นในตาราง) · ไม่ได้เลือก → ทั้งหมดที่โชว์อยู่
+  const rows = rlSel.size ? curVisible.filter((r) => rlSel.has(r.id)) : curVisible;
+  const text = rows.map(rowToText).join("\n\n---\n\n");
+  const done = () => {
+    toastFn(`คัดลอกข้อมูล ${nf(rows.length)} รายการแล้ว${rlSel.size ? " (ที่เลือกไว้)" : ""}`);
+    btn.classList.add("ok");
+    window.setTimeout(() => btn.classList.remove("ok"), 1200);
+  };
+  try {
+    await navigator.clipboard.writeText(text);
+    done();
+  } catch {
+    // clipboard API ใช้ไม่ได้ (สิทธิ์/บริบทไม่ปลอดภัย) → fallback textarea + execCommand
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.append(ta); ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) throw new Error("execCommand failed");
+      done();
+    } catch { toastFn("คัดลอกไม่สำเร็จ — ลองใหม่อีกครั้ง", false); }
+  }
+}
+
 // ---------- table + funnel filter ----------
 /** ข้อความที่ใช้จับ search — เบอร์ · ชื่อลูกค้า · ที่อยู่ · แทร็คส่งออก (ตามที่ boss สั่ง 2026-09-14) */
 function searchBlobRl(r: ReturnListRow): string {
@@ -587,10 +699,13 @@ function paintTable() {
   curVisible = computeVisible();
   rlExpanded.clear();   // กรอง/เรียง/เปลี่ยนโหมด → ยุบทุกแถว
 
+  rlSelClear();          // ข้อมูลในตารางเปลี่ยน (กรอง/ค้นหา/เรียง/เดือน/โหมด) → ล้างการเลือก
+  rlTickEls.clear();
   const table = el("table", { class: "rltable" });
   const thead = el("thead");
   const htr = el("tr");
   for (const col of curCols) htr.append(buildTh(col));
+  htr.append(buildSelTh());   // หัวคอลัม "เลือก" + จำนวน + ปุ่ม × ล้างการเลือก
   thead.append(htr);
   const tbody = el("tbody");
   table.append(thead, tbody);
@@ -613,7 +728,7 @@ function paintTable() {
   };
 
   if (!curVisible.length) {
-    tbody.append(el("tr", {}, el("td", { colspan: String(curCols.length) },
+    tbody.append(el("tr", {}, el("td", { colspan: String(curCols.length + 1) },
       el("div", { class: "rlempty" }, !allRows.length ? "ไม่มีออเดอร์ตีกลับในเดือนนี้"
         : search.trim() ? `ไม่พบรายการที่ตรงกับ "${search.trim()}"` : "ไม่มีรายการตรงกับตัวกรอง"))));
     wrap.onscroll = updateProg; updateProg();
@@ -631,13 +746,22 @@ function paintTable() {
   ths.forEach((t, i) => { t.style.width = widths[i] + "px"; });
 
   vt = makeVTable({
-    wrap, tbody, colspan: curCols.length,
+    wrap, tbody, colspan: curCols.length + 1,   // +1 = คอลัมเลือก
     count: () => curVisible.length, buildRow: buildRlRow, baseH,
     afterWindow: (tb) => rlMeasureToggles(tb),
   });
   wrap.scrollTop = 0;
   vt.render(true);
   wrap.onscroll = updateProg; updateProg();
+}
+/** หัวคอลัม "เลือก" (ขวาสุด ตรึงไว้) — โชว์จำนวนที่เลือก + ปุ่ม × ล้างการเลือก */
+function buildSelTh(): HTMLElement {
+  const th = el("th", { class: "rlselhead c" });
+  const cnt = el("span", { class: "rlselcnt", id: "rlSelCnt", hidden: "" });
+  const clr = el("button", { class: "rlselclear", id: "rlSelClear", type: "button", title: "ล้างการเลือก", hidden: "" }, icon("i-close"));
+  clr.addEventListener("click", (e) => { e.stopPropagation(); rlSelClear(); });
+  th.append(el("div", { class: "hh" }, "เลือก", cnt, clr));
+  return th;
 }
 function buildTh(col: RLCol): HTMLElement {
   const th = el("th", {});

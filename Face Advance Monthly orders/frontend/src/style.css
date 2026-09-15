@@ -107,6 +107,22 @@ svg.ic{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:2;s
 .notifhead{display:flex;align-items:baseline;justify-content:space-between;padding:.7rem .9rem;border-bottom:1px solid var(--border);font-weight:700;font-size:.9rem;color:var(--ink);flex:none}
 .notifhint{font-size:.7rem;font-weight:500;color:var(--ink-3)}
 .notiflist{overflow-y:auto;display:flex;flex-direction:column}
+/* ชิปกรองหมวดแจ้งเตือน (โชว์เมื่อมี ≥2 หมวด) */
+.notifchips{display:flex;gap:5px;padding:.5rem .7rem;border-bottom:1px solid var(--border);flex:none;flex-wrap:wrap}
+.notifchips[hidden]{display:none}
+.notifchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:#fff;color:var(--ink-2);border-radius:999px;padding:3px 9px;font-family:inherit;font-size:.72rem;font-weight:600;cursor:pointer;transition:all .12s}
+.notifchip:hover{border-color:var(--primary);color:var(--primary)}
+.notifchip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.notifchip .nc-n{font-family:"Inter",sans-serif;font-size:.66rem;opacity:.75}
+.notifchip.on .nc-n{opacity:.9}
+/* ไอคอน+สีต่อหมวด */
+.ni-ic{display:inline-flex;align-items:center;justify-content:center;width:1.25rem;height:1.25rem;flex:none;border-radius:.35rem;margin-right:2px}
+.ni-ic svg{width:.8rem;height:.8rem}
+.notifitem.ni-returns .ni-ic{background:#FEF2F2;color:#DC2626}
+.notifitem.ni-orders .ni-ic{background:#EFF6FF;color:#2563EB}
+.notifitem.ni-cod .ni-ic{background:#ECFDF5;color:#059669}
+.notifitem.ni-orders .ni-n{color:#1D4ED8}
+.notifitem.ni-cod .ni-n{color:#047857}
 .notifempty{padding:26px;text-align:center;color:var(--ink-3);font-size:.82rem}
 .notifitem{padding:.6rem .9rem;border-bottom:1px solid var(--hover);display:flex;flex-direction:column;gap:2px}
 .notifitem:last-child{border-bottom:none}
@@ -1394,6 +1410,30 @@ body.sbopen #dockWrap{display:none}
 .rlsrch-x:hover{color:var(--ink)}
 .rlsrch-x svg{width:.85rem;height:.85rem}   /* i-close เป็นไอคอนเส้น — ใช้ stroke:currentColor ตาม default */
 .rlsrch-x[hidden]{display:none}
+/* ปุ่มคัดลอกข้อมูลทั้งตาราง (ถัดจากช่องค้นหา) */
+.rlcopybtn{display:inline-flex;align-items:center;gap:6px;margin-left:.5rem;flex:none;border:1px solid var(--border);background:#fff;color:var(--ink-2);border-radius:.5rem;padding:6px 11px;font-family:inherit;font-size:.78rem;font-weight:600;cursor:pointer;text-transform:none;transition:all .13s}
+.rlcopybtn:hover{border-color:var(--primary);color:var(--primary);background:#EFF6FF}
+.rlcopybtn svg{width:.95rem;height:.95rem;flex:none}   /* i-copy = ไอคอนเส้น (ห้ามใส่ fill ทับ) */
+.rlcopybtn.ok{border-color:#34D399;color:#059669;background:#ECFDF5}
+/* คอลัม "เลือก" (ขวาสุด ตรึงไว้เหมือนคอลัมอัพเดตหน้าออเดอร์) */
+.rltable th.rlselhead{position:sticky;right:0;top:0;z-index:25;width:64px;background:var(--header);text-align:center;box-shadow:0 1px 0 var(--border),-5px 0 8px -6px rgba(15,23,42,.22)}
+.rltable th.rlselhead .hh{justify-content:center;gap:4px}
+.rlselcnt{display:inline-flex;align-items:center;justify-content:center;min-width:1.1rem;height:1.1rem;padding:0 4px;border-radius:999px;background:var(--primary);color:#fff;font-size:.62rem;font-weight:700;letter-spacing:0}
+.rlselcnt[hidden]{display:none}
+.rlselclear{display:inline-flex;align-items:center;justify-content:center;border:none;background:none;padding:0;cursor:pointer;color:var(--ink-3)}
+.rlselclear:hover{color:#DC2626}
+.rlselclear svg{width:.8rem;height:.8rem}
+.rlselclear[hidden]{display:none}
+.rltable td.rlselcell{position:sticky;right:0;z-index:5;text-align:center;background:var(--surface);box-shadow:-5px 0 8px -6px rgba(15,23,42,.18)}
+.rltable tbody tr:hover td.rlselcell{background:var(--hover)}
+.rlseltick{display:inline-flex;align-items:center;justify-content:center;width:1.15rem;height:1.15rem;border:1.5px solid #CBD5E1;border-radius:.3rem;background:#fff;cursor:pointer;color:#fff;transition:background .1s,border-color .1s}
+.rlseltick svg{width:.8rem;height:.8rem;opacity:0;stroke-width:3}
+.rlseltick:hover{border-color:var(--primary)}
+.rlseltick.on{background:var(--primary);border-color:var(--primary)}
+.rlseltick.on svg{opacity:1}
+.rltable tbody tr.selrow>td{background:#EFF6FF}
+.rltable tbody tr.selrow>td.rlselcell{background:#DBEAFE}
+body.rldragsel{user-select:none}   /* ลากเลือกอยู่ → ไม่ให้ลากคลุมข้อความ */
 .rlcolswrap{position:relative;margin-left:.7rem;flex:none}
 .rlcolsbtn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:#fff;color:var(--ink-2);border-radius:.5rem;padding:5px 10px;font-size:.76rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .13s}
 .rlcolsbtn:hover{border-color:var(--primary);color:var(--primary);background:#EFF6FF}
