@@ -16,3 +16,5 @@ export function clearSession() {
 export function displayName(): string { return localStorage.getItem(NAME_KEY) ?? ""; }
 export function getRole(): string { return localStorage.getItem(ROLE_KEY) ?? "editor"; }
 export function setRole(role: string) { localStorage.setItem(ROLE_KEY, role || "editor"); }
+/** อัปเดตชื่อที่แสดงจาก server (เรียกทุกครั้งที่เข้าแอป) — admin เปลี่ยนชื่อแล้วไม่ต้องล็อกอินใหม่ */
+export function setDisplayName(name: string) { if (name) localStorage.setItem(NAME_KEY, name); }

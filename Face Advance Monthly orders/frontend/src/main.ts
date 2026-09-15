@@ -7,7 +7,7 @@ import {
   fetchImportHistory, type ImportHistResp, type NotifKind,
 } from "./api";
 import { renderLogin } from "./auth";
-import { getToken, clearSession, displayName, getRole, setRole } from "./session";
+import { getToken, clearSession, displayName, getRole, setRole, setDisplayName } from "./session";
 import { pageDef, pagesFor, canEdit, type PageKey } from "./pages";
 import { renderRecordReturns } from "./returns";
 import { renderReturnsList } from "./returns_list";
@@ -1662,14 +1662,19 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   updateSaveState();   // เริ่มต้น: disable (ยังไม่แก้) · ถ้ากู้ร่าง → เปิดปุ่มบันทึก
   closeBtn.addEventListener("click", () => requestClose());
   saveBtn.addEventListener("click", async () => {
+    if (saveBtn.disabled) return;                    // กันกดซ้ำระหว่างกำลังทำงาน
     if (!guardFresh()) { requestClose(); return; }   // กันแก้ทับ: มีตีกลับใหม่ → รีเฟรชก่อน
+    // ปิดปุ่ม + บอกสถานะทันทีที่กด (ก่อน await) → ผู้ใช้เห็นว่าระบบรับคำสั่งแล้ว ไม่กดซ้ำรัวๆ
+    const saveLabel = saveBtn.textContent;
+    saveBtn.disabled = true; saveBtn.textContent = "กำลังบันทึก…";
+    const restoreBtn = () => { saveBtn.disabled = false; if (saveLabel) saveBtn.textContent = saveLabel; };
     // มีอัปเดตระบบ → บล็อกการบันทึก · เซฟร่าง + จำว่าค้างที่ออเดอร์ไหน แล้วเด้ง popup ให้รีเฟรช
     // (หลังรีเฟรช ระบบเปิด sidebar เดิมให้เอง + กู้ค่าที่กรอกไว้ครบ → กดบันทึกต่อได้เลย)
     const okVer = await guardSaveVersion(() => {
       saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value });
       setPendingSidebar(o.id);
     });
-    if (!okVer) return;
+    if (!okVer) { restoreBtn(); return; }
     const newDelivery = selDelivery;
     const newPayment = selPayment;
     const note = noteTa.value.trim();
@@ -1677,14 +1682,14 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     let detail: string | undefined;
     if (newDelivery === "ตีกลับ") {
       reason = selReason;
-      if (!reason) { toast("กรุณาเลือกเหตุผลตีกลับ", false); return; }
+      if (!reason) { toast("กรุณาเลือกเหตุผลตีกลับ", false); restoreBtn(); return; }
       if (REASONS_WITH_EXTRA.has(reason)) {
         detail = reasonExtra.value.trim();
-        if (!detail) { toast("กรุณาระบุเหตุผลเพิ่มเติม", false); return; }
+        if (!detail) { toast("กรุณาระบุเหตุผลเพิ่มเติม", false); restoreBtn(); return; }
       }
     } else if (newDelivery === "มีปัญหา") {
       detail = problemTa.value.trim();
-      if (!detail) { toast("กรุณากรอกรายละเอียดปัญหา", false); return; }
+      if (!detail) { toast("กรุณากรอกรายละเอียดปัญหา", false); restoreBtn(); return; }
     }
     const args: SaveTrackingArgs = {
       delivery_status: newDelivery,
@@ -1693,17 +1698,16 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
       status_detail: detail,
       note: note || undefined,
     };
-    saveBtn.setAttribute("disabled", "1");
     try {
       const r = await saveOrderTracking(o.id, args);
       if (!r.authorized) { toLogin(); return; }
-      if (!r.ok) { toast(trackErrMsg(r.error), false); saveBtn.removeAttribute("disabled"); return; }
+      if (!r.ok) { toast(trackErrMsg(r.error), false); restoreBtn(); return; }
       if (newDelivery === "มีปัญหา" && !r.noop) detailPresets.commitSaved();   // คำใหม่ → เก็บ localStorage
       clearSbDraft(o.id);   // บันทึกสำเร็จ → ลบร่าง
       applyOrderUpdate(o, r);
       toast(r.noop ? "ไม่มีการเปลี่ยนแปลง" : "บันทึกแล้ว");
       closeSidebar();
-    } catch { toast("บันทึกไม่สำเร็จ", false); saveBtn.removeAttribute("disabled"); }
+    } catch { toast("บันทึกไม่สำเร็จ", false); restoreBtn(); }
   });
   foot.append(closeBtn, saveBtn);
   panel.append(foot);
@@ -2001,14 +2005,16 @@ function renderNotes(box: HTMLElement, notes: TrackingEntry[], orderId: number) 
   const today = state.data?.today;
   // โน้ตล่าสุด (at ล่าสุด · เสมอ→id มากสุด) → ใช้เช็คว่าแก้แล้วต้องอัปเดตคอลัม "โน๊ตล่าสุด" ในตารางไหม
   const latest = notes.reduce<TrackingEntry | null>((b, e) => (!b || e.at > b.at || (e.at === b.at && e.id > b.id) ? e : b), null);
+  // เป็นโน้ตของตัวเองไหม → เชื่อธง mine จาก server (เทียบ user id) · ถ้า server เก่ายังไม่ส่ง mine → fallback เทียบชื่อแบบเดิม
+  const isMine = (e: TrackingEntry) => (e.mine !== undefined ? e.mine : (!!me && e.by === me));
   for (const e of notes) {
     const item = el("div", { class: "notecard" });
     const head = el("div", { class: "tlhead" },
       el("span", { class: "tldate" }, trackTime(e.at)), el("span", { class: "tlby" }, e.by || "—"));
     const body = el("div", { class: "notebody" }, e.note ?? "");
     item.append(head, body);
-    // แก้ไขได้เฉพาะโน้ตของตัวเอง + เป็นวันนี้ (server บังคับซ้ำอีกชั้น)
-    if (e.type === "note" && !!today && e.at.slice(0, 10) === today && !!me && e.by === me) {
+    // แก้ไขได้เฉพาะโน้ตของตัวเอง + เป็นวันนี้ (server บังคับซ้ำอีกชั้นใน app_edit_note)
+    if (e.type === "note" && !!today && e.at.slice(0, 10) === today && isMine(e)) {
       const editBtn = el("button", { class: "noteedit", type: "button", title: "แก้ไขโน้ต" }, icon("i-edit"));
       editBtn.addEventListener("click", () => startEditNote(item, body, e, orderId, e.id === latest?.id));
       head.append(editBtn);
@@ -2599,6 +2605,7 @@ async function startApp() {
   if (await isStale(true)) { reloadForUpdate(); return; }
   try {
     currentRole = m.role || getRole(); setRole(currentRole);   // role จริงจาก server
+    if (m.display_name) setDisplayName(m.display_name);        // ชื่อที่แสดงล่าสุดจาก DB (admin เปลี่ยนแล้วเห็นทันที ไม่ต้องล็อกอินใหม่)
     document.body.classList.toggle("noedit", !canEdit(currentRole));   // role แก้ไม่ได้ → ซ่อนดินสอ
     document.body.classList.add("authed");
     document.body.classList.add("ready");

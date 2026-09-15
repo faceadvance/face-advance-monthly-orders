@@ -34,13 +34,18 @@ async function fetchServerVersion(): Promise<string | null> {
 }
 
 /** เวอร์ชั่นบนเซิร์ฟเวอร์ใหม่กว่าที่โหลดมาไหม
- *  force=false → ถ้าเช็คไปแล้วไม่เกิน 30 วิ ใช้ผลเดิม (เบา ไม่ยิงซ้ำ) */
-export async function isStale(force = false): Promise<boolean> {
+ *  force=false → ถ้าเช็คไปแล้วไม่เกิน 30 วิ ใช้ผลเดิม (เบา ไม่ยิงซ้ำ)
+ *  timeoutMs   → เน็ตช้า/ไม่ตอบในเวลานี้ → ถือว่า "ไม่ stale" (ไม่หน่วงการบันทึกของผู้ใช้)
+ *                ตัวเฝ้าทุก 5 นาที/ตอนโฟกัสแท็บ จะจับเวอร์ชั่นใหม่ให้อยู่ดี */
+export async function isStale(force = false, timeoutMs = 0): Promise<boolean> {
   if (APP_VERSION === "dev") return false;   // ตอน dev ไม่ต้องกวน
   if (!force && Date.now() - lastCheckAt < MIN_GAP_MS && serverVersion) {
     return serverVersion !== APP_VERSION;
   }
-  const v = await fetchServerVersion();
+  const p = fetchServerVersion();
+  const v = timeoutMs > 0
+    ? await Promise.race([p, new Promise<null>((res) => window.setTimeout(() => res(null), timeoutMs))])
+    : await p;
   return v != null && v !== APP_VERSION;
 }
 
@@ -48,8 +53,8 @@ export async function isStale(force = false): Promise<boolean> {
 export function reloadForUpdate() { location.reload(); }
 
 /** popup บล็อก: ปิดไม่ได้ (ไม่มี × · คลิกนอกไม่ปิด · Esc ไม่ปิด) → ปุ่มเดียว "ตกลง" = รีเฟรช */
-export function showUpdateModal(note?: string) {
-  if (modalShown) return;
+export function showUpdateModal(note?: string, title = "ระบบมีการอัปเดต") {
+  if (modalShown && document.querySelector(".vupd-ov")) return;   // ยังโชว์อยู่ → ไม่ซ้อน · ถ้าหลุดไปแล้วให้โชว์ใหม่ได้
   modalShown = true;
   const ov = document.createElement("div");
   ov.className = "modal-ov vupd-ov";
@@ -58,8 +63,8 @@ export function showUpdateModal(note?: string) {
       <div class="vupd-body">
         <span class="vupd-ic"><svg class="ic" viewBox="0 0 24 24"><use href="#i-refresh"></use></svg></span>
         <div class="vupd-txt">
-          <div class="vupd-t">ระบบมีการอัปเดต</div>
-          <div class="vupd-d">กรุณารีเฟรชระบบก่อนใช้งานต่อ${note ? ` — ${note}` : ""}</div>
+          <div class="vupd-t">${title}</div>
+          <div class="vupd-d">${note ?? "กรุณารีเฟรชระบบก่อนใช้งานต่อ"}</div>
           <div class="vupd-v">เวอร์ชั่นที่เปิดอยู่ <b>${APP_VERSION}</b> → ใหม่ <b>${serverVersion ?? "?"}</b></div>
         </div>
       </div>
@@ -75,11 +80,12 @@ export function showUpdateModal(note?: string) {
 }
 
 /** เรียกก่อน "บันทึก" ทุกจุด — true = ไปต่อได้ · false = โค้ดเก่า (บล็อก + เด้ง popup แล้ว)
- *  onStale: ให้ผู้เรียกเซฟร่าง/จำสิ่งที่ค้างไว้ก่อนรีเฟรช */
+ *  onStale: ให้ผู้เรียกเซฟร่าง/จำสิ่งที่ค้างไว้ก่อนรีเฟรช
+ *  timeout 900ms: เน็ตช้า → บันทึกไปเลย ไม่ให้ผู้ใช้รู้สึกว่า "กดแล้วไม่มีอะไรเกิดขึ้น" */
 export async function guardSaveVersion(onStale?: () => void): Promise<boolean> {
-  if (!(await isStale())) return true;
+  if (!(await isStale(false, 900))) return true;
   try { onStale?.(); } catch { /* เซฟร่างไม่ได้ก็ต้องเด้งเตือนอยู่ดี */ }
-  showUpdateModal("ข้อมูลที่กรอกไว้ถูกเก็บให้แล้ว");
+  showUpdateModal("การบันทึกครั้งนี้ยังไม่สำเร็จ — ข้อมูลที่กรอกไว้ถูกเก็บให้แล้ว กดตกลงเพื่อรีเฟรชแล้วกดบันทึกอีกครั้ง", "ยังไม่ได้บันทึก — ระบบมีการอัปเดต");
   return false;
 }
 

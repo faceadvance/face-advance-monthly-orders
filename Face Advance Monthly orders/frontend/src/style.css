@@ -108,9 +108,13 @@ svg.ic{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:2;s
 .notifhint{font-size:.7rem;font-weight:500;color:var(--ink-3)}
 .notiflist{overflow-y:auto;display:flex;flex-direction:column}
 /* ชิปกรองหมวดแจ้งเตือน (โชว์เมื่อมี ≥2 หมวด) */
-.notifchips{display:flex;gap:5px;padding:.5rem .7rem;border-bottom:1px solid var(--border);flex:none;flex-wrap:wrap}
+/* แถวเดียวเสมอ — เกินแล้วเลื่อนแนวนอน (ไม่ตัดขึ้นบรรทัดใหม่) */
+.notifchips{display:flex;gap:5px;padding:.5rem .7rem;border-bottom:1px solid var(--border);flex:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.notifchips::-webkit-scrollbar{height:5px}
+.notifchips::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:99px}
+.notifchips::-webkit-scrollbar-track{background:transparent}
 .notifchips[hidden]{display:none}
-.notifchip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:#fff;color:var(--ink-2);border-radius:999px;padding:3px 9px;font-family:inherit;font-size:.72rem;font-weight:600;cursor:pointer;transition:all .12s}
+.notifchip{display:inline-flex;align-items:center;gap:4px;flex:none;white-space:nowrap;border:1px solid var(--border);background:#fff;color:var(--ink-2);border-radius:999px;padding:3px 8px;font-family:inherit;font-size:.71rem;font-weight:600;cursor:pointer;transition:all .12s}
 .notifchip:hover{border-color:var(--primary);color:var(--primary)}
 .notifchip.on{background:var(--primary);border-color:var(--primary);color:#fff}
 .notifchip .nc-n{font-family:"Inter",sans-serif;font-size:.66rem;opacity:.75}

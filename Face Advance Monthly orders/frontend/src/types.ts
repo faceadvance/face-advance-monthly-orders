@@ -35,7 +35,8 @@ export interface TrackingEntry {
   old: string | null;
   new: string | null;
   detail: string | null;
-  by: string;                // ชื่อผู้ทำ (snapshot)
+  by: string;                // ชื่อผู้ทำ (snapshot ตอนบันทึก — อาจไม่ตรงชื่อปัจจุบันถ้า admin เปลี่ยนชื่อทีหลัง)
+  mine?: boolean;            // server บอกว่าเป็นของคนที่ล็อกอินอยู่ไหม (ใช้ตัดสินสิทธิ์แก้โน้ต — ไม่เทียบชื่อ)
   at: string;                // "YYYY-MM-DDTHH:MM:SS" เวลาไทย
 }
 
