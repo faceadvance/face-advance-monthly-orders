@@ -568,7 +568,9 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
     el("span", {}, "เลือกฝั่งที่จะ ", el("b", {}, "เก็บไว้"), " — ระบบจะย้ายออเดอร์และเบอร์ทั้งหมดของอีกฝั่งมารวมที่ id ที่เลือก แล้วลบอีกฝั่งทิ้งถาวร")));
 
   const idA = Number(v.new_customer_id), idB = Number(v.candidate_customer_id);
-  type Val = { v: string; hit: boolean };
+  // hit = ตรงเป๊ะ · sim = คะแนนความคล้าย (มาเฉพาะเมื่อ "ไม่ตรงเป๊ะ แต่คล้ายถึงเกณฑ์ที่ตัวจับใช้")
+  // 🔴 ห้ามรวม 2 อย่างนี้เป็นอันเดียว — "คล้าย 0.60" ไม่ใช่ "ตรงกัน" (เช่น เอ๋ ⟷ เอ็ม)
+  type Val = { v: string; hit: boolean; sim?: number | null };
   const arr = (k: string): Val[] => Array.isArray(v[k]) ? (v[k] as Val[]) : [];
   type Side = { id: number; names: Val[]; phones: Val[]; addrs: Val[]; orders: number; spent: number; last: string; first: string };
   const A: Side = { id: idA, names: arr("new_names"), phones: arr("new_phones"), addrs: arr("new_addrs"), orders: Number(v.new_orders || 0), spent: Number(v.new_spent || 0), last: g(v, "new_last"), first: g(v, "new_first") };
@@ -582,11 +584,22 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
       el("div", { class: "ed-vh" }, el("b", {}, title), el("span", { class: "ed-by" }, "id #" + s.id)));
     for (const [lab, vals] of fieldsOf(s)) {
       const anyHit = vals.some((x) => x.hit);
+      const near = vals.filter((x) => !x.hit && x.sim != null);
       const vlist = el("span", { class: "ed-v ed-vlist" });
       if (!vals.length) vlist.append(el("span", { class: "ed-dv" }, "—"));
-      else vals.forEach((x) => vlist.append(el("span", { class: `ed-dv ${x.hit ? "hit" : ""}` }, x.v || "—")));
-      card.append(el("div", { class: `ed-kv ${anyHit ? "reason" : ""}` },
-        el("span", { class: "ed-k" }, lab, anyHit ? el("i", { class: "ed-reason-tag" }, "🎯 ตรงกัน") : ""),
+      else vals.forEach((x) => {
+        const isNear = !x.hit && x.sim != null;
+        const sp = el("span", { class: `ed-dv ${x.hit ? "hit" : isNear ? "near" : ""}` }, x.v || "—");
+        if (isNear) sp.append(el("i", { class: "ed-simtag" }, `≈ ${x.sim!.toFixed(2)}`));
+        vlist.append(sp);
+      });
+      // ป้ายหัวฟิลด์ต้องพูดความจริง: ตรงเป๊ะ = "ตรงกัน" · คล้ายเท่านั้น = "คล้ายกัน <คะแนน>"
+      const tag = anyHit ? el("i", { class: "ed-reason-tag" }, "🎯 ตรงกัน")
+        : near.length ? el("i", { class: "ed-reason-tag near" },
+            `≈ คล้ายกัน ${Math.max(...near.map((x) => x.sim!)).toFixed(2)}`)
+        : "";
+      card.append(el("div", { class: `ed-kv ${anyHit ? "reason" : near.length ? "nearreason" : ""}` },
+        el("span", { class: "ed-k" }, lab, tag),
         vlist));
     }
     card.append(el("div", { class: "ed-dstat" },
@@ -601,13 +614,32 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
     card.append(keep);
     return card;
   };
-  box.append(el("div", { class: "ed-dual" }, mk(A, B, "รายการใหม่"), mk(B, A, "ที่อาจซ้ำ")));
+  // ---- รวมทันที: เก็บฝั่งที่เป็น "ลูกค้าใหม่ก่อน" (ออเดอร์แรกเกิดก่อน) — ไม่ถามยืนยัน ----
+  const ts = (s: string): number => { const t = Date.parse(s || ""); return Number.isFinite(t) ? t : NaN; };
+  const pick = (): { K: Side; D: Side; why: string } => {
+    const ta = ts(A.first), tb = ts(B.first);
+    const aOk = !Number.isNaN(ta), bOk = !Number.isNaN(tb);
+    // มีวันทั้งสองฝั่งและไม่เท่ากัน → เก็บฝั่งที่เก่ากว่า
+    if (aOk && bOk && ta !== tb) return ta < tb ? { K: A, D: B, why: "ลูกค้าใหม่ก่อน" } : { K: B, D: A, why: "ลูกค้าใหม่ก่อน" };
+    // มีวันฝั่งเดียว (อีกฝั่งไม่มีออเดอร์) → เก็บฝั่งที่มีออเดอร์
+    if (aOk !== bOk) return aOk ? { K: A, D: B, why: "มีออเดอร์" } : { K: B, D: A, why: "มีออเดอร์" };
+    // วันเท่ากัน/ไม่มีข้อมูลทั้งคู่ → id น้อยกว่า = record เก่ากว่า
+    return A.id < B.id ? { K: A, D: B, why: "id เก่ากว่า" } : { K: B, D: A, why: "id เก่ากว่า" };
+  };
+  const { K, D, why } = pick();
+  const fast = el("button", { class: "ed-btn primary" }, icon("i-bolt"),
+    `รวมทันที — เก็บ id #${K.id}${K.first ? " (" + why + " " + fmtTime(K.first) + ")" : " (" + why + ")"}`) as HTMLButtonElement;
+  fast.addEventListener("click", () => runAction(fast, () => edithMerge(K.id, D.id), `รวมมาที่ #${K.id} แล้ว`));
   // ไม่ใช่คนเดียวกัน → ตั้ง review = rejected (นำออกจากคิว · ไม่แจ้งซ้ำอีก · ไม่รวมข้อมูล)
   const dismiss = el("button", { class: "ed-btn ed-dismiss" }, icon("i-x"), "ไม่ใช่คนเดียวกัน (ไม่รวม)") as HTMLButtonElement;
   dismiss.addEventListener("click", () => confirmAsk(
     `ยืนยันว่า id #${idA} กับ #${idB} เป็นคนละคน? — จะนำออกจากคิว ไม่รวมข้อมูล และไม่แจ้งซ้ำคู่นี้อีก`,
     () => runAction(dismiss, () => edithDismissDup(idA, idB), "ทำเครื่องหมาย 'ไม่ใช่คนเดียวกัน' แล้ว")));
-  box.append(el("div", { class: "ed-dismiss-row" }, dismiss));
+  // 2 ปุ่มตัดสินเร็วอยู่แถวเดียวกัน · คำอธิบายอยู่บรรทัดล่าง (ผูกกับ "รวมทันที" ที่ไม่ถามยืนยัน)
+  box.append(el("div", { class: "ed-mergefast" }, fast, dismiss,
+    el("span", { class: "ed-mf-hint" }, `ย้ายออเดอร์/เบอร์ของ #${D.id} มารวมที่ #${K.id} แล้วลบ #${D.id} ทิ้ง · ไม่ถามยืนยัน`)));
+
+  box.append(el("div", { class: "ed-dual" }, mk(A, B, "รายการใหม่"), mk(B, A, "ที่อาจซ้ำ")));
   return box;
 }
 

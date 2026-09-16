@@ -183,12 +183,27 @@ let kpiTipEl: HTMLElement | null = null;
 function showKpiTip(bar: HTMLElement, text: string) {
   if (!kpiTipEl) { kpiTipEl = el("div", { class: "kpitip" }); document.body.append(kpiTipEl); }
   kpiTipEl.textContent = text;
+  kpiTipEl.classList.remove("multi");   // กลับเป็นบรรทัดเดียว (เผื่อเพิ่งใช้โหมดหลายบรรทัดจาก ⓘ)
   kpiTipEl.classList.add("on");
   const r = bar.getBoundingClientRect();
   kpiTipEl.style.left = `${r.left + r.width / 2}px`;
   kpiTipEl.style.top = `${r.top - 8}px`;
 }
 function hideKpiTip() { kpiTipEl?.classList.remove("on"); }
+/** tooltip หลายบรรทัด (ใช้กับ ⓘ บนการ์ด) — เด้งทันที ไม่ต้องรอแบบ title ของเบราว์เซอร์ */
+function showKpiTipMulti(anchor: HTMLElement, lines: string[]) {
+  if (!kpiTipEl) { kpiTipEl = el("div", { class: "kpitip" }); document.body.append(kpiTipEl); }
+  kpiTipEl.textContent = "";
+  lines.forEach((t, i) => { if (i) kpiTipEl!.append(el("br")); kpiTipEl!.append(t); });
+  kpiTipEl.classList.add("on", "multi");
+  const r = anchor.getBoundingClientRect();
+  kpiTipEl.style.left = `${r.left + r.width / 2}px`;
+  kpiTipEl.style.top = `${r.top - 8}px`;
+  // กันล้นขอบขวา/ซ้ายของจอ
+  const tr = kpiTipEl.getBoundingClientRect();
+  if (tr.right > window.innerWidth - 8) kpiTipEl.style.left = `${window.innerWidth - 8 - tr.width / 2}px`;
+  if (tr.left < 8) kpiTipEl.style.left = `${8 + tr.width / 2}px`;
+}
 
 // เลขวิ่ง (count-up) — วิ่งจาก from → to · โหลดใหม่ from=0 · อัปเดตในที่ from=ค่าเดิม (นุ่ม)
 let lastKpi: Kpi | null = null;   // KPI ที่ render ล่าสุด (null = โหลดใหม่/เปลี่ยนเดือน → วิ่งจาก 0 + แท่งโต)
@@ -351,6 +366,21 @@ function renderKpi(d: OrdersResponse) {
     } else cap3.append(" ");
   }
   applyDay();
+  // ⓘ มุมขวาล่างของการ์ด — บอกว่าตัดรายการอะไรออกเท่าไหร่ (ไม่กินพื้นที่ · โชว์เฉพาะเมื่อมี)
+  // "ไม่ใช่งานขาย" = ของแถม/ส่งตัวอย่าง ฯลฯ → ไม่นับในการ์ด (ยอดขาย/อัตราสำเร็จ/อัตราตีกลับจะเพี้ยน)
+  const nExcl = d.orders.filter((o) => o.payment_status === "ไม่ใช่งานขาย").length;
+  if (nExcl > 0) {
+    const lines = [`ไม่รวม “ไม่ใช่งานขาย” ${nf(nExcl)} รายการ`];
+    for (const card of root.querySelectorAll<HTMLElement>(".kcard")) {
+      const info = el("span", { class: "kinfo", "aria-label": lines.join(" · "), tabindex: "0" }, icon("i-info"));
+      // ใช้ tooltip ของระบบ (เด้งทันที · ลอยนอกการ์ดจึงไม่ถูก overflow:hidden ตัด)
+      info.addEventListener("mouseenter", () => showKpiTipMulti(info, lines));
+      info.addEventListener("mouseleave", hideKpiTip);
+      info.addEventListener("focus", () => showKpiTipMulti(info, lines));
+      info.addEventListener("blur", hideKpiTip);
+      card.append(info);
+    }
+  }
   // ทำให้มีชีวิต: เลขวิ่ง + แท่งกราฟโตขึ้นจาก 0
   animateKpiNums(root);   // เลขวิ่ง (โหลดใหม่=จาก 0 · อัปเดต=จากค่าเดิม)
   if (grow) requestAnimationFrame(() => { for (const b of bars) b.style.height = `${b.dataset.h || "0"}%`; });
