@@ -1,10 +1,10 @@
 // หน้า EDITH (Stage 9b) — ศูนย์จัดการเคสทั้งระบบ · Adm only
 // ดีไซน์: layout เดซี่ v3 (KPI + คิว time-bucket + โต๊ะตรวจ + audit filter) · พาเลตมืดเดซี่ v1
-// ปัญหา 4 ชนิด: error(COD ยอดไม่ตรง) · conflict(บันทึกตีกลับชน) · recon(COD+ตีกลับ) · dedup(ลูกค้าซ้ำ)
+// ปัญหา 4 ชนิด: error(COD ยอดไม่ตรง) · conflict(บันทึกตีกลับชน) · recon(รับเงินแล้ว+ตีกลับ) · dedup(ลูกค้าซ้ำ)
 import { el, icon, nf, imageSrc, openLightbox, THAI_MONTHS_FULL } from "./util";
 import {
   fetchEdithIssues, fetchEdithDetail, fetchEdithLog,
-  edithDeleteRecon, edithExchange, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
+  edithDeleteRecon, edithExchange, edithConfirmReturn, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
   edithResolveError, edithSetPaymentStatus,
   type EdithIssue, type EdithIssueType, type EdithCounts, type EdithLogRow,
 } from "./api";
@@ -447,11 +447,15 @@ function statusChanger(orderId: number, title: string): HTMLElement {
 }
 
 // recon resolver
+// 2 หน้าตา: (ก) มีรายการ COD รับเงิน  (ข) ไม่มี COD แต่สถานะเป็น "ชำระแล้ว" (โอนเงิน/ตัดบัตร)
+// เคส (ข) ไม่มีอะไรให้ "ลบ COD" → ใช้ปุ่ม "ยืนยันตีกลับ" แทน
 function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement {
   const codj = o.cod as Record<string, unknown> | null;
   const retj = o.ret as Record<string, unknown> | null;
+  const payMethod = g(o, "payment_method") || "ไม่ระบุวิธี";
   const box = el("div", { class: "ed-res type-recon" });
-  box.append(workHeader("i-wallet", "Recon ขัดแย้ง", `ออเดอร์ ${g(o, "order_no") || "#" + orderId} · มีทั้ง COD และตีกลับ`));
+  box.append(workHeader("i-wallet", "Recon ขัดแย้ง", `ออเดอร์ ${g(o, "order_no") || "#" + orderId} · ${
+    codj ? "มีทั้ง COD และตีกลับ" : `ชำระแล้ว (${payMethod}) แต่ตีกลับถึง`}`));
   box.append(el("div", { class: "ed-info" },
     kv("ลูกค้า", g(o, "customer_name")),
     kv("เบอร์โทร", el("span", { class: "ed-mono" }, g(o, "phone") || "—")),
@@ -460,13 +464,28 @@ function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement
     kv("ยอดออเดอร์", "฿" + nf(Number(o.total_sales || 0))),
     kv("รายการ", g(o, "items") || "—")));
   const dual = el("div", { class: "ed-dual" });
-  const codCard = el("div", { class: "ed-vcard" },
-    el("div", { class: "ed-vh cod" }, icon("i-wallet"), "รายการ COD รับเงิน"),
-    kv("ยอดรับ", codj ? "฿" + nf(Number(codj.amount || 0)) : "—"),
-    kv("แทร็ค (ส่งออก)", el("span", { class: "ed-mono" }, codj ? g(codj, "tracking_out") || "—" : "—")),
-    kv("รับจาก", codj ? g(codj, "received_from") || "—" : "—"),
-    kv("บันทึกเมื่อ", codj ? fmtTime(String(codj.recorded_at)) : "—"),
-    pickDeleteBtn("cod", orderId, "ลบ COD นี้"));
+  // ยืนยันตีกลับ = ผลเดียวกับที่ระบบทำเองตอนไม่มีรายการรับเงิน (ตีกลับ · ยกเลิก · ถึงแล้ว)
+  const confirmBtn = el("button", { class: "ed-btn danger sm" }, icon("i-boxret-solid"),
+    "ยืนยันตีกลับ · ยกเลิกการขาย") as HTMLButtonElement;
+  confirmBtn.addEventListener("click", () => confirmAsk(
+    "ยืนยันว่าตีกลับจริง? สถานะจะเป็น ตีกลับ · ยกเลิก (ยอดขายหายจากออเดอร์นี้)",
+    () => runAction(confirmBtn, () => edithConfirmReturn(orderId), "บันทึกแล้ว — ตีกลับ · ยกเลิก")));
+  const codCard = codj
+    ? el("div", { class: "ed-vcard" },
+        el("div", { class: "ed-vh cod" }, icon("i-wallet"), "รายการ COD รับเงิน"),
+        kv("ยอดรับ", "฿" + nf(Number(codj.amount || 0))),
+        kv("แทร็ค (ส่งออก)", el("span", { class: "ed-mono" }, g(codj, "tracking_out") || "—")),
+        kv("รับจาก", g(codj, "received_from") || "—"),
+        kv("บันทึกเมื่อ", fmtTime(String(codj.recorded_at))),
+        pickDeleteBtn("cod", orderId, "ลบ COD นี้"))
+    : el("div", { class: "ed-vcard" },
+        el("div", { class: "ed-vh cod" }, icon("i-wallet"), "รับเงินแล้ว — ไม่ผ่าน COD"),
+        kv("วิธีชำระ", payMethod),
+        kv("สถานะชำระ", el("span", { class: "ed-tag" }, g(o, "payment_status") || "—")),
+        el("div", { class: "ed-callout sm" }, icon("i-alert"),
+          el("span", {}, "ไม่มีรายการรับเงิน COD ให้ลบ — เงินเข้าทางอื่น ต้องเลือกว่าจะ",
+            el("b", {}, " เก็บยอด "), "หรือ", el("b", {}, " ยกเลิกการขาย "))),
+        confirmBtn);
   const retCard = el("div", { class: "ed-vcard" },
     el("div", { class: "ed-vh ret" }, icon("i-boxret-solid"), "รายการตีกลับถึง"),
     kv("ลงตีกลับแบบ", el("span", { class: retj && retj.no_deduct ? "ed-tag nodeduct" : "ed-tag" },
@@ -479,7 +498,9 @@ function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement
     photoRow(retj ? g(retj, "photo_url") : ""),
     pickDeleteBtn("return", orderId, "ลบตีกลับนี้"));
   dual.append(codCard, retCard);
-  box.append(el("p", { class: "ed-note" }, "ตรวจเลขแทร็คให้ตรงกัน แล้วเลือกลบรายการที่ผิด — ระบบจะคืนสถานะอัตโนมัติ"), dual);
+  box.append(el("p", { class: "ed-note" }, codj
+    ? "ตรวจเลขแทร็คให้ตรงกัน แล้วเลือกลบรายการที่ผิด — ระบบจะคืนสถานะอัตโนมัติ"
+    : "ออเดอร์นี้รับเงินไปแล้วแต่ของตีกลับถึง — เลือกอย่างใดอย่างหนึ่ง: เก็บยอด (ปรับเป็นถึงแล้ว) · ยกเลิกการขาย (ยืนยันตีกลับ) · หรือลบบันทึกตีกลับถ้าลงผิด"), dual);
   // ทางเลือกที่ 3: ปรับเป็นถึงแล้ว (เก็บทั้งคู่ ไม่ลบ · ไม่แตะ no_deduct)
   const exBtn = el("button", { class: "ed-btn primary sm" }, icon("i-boxret-solid"),
     "ปรับเป็นถึงแล้ว") as HTMLButtonElement;
@@ -487,7 +508,7 @@ function reconResolver(orderId: number, o: Record<string, unknown>): HTMLElement
     "บันทึกแล้ว — ส่งสำเร็จ · ชำระแล้ว · ถึงแล้ว"));
   box.append(el("div", { class: "ed-exchange" },
     el("p", {}, el("b", {}, "จ่ายเงินแล้ว + ของกลับมาถึง? "),
-      "ปรับเป็น ส่งสำเร็จ · ชำระแล้ว · ถึงแล้ว → เก็บทั้ง COD และตีกลับไว้ ไม่ลบ · นับเป็นยอดขายสำเร็จ (หักยอดหรือไม่ = ตามที่ลงบันทึกตีกลับ)"),
+      `ปรับเป็น ส่งสำเร็จ · ชำระแล้ว · ถึงแล้ว → เก็บ${codj ? "ทั้ง COD และ" : ""}บันทึกตีกลับไว้ ไม่ลบ · นับเป็นยอดขายสำเร็จ (หักยอดหรือไม่ = ตามที่ลงบันทึกตีกลับ)`),
     exBtn));
   return box;
 }

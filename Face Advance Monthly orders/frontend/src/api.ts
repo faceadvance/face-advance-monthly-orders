@@ -349,6 +349,11 @@ export function edithDeleteRecon(kind: "cod" | "return", orderId: number): Promi
 export function edithExchange(orderId: number): Promise<EdithActionResp> {
   return restRpc<EdithActionResp>("app_edith_exchange", { p_token: getToken(), p_order_id: orderId });
 }
+// เคสตีกลับจริง: ยืนยันแล้วยกเลิกการขาย → ตีกลับ+ยกเลิก+ถึงแล้ว (ไม่ลบ record · ไม่แตะ no_deduct)
+// ใช้กับเคสที่ไม่มีรายการ COD ให้ลบ (ชำระแล้วทางโอนเงิน/ตัดบัตร)
+export function edithConfirmReturn(orderId: number): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_confirm_return", { p_token: getToken(), p_order_id: orderId });
+}
 export function edithRestoreRecon(kind: "cod" | "return", payload: Record<string, unknown>): Promise<EdithActionResp> {
   return restRpc<EdithActionResp>("app_edith_restore_recon", { p_token: getToken(), p_kind: kind, p_payload: payload });
 }
