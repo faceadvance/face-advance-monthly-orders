@@ -375,7 +375,12 @@ function photoRow(url: string): HTMLElement {
   if (url) {
     const img = el("img", { src: imageSrc(url), alt: "หลักฐานตีกลับ", loading: "lazy" }) as HTMLImageElement;
     img.addEventListener("click", () => openLightbox(url));   // คลิกเปิด modal กลางจอ (เหมือนหน้าบันทึกตีกลับ)
-    pv.append(el("div", { class: "ed-photo" }, img));
+    const box = el("div", { class: "ed-photo" }, img);
+    // Google ไม่ส่งรูปเป็นระยะ (429/503) → แทนไอคอนรูปแตกด้วยลิงก์ไปต้นฉบับ
+    img.addEventListener("error", () => box.replaceWith(
+      el("a", { class: "ed-v ed-nophoto ed-photofail", href: url, target: "_blank", rel: "noopener" },
+        icon("i-alert"), "โหลดรูปไม่ได้ — เปิดต้นฉบับ ↗")));
+    pv.append(box);
   } else pv.append(el("span", { class: "ed-v ed-nophoto" }, "— ไม่มีรูป"));
   return pv;
 }

@@ -66,8 +66,19 @@ export function imageSrc(url: string, big = false): string {
 /** เปิดรูปเต็มจอ (modal กลางจอ พื้นทึบหลัง) — คลิกพื้นนอกรูป / Esc / ปุ่ม × เพื่อปิด · ใช้ร่วมหน้าตีกลับ+EDITH */
 export function openLightbox(url: string): void {
   const ov = el("div", { class: "rtlight" });
-  const img = el("img", { src: imageSrc(url, true), alt: "รูปกล่องตีกลับ" });
+  const img = el("img", { src: imageSrc(url, true), alt: "รูปกล่องตีกลับ" }) as HTMLImageElement;
   img.addEventListener("click", (e) => e.stopPropagation());   // คลิกที่รูปไม่ปิด (ปิดเฉพาะคลิกนอกรูป)
+  // Google ตอบ 429/503 เป็นระยะ (เปิดจาก localhost · หรือเรียกรูปถี่เกิน) แล้วเบราว์เซอร์จะโชว์ไอคอนรูปแตก
+  // → ลองไซซ์เล็ก (w600 ตัวเดียวกับ thumbnail ที่มักติดแคชแล้ว) ก่อน ถ้ายังไม่ได้ก็บอกตรงๆ + ชี้ไปต้นฉบับ
+  let retried = false;
+  img.addEventListener("error", () => {
+    if (!retried && imageSrc(url, true) !== imageSrc(url)) { retried = true; img.src = imageSrc(url); return; }
+    const fail = el("div", { class: "rtlfail" },
+      el("b", {}, "โหลดรูปไม่ได้"),
+      el("p", {}, "Google ไม่ส่งรูปให้ตอนนี้ (เรียกถี่เกิน หรือไฟล์ถูกปิดแชร์) — กด ", el("b", {}, "เปิดต้นฉบับ"), " ด้านล่างเพื่อดูใน Google Drive"));
+    fail.addEventListener("click", (e) => e.stopPropagation());
+    img.replaceWith(fail);
+  });
   const openA = el("a", { class: "rtlopen", href: url, target: "_blank", rel: "noopener" }, "เปิดต้นฉบับ ↗");
   openA.addEventListener("click", (e) => e.stopPropagation());
   const x = el("span", { class: "rtlclose", title: "ปิด (Esc)" }, "×");
