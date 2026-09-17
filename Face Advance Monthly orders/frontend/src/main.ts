@@ -72,7 +72,7 @@ function moveColumn(dragKey: string, targetKey: string) {
   ordOrder.splice(0, ordOrder.length, ...cur);
   saveColsOrder("fa_colorder_orders", ordOrder);
   buildOrdColsMenu();
-  renderTable();
+  renderTable({ keepScroll: true, anchorId: topVisibleId() });   // สลับ/ซ่อนคอลัม แถวไม่เปลี่ยน → คงตำแหน่งไว้
 }
 
 // ---------- state ----------
@@ -482,6 +482,27 @@ function idxAt(y: number): number {
     if (vOffsets[m + 1] > y) { ans = m; hi = m - 1; } else lo = m + 1; }
   return ans;
 }
+// id ของแถวบนสุดที่เห็นอยู่ตอนนี้ — ใช้ยึดตำแหน่งเวลากรอง/เรียงใหม่ ตารางจะได้ไม่เด้งขึ้นแถวแรก
+function topVisibleId(): number | undefined {
+  const w = document.getElementById("tableWrap");
+  if (!w || !currentVisible.length) return undefined;
+  return currentVisible[idxAt(w.scrollTop)]?.id;
+}
+// ── กติกาตำแหน่ง scroll เวลาชุดแถวเปลี่ยน ──
+// • ตัวกรอง / เรียง / สลับคอลัม → ยึด "แถวบนสุดที่เห็น" (แถวนั้นอยู่จุดเดิม) — แนวเดียวกับ Google Sheets
+// • ช่องค้นหา → ตอนล้างคำค้น คืน "ตำแหน่งก่อนเริ่มค้น" (เพราะผลค้นหามักเหลือแถวเดียว ยึดแถวบนสุดแล้วไม่สื่อ)
+const anchorTop = () => ({ keepScroll: true as const, anchorId: topVisibleId(), topIfAnchorGone: true as const });
+let preSearch: { scroll: number; anchor?: { id: number; off: number }; sig: string } | null = null;
+// ถ้าเดือน/ตัวกรอง/การเรียง เปลี่ยนระหว่างค้นอยู่ ตำแหน่งที่จำไว้ใช้ไม่ได้แล้ว
+const searchSig = () => `${state.month}|${state.sort ? state.sort.col + state.sort.dir : "-"}|${[...state.filters.keys()].sort().join(",")}`;
+function markSearchStart() {
+  if (preSearch) return;                       // จำแค่ครั้งแรกที่เริ่มพิมพ์
+  const w = document.getElementById("tableWrap");
+  if (!w || !currentVisible.length) return;
+  const i = idxAt(w.scrollTop);
+  const row = currentVisible[i];
+  preSearch = { scroll: w.scrollTop, anchor: row ? { id: row.id, off: vOffsets[i] } : undefined, sig: searchSig() };
+}
 function spacerRow(): HTMLElement {
   const tr = el("tr", { class: "vspacer", "aria-hidden": "true" });
   tr.append(el("td", { colspan: String(COLUMNS.length + 1), style: "padding:0;border:0;height:0" }));
@@ -566,14 +587,20 @@ function renderLoading() {
  *  keepScroll = คงตำแหน่ง scroll + แถวที่กางไว้ (ใช้หลัง "บันทึก/อัปเดต" — ตารางต้องอยู่ที่เดิม)
  *  anchorId   = id แถวอ้างอิง: เลื่อนให้แถวนี้อยู่จุดเดิมในจอเป๊ะ แม้แถวข้างบนจะหาย/เพิ่ม
  *  ไม่ส่งอะไร = พฤติกรรมเดิม (กรอง/เรียง/ค้นหา/เปลี่ยนเดือน → ขึ้นบนสุด + ยุบแถว) */
-function renderTable(opts?: { keepScroll?: boolean; anchorId?: number }) {
+// restoreScroll/restoreAnchor = ตำแหน่งที่จำไว้ล่วงหน้า (เช่น ก่อนเริ่มค้นหา) ไม่ใช่ค่าที่อ่านจาก DOM ตอนนี้
+// — จำเป็นเพราะตอนกำลังค้นหาอยู่ ตารางสั้น scrollTop ปัจจุบันจึงไม่ใช่ตำแหน่งที่ต้องการคืน
+function renderTable(opts?: { keepScroll?: boolean; anchorId?: number; restoreScroll?: number; restoreAnchor?: { id: number; off: number }; topIfAnchorGone?: boolean }) {
   const d = state.data!;
   const keep = !!opts?.keepScroll;
   const wrapEl = document.getElementById("tableWrap");
-  const prevScroll = keep && wrapEl ? wrapEl.scrollTop : 0;
+  const prevScroll = opts?.restoreScroll ?? (keep && wrapEl ? wrapEl.scrollTop : 0);
   // ตำแหน่งเดิมของแถวอ้างอิง (คิดจาก offsets ชุดก่อนวาด) → ใช้ชดเชยเมื่อแถวข้างบนหาย/เพิ่ม
   let prevAnchorOff: number | null = null;
-  if (keep && opts?.anchorId != null) {
+  let anchorId = opts?.anchorId;
+  if (opts?.restoreAnchor) {
+    anchorId = opts.restoreAnchor.id;
+    prevAnchorOff = opts.restoreAnchor.off;
+  } else if (keep && opts?.anchorId != null) {
     const i = visIndex.get(opts.anchorId);
     if (i != null && vOffsets[i] != null) prevAnchorOff = vOffsets[i];
   }
@@ -636,9 +663,12 @@ function renderTable(opts?: { keepScroll?: boolean; anchorId?: number }) {
     renderWindow(true);
     // ชดเชยตามแถวอ้างอิง: แถวนั้นต้องอยู่จุดเดิมในจอ · ไม่มีแถวอ้างอิง → คงตำแหน่งเดิมเฉยๆ
     let target = prevScroll;
-    if (prevAnchorOff != null && opts?.anchorId != null) {
-      const ni = visIndex.get(opts.anchorId);
+    if (prevAnchorOff != null && anchorId != null) {
+      const ni = visIndex.get(anchorId);
       if (ni != null) target = prevScroll + (vOffsets[ni] - prevAnchorOff);
+      // กรอง/เรียงใหม่แล้วแถวอ้างอิงหลุดออกจากชุด → ขึ้นบนสุด
+      // (ไม่งั้น prevScroll จะเกินความสูงชุดใหม่ แล้วถูก clamp ไปค้างที่ "ก้นตาราง" ซึ่งงงกว่า)
+      else if (opts?.topIfAnchorGone) target = 0;
     }
     const max = Math.max(0, vTotal() - wrap.clientHeight);
     wrap.scrollTop = Math.min(Math.max(0, target), max);
@@ -1586,12 +1616,14 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
 
   const payGroup = chipGroup(PAYMENT_STATUSES, selPayment, paymentBadge, (v) => { selPayment = v; updateSaveState(); });
   // COD: สถานะชำระแก้มือไม่ได้ (ระบบ reconcile จัดการ) → แสดง badge อย่างเดียว + โน้ต
-  const paymentEl = isCOD(o)
-    ? el("div", { class: "sbpaylock" },
-        badge(paymentBadge(selPayment), paymentStatusLabel(selPayment)),
-        el("span", { class: "sbpaylocknote" }, icon("i-lock"),
-          selPayment === "error" ? "COD — ยอดไม่ตรง โปรดตรวจสอบ" : "COD — ระบบจัดการอัตโนมัติ"))
-    : payGroup.el;
+  // (ห่อไว้ใน div เดียวแล้ว re-render ได้ เพราะการเลือก "ยกเลิก" ต้องอัปเดต badge นี้ด้วย)
+  const payLock = el("div", { class: "sbpaylock" });
+  const renderPayLock = () => payLock.replaceChildren(
+    badge(paymentBadge(selPayment), paymentStatusLabel(selPayment)),
+    el("span", { class: "sbpaylocknote" }, icon("i-lock"),
+      selPayment === "error" ? "COD — ยอดไม่ตรง โปรดตรวจสอบ" : "COD — ระบบจัดการอัตโนมัติ"));
+  if (isCOD(o)) renderPayLock();
+  const paymentEl = isCOD(o) ? payLock : payGroup.el;
 
   editC.body.append(
     el("div", { class: "sbfld" }, "สถานะจัดส่ง"), delGroup.el,
@@ -1604,6 +1636,17 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     reasonBlock.style.display = selDelivery === "ตีกลับ" ? "" : "none";
     problemBlock.style.display = selDelivery === "มีปัญหา" ? "" : "none";
     reasonExtraWrap.style.display = selDelivery === "ตีกลับ" && REASONS_WITH_EXTRA.has(selReason) ? "" : "none";
+    // ยกเลิกออเดอร์ = ไม่ได้ส่ง ไม่มีเงินเข้า → เด้ง "สถานะชำระเงิน" เป็น ยกเลิก ให้เห็นก่อนกดบันทึก
+    // server ผูกให้เหมือนกัน (app_save_order_tracking) — ตรงนี้แค่ทำให้ผู้ใช้เห็นล่วงหน้า ไม่ใช่ตัวตัดสิน
+    // ไม่ทับถ้าผู้ใช้เลือก ชำระแล้ว/ไม่ใช่งานขาย เอง (เคสจ่ายแล้วยกเลิกทีหลัง → ต้องคืนเงิน)
+    let pay = selPayment;
+    if (selDelivery === "ยกเลิก" && o.delivery_status !== "ยกเลิก" && selPayment === "รอชำระ") pay = "ยกเลิก";
+    else if (selDelivery !== "ยกเลิก" && selPayment === "ยกเลิก" && o.payment_status !== "ยกเลิก") pay = o.payment_status;  // เปลี่ยนใจ → คืนค่าเดิม
+    if (pay !== selPayment) {
+      selPayment = pay;
+      payGroup.set(selPayment);
+      if (isCOD(o)) renderPayLock();
+    }
   }
   syncCond();
 
@@ -2206,8 +2249,8 @@ function openFilter(th: HTMLElement, col: Column) {
   const sortSec = el("div", { class: "sec fsort" });
   const asc = el("a", { class: state.sort?.col === col.key && state.sort.dir === "asc" ? "act" : "" }, icon("i-sortaz"), "เรียง A → Z");
   const desc = el("a", { class: state.sort?.col === col.key && state.sort.dir === "desc" ? "act" : "" }, icon("i-sortza"), "เรียง Z → A");
-  asc.addEventListener("click", () => { state.sort = { col: col.key, dir: "asc" }; closeDrop(); renderTable(); });
-  desc.addEventListener("click", () => { state.sort = { col: col.key, dir: "desc" }; closeDrop(); renderTable(); });
+  asc.addEventListener("click", () => { state.sort = { col: col.key, dir: "asc" }; closeDrop(); renderTable(anchorTop()); });
+  desc.addEventListener("click", () => { state.sort = { col: col.key, dir: "desc" }; closeDrop(); renderTable(anchorTop()); });
   sortSec.append(asc, desc);
   drop.append(sortSec);
 
@@ -2262,7 +2305,7 @@ function openFilter(th: HTMLElement, col: Column) {
     if (temp.size === values.length) state.filters.delete(col.key);
     else state.filters.set(col.key, new Set(temp));
     closeDrop();
-    renderTable();             // การเลือกไม่หาย (persist ข้ามการกรอง)
+    renderTable(anchorTop());   // การเลือกไม่หาย (persist ข้ามการกรอง) · ยึดแถวบนสุดที่กรองได้
   });
   actions.append(cancel, apply);
   drop.append(actions);
@@ -2286,11 +2329,11 @@ function renderActiveFilters() {
     const label = COLUMNS.find((c) => c.key === col)!.label;
     const vals = [...set].map((v) => (v === "" ? "(ว่าง)" : v)).join(", ");
     const chip = el("span", { class: "chip" }, `${label}: ${vals.length > 40 ? vals.slice(0, 40) + "…" : vals}`, icon("i-x", "width:.85em"));
-    chip.addEventListener("click", () => { state.filters.delete(col); renderTable(); });
+    chip.addEventListener("click", () => { state.filters.delete(col); renderTable(anchorTop()); });
     root.append(chip);
   }
   const clall = el("span", { class: "clearall" }, "ล้างทั้งหมด");
-  clall.addEventListener("click", () => { state.filters.clear(); renderTable(); });
+  clall.addEventListener("click", () => { state.filters.clear(); renderTable(anchorTop()); });
   root.append(clall);
 }
 
@@ -2540,13 +2583,21 @@ async function bootstrap() {
     if (!p.hidden) buildMonthPicker();
   });
 
-  // ค้นหา
+  // ค้นหา — ล้างคำค้นแล้วกลับ "ตำแหน่งก่อนเริ่มค้น" (ต่างจากตัวกรองที่ยึดแถวบนสุด ดู anchorTop)
   const si = $("#searchInput") as HTMLInputElement;
   let searchTimer: number | undefined;
   si.addEventListener("input", () => {
+    if (si.value.trim()) markSearchStart();   // จำตำแหน่งก่อนเริ่มค้น
     state.search = si.value;
     window.clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(() => { if (state.data) renderTable(); }, 160); // debounce กันค้าง
+    searchTimer = window.setTimeout(() => {   // debounce กันค้าง
+      if (!state.data) return;
+      if (state.search.trim()) { renderTable(); return; }   // ยังค้นอยู่ → ขึ้นบนสุด (ผลลัพธ์ชุดใหม่)
+      if (preSearch && preSearch.sig === searchSig()) {
+        renderTable({ keepScroll: true, restoreScroll: preSearch.scroll, restoreAnchor: preSearch.anchor });
+      } else renderTable();
+      preSearch = null;
+    }, 160);
   });
 
   // คัดลอกในการ์ด "ข้อมูลออเดอร์" (sidebar) → ได้บรรทัดเดียว เว้นวรรคแทนการขึ้นบรรทัดใหม่
