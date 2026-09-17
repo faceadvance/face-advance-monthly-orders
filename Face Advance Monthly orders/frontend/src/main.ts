@@ -84,8 +84,9 @@ const state = {
   month: "",
   data: null as OrdersResponse | null,
   monthsWithData: new Set<string>(),
-  monthsWithError: new Set<string>(),   // เดือนที่มีออเดอร์ error → ⚠️
-  monthsDone: new Set<string>(),        // เดือนสมบูรณ์ (ไม่มีรอส่ง/รอชำระ/error · ตีกลับถึงแล้ว) → ✓
+  monthsWithError: new Set<string>(),   // เดือนที่มีออเดอร์ error (COD ยอดไม่ตรง) → ⚠️
+  monthsWithConflict: new Set<string>(),// เดือนที่มีออเดอร์ขัดแย้ง (รับเงินแล้ว + ตีกลับถึง) → ⚠️
+  monthsDone: new Set<string>(),        // เดือนสมบูรณ์: ไม่มีทั้งของค้างและ ⚠️ → ✓
   kpiDay: null as number | null,        // วัน (index) ที่เลือกจากกราฟ → การ์ดโชว์ข้อมูลวันนั้น
   pickerYear: new Date().getFullYear(),
   search: "",
@@ -818,7 +819,8 @@ function buildRow(o: Order): HTMLElement {
   const raCell = el("td", { class: "center" });
   if (o.recon_conflict) {
     tr.classList.add("cfrow");
-    raCell.append(el("span", { class: "cferr", title: "มีทั้งรายการ COD รับเงิน และ ตีกลับถึงแล้ว — โปรดตรวจสอบ" }, icon("i-alert-solid")));
+    // ขัดแย้งเกิดได้ 2 แบบ: มีรายการ COD รับเงิน หรือ สถานะชำระเป็น "ชำระแล้ว" (โอนเงิน/ตัดบัตร) — ข้อความต้องครอบทั้งคู่
+    raCell.append(el("span", { class: "cferr", title: "รับเงินแล้ว แต่ของตีกลับถึง — โปรดตรวจสอบใน EDITH" }, icon("i-alert-solid")));
   } else if (o.return_arrived) {
     raCell.append(badge({ cls: "g", icon: "i-return" }, "ถึงแล้ว"));   // ผลตรวจสอบไม่แสดงในตาราง (ใช้ที่อื่น)
   } else {
@@ -2365,9 +2367,14 @@ function buildMonthPicker() {
       (state.pickerYear === now.getFullYear() && m > now.getMonth() + 1);
     if (isFuture) cls.push("dim");
     const cell = el("div", { class: cls.join(" ") }, THAI_MONTHS_SHORT[m - 1]);
-    // ป้ายสถานะเดือน: error (⚠️) เด่นกว่า done (✓)
-    if (state.monthsWithError.has(ym))
-      cell.append(el("span", { class: "mbadge err", title: "มีรายการ error รอตรวจสอบ" }, icon("i-alert-solid")));
+    // ป้ายสถานะเดือน: ⚠️ ชนะเสมอ — มีของรอตรวจแม้ใบเดียว เดือนนั้นไม่ได้ ✓ (เจ้านายกำหนด 2026-09-17)
+    const mErr = state.monthsWithError.has(ym);
+    const mCf = state.monthsWithConflict.has(ym);
+    if (mErr || mCf)
+      cell.append(el("span", { class: "mbadge err", title:
+        mErr && mCf ? "รอตรวจสอบใน EDITH: ยอด COD ไม่ตรง และ รับเงินแล้วแต่ตีกลับถึง"
+        : mErr ? "รอตรวจสอบใน EDITH: ยอดรับ COD ไม่ตรงยอดออเดอร์"
+        : "รอตรวจสอบใน EDITH: รับเงินแล้วแต่ของตีกลับถึง" }, icon("i-alert-solid")));
     else if (state.monthsDone.has(ym))
       cell.append(el("span", { class: "mbadge done", title: "เดือนนี้เสร็จสมบูรณ์ (ส่ง/ชำระครบ · ตีกลับถึงแล้ว)" }, icon("i-check-circle")));
     cell.addEventListener("click", (e) => {
@@ -2694,6 +2701,7 @@ async function startApp() {
     updateUserDisplay();
     state.monthsWithData = new Set(m.months ?? []);
     state.monthsWithError = new Set(m.months_error ?? []);
+    state.monthsWithConflict = new Set(m.months_conflict ?? []);
     state.monthsDone = new Set(m.months_done ?? []);
     state.ordersLoaded = false;
     buildDock();
@@ -3554,6 +3562,7 @@ async function refreshAfterImport(month: string) {
     if (!m.authorized) { toLogin(); return; }
     state.monthsWithData = new Set(m.months ?? []);
     state.monthsWithError = new Set(m.months_error ?? []);
+    state.monthsWithConflict = new Set(m.months_conflict ?? []);
     state.monthsDone = new Set(m.months_done ?? []);
     const target = /^\d{4}-\d{2}$/.test(month) ? month : (state.month || (m.months ?? [])[0]);
     if (target) await loadMonth(target);
