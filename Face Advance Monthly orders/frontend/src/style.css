@@ -259,10 +259,10 @@ tr.rowopen td{vertical-align:top}
 .amount{text-align:right;font-weight:500}.center{text-align:center}.tar{text-align:right}
 .note-cell{max-width:6rem;color:var(--ink-3)}
 td.note-cell.col-last_note_text{color:var(--ink)}   /* โน๊ตล่าสุด = ดำ (คอลัม "หมายเหตุ" ยังเทาเดิม) */
-.noteline{display:flex;align-items:center;gap:.3rem}
+.noteline{display:flex;align-items:flex-start;gap:.35rem}
 .noteline .notetxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.rowopen .notetxt{white-space:normal;overflow:visible;word-break:break-word}
-.probline{display:flex;align-items:center;gap:.3rem}
+.probline{display:flex;align-items:flex-start;gap:.35rem}
 .probline .probtxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 tr.rowopen .probtxt{white-space:normal;overflow:visible;word-break:break-word}
 .noteline .lasttxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
