@@ -2571,11 +2571,31 @@ function guardFresh(): boolean {
   }
   return true;
 }
+/**
+ * ดึงป้ายสถานะเดือน (⚠️ / ✓) ใหม่จาก DB
+ * ต้องดึงแยกจาก loadMonth เพราะ get_months มองทั้งตาราง ส่วน loadMonth ดูเดือนเดียว
+ * → เคลียร์เคสใน EDITH แล้วกลับมาหน้าออเดอร์ ป้ายเปลี่ยนตามจริงทันที ไม่ต้องกดรีเฟรช
+ */
+async function refreshMonthBadges() {
+  try {
+    const m = await fetchMonths();
+    if (!m.authorized) return;
+    state.monthsWithData = new Set(m.months ?? []);
+    state.monthsWithError = new Set(m.months_error ?? []);
+    state.monthsWithConflict = new Set(m.months_conflict ?? []);
+    state.monthsDone = new Set(m.months_done ?? []);
+    buildMonthPicker();
+  } catch { /* ป้ายไม่อัปเดตไม่ร้ายแรง — ปุ่ม 🔄 ยังกดได้ */ }
+}
 async function refreshOrders() {
   const btn = $("#refreshBtn") as HTMLElement;
   btn?.classList.add("refreshing");   // หมุนเฉพาะไอคอนในปุ่ม (ไม่มีวงแหวนน้ำเงิน) ตลอดที่โหลด
-  try { if (state.month) await loadMonth(state.month); }
-  finally { btn?.classList.remove("refreshing"); }
+  try {
+    await Promise.all([
+      state.month ? loadMonth(state.month) : Promise.resolve(),
+      refreshMonthBadges(),   // ขนานกัน — ปุ่มรีเฟรชต้องอัปเดตป้ายเดือนด้วย ไม่ใช่แค่ตาราง
+    ]);
+  } finally { btn?.classList.remove("refreshing"); }
 }
 
 async function bootstrap() {
@@ -2742,6 +2762,9 @@ async function setPage(key: PageKey) {
     } else {
       await ensureOrders();
     }
+    // กลับเข้าหน้าออเดอร์ = สถานะอาจเปลี่ยนไปแล้ว (เคลียร์ EDITH · พนักงานคนอื่นแก้)
+    // ไม่ await — ป้ายเดือนไม่ใช่ของที่ต้องรอ (~130ms) หน้าจอไม่ต้องหน่วง
+    if (state.ordersLoaded) void refreshMonthBadges();
   }
 }
 
