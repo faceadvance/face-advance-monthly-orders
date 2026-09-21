@@ -7,6 +7,7 @@
 import { el, icon, nf, dmy, paymentMethodLabel, paymentStatusLabel, deliveryBadge, paymentBadge, THAI_MONTHS_SHORT, loadColsHidden, saveColsHidden, attachTopScrollbar } from "./util";
 import { fetchReturnsList, type ReturnsListResp, type ReturnListRow } from "./api";
 import { makeVTable, type VTable } from "./virtual";
+import { rowsToText } from "./returns_copy";
 
 let toastFn: (msg: string, ok?: boolean) => void = () => {};
 let data: ReturnsListResp | null = null;
@@ -609,26 +610,12 @@ function buildSelCell(r: ReturnListRow, idx: number): HTMLElement {
 }
 
 // ---------- คัดลอกข้อมูลทั้งตาราง (ตามที่กรอง/ค้นหาอยู่) ----------
-/** แพทเทิร์นตามที่เจ้านายกำหนด (2026-09-15):
- *    เบอร์โทร : xxx
- *    ชื่อลูกค้า : xxx
- *    ยอดขาย : x,xxx
- *    เลขแทร็ค : xxx
- *  คั่นแต่ละแถวด้วย  \n\n---\n\n  (บรรทัดว่าง · --- · บรรทัดว่าง) */
-function rowToText(r: ReturnListRow): string {
-  const v = (s: string | null | undefined) => (s && s.trim() !== "" ? s.trim() : "-");
-  return [
-    `เบอร์โทร : ${v(r.phone)}`,
-    `ชื่อลูกค้า : ${v(r.customer_name)}`,
-    `ยอดขาย : ${nf(r.total_sales)}`,
-    `เลขแทร็ค : ${v(r.tracking_out)}`,
-  ].join("\n");
-}
+// แพทเทิร์นข้อความอยู่ใน returns_copy.ts (แยกไว้เทสได้) — 2026-09-21 เพิ่ม "รายการสินค้า" ตามที่เจ้านายขอ
 async function copyVisibleRows(btn: HTMLButtonElement) {
   if (!curVisible.length) { toastFn("ไม่มีรายการให้คัดลอก", false); return; }
   // เลือกไว้ → คัดลอกเฉพาะที่เลือก (เรียงตามที่เห็นในตาราง) · ไม่ได้เลือก → ทั้งหมดที่โชว์อยู่
   const rows = rlSel.size ? curVisible.filter((r) => rlSel.has(r.id)) : curVisible;
-  const text = rows.map(rowToText).join("\n\n---\n\n");
+  const text = rowsToText(rows, nf);
   const done = () => {
     toastFn(`คัดลอกข้อมูล ${nf(rows.length)} รายการแล้ว${rlSel.size ? " (ที่เลือกไว้)" : ""}`);
     btn.classList.add("ok");

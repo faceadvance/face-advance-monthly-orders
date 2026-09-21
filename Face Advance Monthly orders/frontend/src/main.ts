@@ -17,6 +17,10 @@ import { renderDashboard } from "./dashboard";
 import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import { isStale, reloadForUpdate, showUpdateModal, guardSaveVersion, startVersionWatch } from "./version";
+import {
+  VIEW_KEY, buildView, parseSaved, planRestore, restoreSummary, upsertMonth, monthView,
+  type RestorePlan, type MonthView,
+} from "./view_state";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
   el, icon, nf, dmy, monthLabel, splitNameCode, deliveryBadge, paymentBadge,
@@ -505,6 +509,78 @@ function markSearchStart() {
   const row = currentVisible[i];
   preSearch = { scroll: w.scrollTop, anchor: row ? { id: row.id, off: vOffsets[i] } : undefined, sig: searchSig() };
 }
+// ======================================================
+//  จำมุมมองตารางข้ามการล็อกอิน (เฉพาะหน้าออเดอร์ = หน้าแรกของ role)
+//  ตรรกะการตัดสินใจอยู่ใน view_state.ts (เทสแยก) — ตรงนี้ทำแค่ต่อกับ DOM/state
+// ======================================================
+/** เลื่อนให้แถว id อยู่บนสุด — ใช้ตอน "เปิดระบบมาใหม่" ซึ่ง renderTable({keepScroll}) ใช้ไม่ได้
+ *  เพราะ keepScroll ชดเชยจากตำแหน่งเดิมใน DOM ที่ตอนโหลดใหม่ยังไม่มี (prevScroll=0, anchorOff=null) */
+function scrollToRow(id: number): boolean {
+  const wrap = document.getElementById("tableWrap");
+  const i = visIndex.get(id);
+  if (!wrap || i == null || i >= vOffsets.length) return false;
+  const max = Math.max(0, vTotal() - wrap.clientHeight);
+  wrap.scrollTop = Math.min(vOffsets[i], max);
+  renderWindow(true);
+  return true;
+}
+
+function readSavedViews() {
+  try { return parseSaved(localStorage.getItem(VIEW_KEY)); } catch { return null; }
+}
+
+let saveViewTimer: number | undefined;
+/** เขียนมุมมองของ "เดือนที่ดูอยู่" ลง localStorage — ไม่เรียกตอน scroll (ยิงถี่มาก) แต่อ่านแถวบนสุดตอนเซฟ
+ *  month ระบุได้ เผื่อต้องเก็บเดือนที่กำลังจะออกจาก ก่อน state.month ถูกเปลี่ยน */
+function saveView(month = state.month) {
+  if (state.page !== "orders" || !month || !state.data) return;
+  const view = buildView({
+    filters: state.filters as Iterable<[string, Iterable<string>]>,
+    sort: state.sort,
+    search: state.search,
+    anchorId: topVisibleId() ?? null,
+  });
+  try {
+    localStorage.setItem(VIEW_KEY, JSON.stringify(upsertMonth(readSavedViews(), month, view)));
+  } catch { /* เต็ม/โหมดส่วนตัว → ข้ามเงียบๆ ไม่ให้หน้าพัง */ }
+}
+function scheduleSaveView() {
+  window.clearTimeout(saveViewTimer);
+  saveViewTimer = window.setTimeout(() => saveView(), 400);
+}
+
+/** ใส่มุมมองที่เก็บไว้ลง state (ยังไม่วาด — ให้ผู้เรียกวาดเอง) · คืน true ถ้ามีการใส่ตัวกรอง/คำค้นจริง */
+function applyView(v: MonthView | null): boolean {
+  if (!v) return false;
+  state.sort = v.sort ? { col: v.sort.col as ColKey, dir: v.sort.dir } : null;
+  state.filters.clear();
+  for (const [col, vals] of v.filters) state.filters.set(col as ColKey, new Set(vals));
+  state.search = v.search;
+  ($("#searchInput") as HTMLInputElement).value = v.search;
+  return v.filters.length > 0 || v.search.trim() !== "";
+}
+
+/** แผนคืนค่าตอนล็อกอิน — ใช้ครั้งเดียวแล้วทิ้ง (เดินกลับเข้าหน้าระหว่าง session ไม่คืนซ้ำ) */
+let pendingRestore: RestorePlan | null = null;
+
+/** เรียกท้าย loadMonth — loadMonth ล้าง filters/sort/search ทุกครั้ง จึงใส่คืนทีหลังเสมอ
+ *  กฎเดียว: โหลดเดือนไหน ก็ใส่มุมมองที่เก็บไว้ของเดือนนั้น
+ *  ต่างกันแค่ตำแหน่ง scroll — ตอนล็อกอินใช้แผน (อาจสั่งให้ขึ้นบนสุด) · สลับเดือนใช้แถวที่ค้างไว้ */
+function applyStoredView(month: string) {
+  const p = pendingRestore;
+  pendingRestore = null;
+  const v = monthView(readSavedViews(), month);
+  const narrowed = applyView(v);
+  renderTable();
+  const anchor = p ? p.anchorId : (v?.anchorId ?? null);
+  if (anchor != null) scrollToRow(anchor);
+  if (narrowed) {
+    const msg = restoreSummary(v, monthLabel(month),
+      p ? "กลับมาที่มุมมองเดิม" : "ใส่ตัวกรองเดิมของเดือนนี้ให้แล้ว");
+    if (msg) toast(msg);
+  }
+}
+
 function spacerRow(): HTMLElement {
   const tr = el("tr", { class: "vspacer", "aria-hidden": "true" });
   tr.append(el("td", { colspan: String(COLUMNS.length + 1), style: "padding:0;border:0;height:0" }));
@@ -681,6 +757,7 @@ function renderTable(opts?: { keepScroll?: boolean; anchorId?: number; restoreSc
   }
 
   renderActiveFilters();
+  scheduleSaveView();   // ครอบทุกทางที่ตารางเปลี่ยน (กรอง/เรียง/ค้นหา/เปลี่ยนเดือน) ในที่เดียว
 }
 
 // ---- ตกแต่งหน้า order (ยกจากหน้ารายการตีกลับ: ซ่อนคอลัมน์ · scroll progress · spotlight) ----
@@ -2236,6 +2313,28 @@ function distinctValues(col: ColKey): { value: string; count: number }[] {
   return arr;
 }
 
+/** ดันกล่องตัวกรองให้อยู่ในขอบที่ "ตัดจริง" — คือ #tableWrap (overflow-x:hidden) ไม่ใช่ขอบจอ
+ *  🔴 ของเดิมเช็ค `rect.left < 8` (ขอบจอ) — พอย่อขนาดตัวอักษร (ปุ่ม A-/A+) คอลัมน์ซ้ายสุดหดเข้ามา
+ *     กล่องที่ผูก right:0 จะยื่นพ้นขอบซ้ายของตาราง (วัดจริงที่ 90% = ล้น 118px) แต่ rect.left ยังเป็น 80
+ *     → guard ไม่ยิง แล้วโดน overflow:hidden ของ #tableWrap/.card ตัดจนอ่านไม่ออก */
+function fitDropInside(drop: HTMLElement, th: HTMLElement) {
+  const box = th.closest<HTMLElement>("#tableWrap") ?? th.closest<HTMLElement>(".card");
+  if (!box) return;
+  const b = box.getBoundingClientRect();
+  const t = th.getBoundingClientRect();
+  const r = drop.getBoundingClientRect();
+  const PAD = 4;
+  // หนีบตำแหน่งซ้ายให้อยู่ในกรอบ · กล่องกว้างกว่าพื้นที่ → ยอมชิดซ้าย (อ่านต้นข้อความได้ ดีกว่าโดนตัดหัว)
+  let left = r.left;
+  if (left + r.width > b.right - PAD) left = b.right - PAD - r.width;
+  if (left < b.left + PAD) left = b.left + PAD;
+  // ตั้งเป็น left แบบ px เสมอ — ห้ามใช้ transform เพราะ @keyframes popin animate transform ไปที่ none
+  // จะทับค่าที่ตั้งไว้ตอนแอนิเมชันกำลังเล่น แล้วกระตุกตอนจบ
+  drop.style.right = "auto";
+  drop.style.left = `${Math.round(left - t.left)}px`;
+  drop.style.transformOrigin = left + r.width / 2 < t.left + t.width / 2 ? "top left" : "top right";
+}
+
 function openFilter(th: HTMLElement, col: Column) {
   if (openDrop && openDrop.dataset.col === col.key) { closeDrop(); return; }
   closeDrop();
@@ -2284,7 +2383,10 @@ function openFilter(th: HTMLElement, col: Column) {
       const label = value === "" ? "(ว่าง)" : value;
       if (q && !label.toLowerCase().includes(q)) continue;
       const cbx = el("span", { class: "cbx" + (temp.has(value) ? "" : " off") }, icon("i-tick"));
-      const row = el("div", { class: "fval" }, cbx, label, el("span", { class: "cnt" }, nf(count)));
+      // ห่อป้ายด้วย span — text node เปล่าๆ ตัด ellipsis ไม่ได้ ค่ายาวจะดันตัวเลขจำนวนหลุดขอบกล่อง
+      // title = ข้อความเต็ม (เอาเมาส์ชี้ก็อ่านได้ ไม่เสียข้อมูล)
+      const lbl = el("span", { class: "flabel", title: label }, label);
+      const row = el("div", { class: "fval" }, cbx, lbl, el("span", { class: "cnt" }, nf(count)));
       row.addEventListener("click", () => {
         if (temp.has(value)) { temp.delete(value); cbx.classList.add("off"); }
         else { temp.add(value); cbx.classList.remove("off"); }
@@ -2295,8 +2397,15 @@ function openFilter(th: HTMLElement, col: Column) {
   }
   renderVals();
   inp.addEventListener("input", () => renderVals(inp.value));
-  selAll.addEventListener("click", () => { for (const v of values) temp.add(v.value); rowEls.forEach((r) => r.cbx.classList.remove("off")); });
-  clr.addEventListener("click", () => { temp.clear(); rowEls.forEach((r) => r.cbx.classList.add("off")); });
+  // 🔴 ต้องทำเฉพาะค่าที่ "ค้นเจออยู่ตอนนี้" เท่านั้น (rowEls) ไม่ใช่ทั้ง values
+  //    ของเดิม selAll วน values ทั้งหมด · clr ใช้ temp.clear() → ไปแตะค่าที่ถูกค้นซ่อนไว้ด้วย
+  //    แถมอัปเดตติ๊กแค่แถวที่เห็น ทำให้ค่าจริงกับหน้าจอไม่ตรงกัน (แบบเดียวกับ Excel/Sheets คือทำเฉพาะที่กรองเห็น)
+  selAll.addEventListener("click", () => {
+    for (const r of rowEls) { temp.add(r.value); r.cbx.classList.remove("off"); }
+  });
+  clr.addEventListener("click", () => {
+    for (const r of rowEls) { temp.delete(r.value); r.cbx.classList.add("off"); }
+  });
 
   // actions
   const actions = el("div", { class: "factions" });
@@ -2314,11 +2423,7 @@ function openFilter(th: HTMLElement, col: Column) {
   drop.append(actions);
 
   th.append(drop);
-  // กันกล่องล้นขอบจอ: คอลัมน์ซ้ายสุด (วันที่) ที่ right:0 จะยื่นทะลุซ้าย → สลับมาชิดซ้าย
-  if (drop.getBoundingClientRect().left < 8) {
-    drop.style.right = "auto";
-    drop.style.left = "0";
-  }
+  fitDropInside(drop, th);
   inp.focus();
 }
 
@@ -2416,8 +2521,16 @@ function initZoom() {
 // ======================================================
 //  โหลดเดือน + bootstrap
 // ======================================================
+/** ลำดับคำขอโหลดเดือน — กันผลลัพธ์ของเดือนเก่าที่มาถึงช้ากว่ามาเขียนทับเดือนใหม่
+ *  🔴 เคสจริง: กดสลับเดือนเร็วๆ 2 ครั้ง · fetch ของเดือนแรกเสร็จทีหลัง → state.data/ตัวกรองกลายเป็นของเดือนที่ไม่ได้ดูอยู่
+ *     (เป็นบั๊กเดิมของ loadMonth · พอมี saveView ต่อท้ายยิ่งหนัก เพราะเขียนทับค่าที่เก็บไว้ด้วย) */
+let loadSeq = 0;
+
 async function loadMonth(month: string) {
+  const seq = ++loadSeq;
   const monthChanged = state.month !== month;   // เปลี่ยนเดือนจริง (ไม่ใช่รีเฟรชเดือนเดิม)
+  // เก็บมุมมองของเดือนที่กำลังจะออกจากก่อน (ทันที ไม่รอ debounce) ไม่งั้นตัวกรองล่าสุดของเดือนนั้นหาย
+  if (monthChanged && state.month) saveView(state.month);
   state.month = month;
   state.pickerYear = Number(month.slice(0, 4));
   // reset มุมมองต่อเดือน
@@ -2434,13 +2547,14 @@ async function loadMonth(month: string) {
   if (monthChanged) renderLoading();
   try {
     const data = await fetchOrders(month);
+    if (seq !== loadSeq) return;      // มีคำขอเดือนใหม่กว่าแซงไปแล้ว → ทิ้งผลนี้ ห้ามแตะ state/localStorage
     if (!data.authorized) { toLogin(); return; }
     currentRole = data.role || currentRole; setRole(currentRole);   // sync สิทธิ์จาก server
     document.body.classList.toggle("noedit", !canEdit(currentRole));   // role แก้ไม่ได้ → ซ่อนดินสอ
     computeKpiDaily(data);            // get_orders คืนแค่ orders → คำนวณ KPI/daily ที่นี่
     state.data = data;
     renderKpi(data);
-    renderTable();
+    applyStoredView(month);           // ใส่ตัวกรอง/เรียง/คำค้นของเดือนนี้คืน แล้ววาดตาราง (แทน renderTable ตรงๆ)
     buildMonthPicker();
     await loadNotifs(); markOrdersFresh();   // ข้อมูลสดแล้ว → ตั้งฐานกันแก้ทับ + อัปเดตซองจดหมาย
   } catch (e: any) {
@@ -2603,6 +2717,12 @@ async function bootstrap() {
   initZoom();
   initOrdersDeco();
 
+  // ปิดแท็บ/สลับแอป/พับจอ → เก็บมุมมองทันที (ไม่รอ debounce ที่อาจไม่ทันยิง)
+  // ใช้ visibilitychange ไม่ใช่ beforeunload เพราะ Safari/มือถือมักไม่ยิง beforeunload
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") saveView();
+  });
+
   // month picker toggle
   $("#monthPill").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -2728,6 +2848,13 @@ async function startApp() {
     buildDock();
     const accessible = pagesFor(currentRole);
     const target: PageKey = accessible.includes(state.page) ? state.page : (accessible[0] ?? "orders");
+    // คืนมุมมองเดิมเฉพาะ "หน้าออเดอร์ ที่เป็นหน้าแรกของ role นั้น" และเฉพาะตอนล็อกอินเข้ามา
+    // (role ที่หน้าแรกไม่ใช่ออเดอร์ เช่น RT+ / RTs ไม่เข้าเงื่อนไข)
+    if (target === "orders" && accessible[0] === "orders") {
+      let raw: string | null = null;
+      try { raw = localStorage.getItem(VIEW_KEY); } catch { /* ปิด/โหมดส่วนตัว */ }
+      pendingRestore = planRestore(parseSaved(raw), [...state.monthsWithData]);
+    }
     await setPage(target);
     void loadNotifs();   // เติม badge กระดิ่งตอนเข้าระบบ
     startVersionWatch(() => showUpdateModal());   // เฝ้าเวอร์ชั่น: ทุก 5 นาที + ตอนกลับมาโฟกัสแท็บ
@@ -2742,14 +2869,17 @@ async function startApp() {
 async function ensureOrders() {
   if (state.ordersLoaded) return;
   state.ordersLoaded = true;
+  // มีแผนคืนมุมมองเดิม (ล็อกอินเข้ามาบนหน้าแรก) → ใช้เดือนตามแผน · ไม่งั้นเดือนล่าสุดที่มีข้อมูลเหมือนเดิม
   const months = [...state.monthsWithData];
-  const first = months[0] ?? new Date().toISOString().slice(0, 7);
-  await loadMonth(first);
+  const first = pendingRestore?.month ?? months[0] ?? new Date().toISOString().slice(0, 7);
+  await loadMonth(first);   // loadMonth เรียก applyStoredView ให้เองท้ายฟังก์ชัน
 }
 
 // สลับหน้า (กันเข้าหน้าที่ role ไม่มีสิทธิ์)
 async function setPage(key: PageKey) {
   if (!pagesFor(currentRole).includes(key)) return;
+  // ออกจากหน้าออเดอร์ → เก็บตำแหน่ง scroll ปัจจุบันทันที (ตัว debounce เก็บได้แค่ตอนตารางวาดใหม่)
+  if (state.page === "orders" && key !== "orders") saveView();
   state.page = key;
   ($("#dockWrap") as HTMLElement).classList.remove("open");
   renderPage();

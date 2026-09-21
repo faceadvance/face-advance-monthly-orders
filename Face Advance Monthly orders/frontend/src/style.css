@@ -316,7 +316,9 @@ tr.cfrow:hover{background:rgba(234,179,8,.17)}
 .fvals{max-height:12rem;overflow:auto}
 .fval{display:flex;align-items:center;gap:.55rem;padding:.35rem .5rem;border-radius:.35rem;font-size:.8rem;color:var(--ink);cursor:pointer}
 .fval:hover{background:var(--hover)}
-.fval .cnt{margin-left:auto;color:var(--ink-3)}
+/* ป้ายยาวต้องตัดด้วย … ไม่ใช่ดันตัวเลขจำนวนหลุดขอบ — min-width:0 จำเป็น ไม่งั้น flex item ไม่ยอมหดต่ำกว่าเนื้อหา */
+.fval .flabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fval .cnt{flex:none;margin-left:auto;padding-left:.35rem;color:var(--ink-3)}
 .cbx{width:1rem;height:1rem;border:1.5px solid var(--primary);border-radius:.25rem;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none}
 .cbx svg{width:.7rem;height:.7rem;stroke-width:3}
 .cbx.off{background:#fff;border-color:var(--border)}.cbx.off svg{display:none}
