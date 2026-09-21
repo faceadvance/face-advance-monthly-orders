@@ -936,6 +936,7 @@ body.sbopen #dockWrap{display:none}
 .dockitem[data-page="returns-list"]{background:linear-gradient(160deg,#2DD4BF,#0D9488);color:#fff}
 .dockitem[data-page="edith"]{background:#1E293B}   /* โลโก้เป็นไอคอนอยู่แล้ว → ใส่แค่สีพื้นเรียบ ไม่ไล่เฉด */
 .dockitem[data-page="search"]{background:linear-gradient(160deg,#A78BFA,#7C3AED);color:#fff}   /* ม่วง — เข้าชุด dock */
+.dockitem[data-page="dashboard"]{background:linear-gradient(160deg,#F472B6,#DB2777);color:#fff}   /* ชมพู-แดง — สีที่ยังไม่มีใน dock */
 /* หน้าที่เปิดอยู่ = ขีดสีน้ำเงินด้านซ้าย (สูงตามขนาดไอคอน) */
 .dockitem.active::before{content:"";position:absolute;left:-9px;top:50%;transform:translateY(-50%);width:3px;height:46%;border-radius:2px;background:var(--primary)}
 /* ป้าย handle (child ของ frame → โผล่/เลื่อนตามกรอบ) · ปิด=‹ เปิด=› */
@@ -2287,3 +2288,147 @@ body.umopen #dockWrap{display:none!important}
 .srch-kcards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem;align-items:stretch}
 .srch-kcards>.kcard,.srch-kcards>.rlkpi{min-height:7.25rem;margin:0}
 @media(max-width:900px){.srch-kcards{grid-template-columns:1fr}}
+
+/* ═══════════════ หน้ายอดขาย — การ์ดสรุป ═══════════════
+   โครงการ์ดยกจากการ์ด KPI หน้าออเดอร์ (.kcard/.khead/.kicon/.wm/.kbig) ไม่คิดใหม่
+   ปฏิทินยกจาก .ed-cal* ของ EDITH */
+:root{--db-other:#0D9488;--ok:#16A34A;--bad:#DC2626;--warn:#D97706}
+.dbwrap{flex:1;min-height:0;display:flex;flex-direction:column;gap:.8rem;overflow-y:auto}
+.dbwrap::-webkit-scrollbar{width:6px}.dbwrap::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:9px}
+.dbwrap::-webkit-scrollbar{width:6px}.dbwrap::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:9px}
+
+/* แถบตัวกรอง */
+.dbbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;flex:none}
+.dblab{font-size:.72rem;color:var(--ink-3)}
+.dbsep{width:1px;height:20px;background:var(--border);margin:0 .2rem}
+.dbgrow{flex:1}
+.dbreset{border:none;background:none;font-family:inherit;font-size:.75rem;color:var(--primary);cursor:pointer;
+ text-decoration:underline;text-underline-offset:2px;padding:0}
+.dbreset:hover{color:var(--primary-700)}
+.dbsel{position:relative;overflow:hidden;font-size:13px}
+.dbsellab{color:var(--ink-3);margin-right:.3rem}
+.dbselinput{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-family:inherit;border:none;background:none}
+.dbsel .ic{color:var(--ink-3);flex:none}
+
+/* ปฏิทินเลือกช่วง */
+.dbrangewrap{position:relative}
+.dbrangefield{cursor:pointer;font-size:13px}
+.dbrangefield.open{background:#EFF6FF;border-color:#BFDBFE;color:var(--primary-700)}
+.dbrangefield .ic:last-child{transition:transform .18s}
+.dbrangefield.open .ic:last-child{transform:rotate(180deg)}
+.dbcal{position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:272px;margin:0;
+ --ed-line:var(--border);--ed-paper:var(--surface);--ed-ink:var(--ink);--ed-muted:var(--ink-3);--ed-hover:var(--hover);
+ box-shadow:0 .9rem 2.2rem rgba(15,23,42,.18);animation:dbpop .16s cubic-bezier(.22,1,.36,1)}
+.dbcal[hidden]{display:none}
+.dbcal .ed-cal-day.sel{background:var(--primary);color:#fff;font-weight:700}
+.dbcal .ed-cal-day.inrange{background:#DBEAFE;color:var(--primary-700)}
+.dbcal .ed-cal-off{color:var(--ink-3);opacity:.35;cursor:default}
+.dbcal .ed-cal-off:hover{background:none}
+.dbcal .ed-cal-range{font-size:.72rem;color:var(--ink-2);text-align:center;margin-top:.5rem}
+.dbquick{display:flex;gap:6px;margin-top:.6rem}
+.dbquickbtn{flex:1;border:1px solid var(--border);background:#fff;border-radius:8px;padding:5px 0;font-family:inherit;
+ font-size:.7rem;color:var(--ink-2);cursor:pointer;transition:background .13s,border-color .13s,color .13s}
+.dbquickbtn:hover{background:var(--hover);border-color:#CBD5E1;color:var(--primary)}
+.dbcalapply{width:100%;margin-top:.5rem;justify-content:center}
+
+/* ── การ์ด 4 ใบ ── */
+.dbcards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:min-content;
+ align-content:center;gap:1rem;flex:1;min-height:0}
+@media(max-width:1100px){.dbcards{grid-template-columns:minmax(0,1fr);align-content:start}}
+.dbcard{padding:1.1rem 1.3rem;gap:.1rem;justify-content:flex-start;min-height:0;opacity:0;transform:translateY(9px);
+ animation:dbrise .46s cubic-bezier(.22,1,.36,1) forwards}
+.dbcards .dbcard:nth-child(2){animation-delay:.07s}
+.dbcards .dbcard:nth-child(3){animation-delay:.14s}
+.dbcards .dbcard:nth-child(4){animation-delay:.21s}
+.dbcard .khead{margin-bottom:.45rem}
+.dbcard .ktitle{font-size:.84rem;font-weight:600;color:var(--ink-2);letter-spacing:.01em}
+.dbcard .kicon{width:2rem;height:2rem;border-radius:.6rem}
+.dbcard .kicon svg{width:1.1rem;height:1.1rem}
+/* สีชุดที่ 4 (เหลือง) — ระบบมีแค่ ฟ้า/เขียว/แดง ต้องเพิ่ม */
+.kcard.tamber{--tint:#FFFBEB}
+.kicon.amber{background:#FFFBEB;color:#B45309}
+.wm.amber{color:#D97706}
+.dbbig{display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap;margin-top:.05rem;font-size:2rem;line-height:1.1}
+.dbbig-sm{font-size:1.3rem;font-weight:700;line-height:1.15;letter-spacing:-.02em;
+ font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums}
+.dbneg{color:var(--bad)}
+.dbcard.tblue .dbbig{color:var(--ink)}
+.dbcard.tgreen .dbbig-sm{color:#0F766E}
+.dbdelta{font-size:.63rem;font-weight:700;padding:.1rem .35rem;border-radius:.3rem;
+ font-family:"IBM Plex Sans Thai",sans-serif;letter-spacing:0}
+.dbdelta.up{background:#DCFCE7;color:#15803D}.dbdelta.dn{background:#FEE2E2;color:#B91C1C}
+.dbdelta.flat{background:var(--hover);color:var(--ink-3)}
+.dbcs{font-size:.68rem;color:var(--ink-3);margin-top:.15rem}
+
+/* แถวย่อย: ป้าย · ตัวเลข · แถบ · หมายเหตุ */
+.dbsplit{margin-top:1rem;padding-top:.9rem;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:.55rem}
+.dbsr{display:flex;flex-direction:column}
+.dbsplit{gap:.85rem}
+.dbsrh{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;font-size:.78rem;color:var(--ink-2)}
+.dbsrl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbsrv{font-size:1.02rem;color:var(--ink);white-space:nowrap}
+.dbsrb{height:11px;border-radius:6px;background:#EDF1F6;overflow:hidden;margin-top:.3rem;
+ box-shadow:inset 0 1px 2px rgba(15,23,42,.05)}
+.dbsrb i{display:block;height:100%;border-radius:6px;width:0;
+ animation:dbgrow .85s .2s cubic-bezier(.22,1,.36,1) forwards}
+.dbsrn{font-size:.65rem;color:var(--ink-3);margin-top:.22rem}
+
+/* การ์ดจำนวนออเดอร์: โดนัท + รายการ */
+.dbcntrow{display:flex;align-items:center;gap:1.5rem;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)}
+.dbringwrap{width:8.2rem;height:8.2rem;flex:none;position:relative}
+.dbring{position:absolute;inset:0;border-radius:50%;
+ mask:radial-gradient(circle, transparent 56%, #000 57%);-webkit-mask:radial-gradient(circle, transparent 56%, #000 57%);
+ animation:dbspin .7s cubic-bezier(.22,1,.36,1)}
+.dbring.empty{background:#E8EDF4}
+/* ตัวเลขกลางต้องเป็น "พี่น้อง" ของวงแหวน ไม่ใช่ลูก — mask ของ parent ตัดลูกทั้งหมด */
+.dbringmid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ line-height:1.1;pointer-events:none}
+.dbringmid b{font-size:1.5rem;font-weight:700;color:var(--ink);font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums}
+.dbringmid small{font-size:.64rem;color:var(--ink-3)}
+.dbcntlist{flex:1;min-width:0;display:flex;flex-direction:column;gap:.15rem}
+.dbcnti{display:flex;align-items:baseline;gap:.4rem;font-size:.74rem;color:var(--ink-2);flex-wrap:wrap}
+.dbdot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;transform:translateY(-1px)}
+.dbcntl{flex:none}
+.dbcnti b{color:var(--ink);font-size:.9rem}
+.dbcntp{color:var(--ink-3);font-size:.64rem}
+.dbcntn{flex-basis:100%;font-size:.6rem;color:var(--ink-3);padding-left:1.2rem}
+
+.dberr{display:flex;align-items:center;justify-content:center;gap:.5rem;flex:1;color:var(--ink-2);font-size:.85rem}
+.dberr .ic{color:var(--warn)}
+.dbskel{position:relative;overflow:hidden;min-height:11rem}
+.dbskel::after{content:"";position:absolute;inset:0;
+ background:linear-gradient(90deg,transparent,rgba(148,163,184,.13),transparent);animation:shimmer 1.3s infinite}
+
+@keyframes dbrise{to{opacity:1;transform:none}}
+@keyframes dbgrow{to{width:var(--w,100%)}}
+@keyframes dbpop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes dbspin{from{transform:rotate(-120deg) scale(.85);opacity:0}to{transform:none;opacity:1}}
+/* วาดรอบถัดไป: ไม่เล่น animation → สลับช่วงเวลาแล้วไม่กระพริบ */
+.dbwrap.nofx .dbcard{animation:none;opacity:1;transform:none}
+.dbwrap.nofx .dbsrb i{animation:none;width:var(--w,100%)}
+.dbwrap.nofx .dbring{animation:none}
+@media(prefers-reduced-motion:reduce){
+  .dbcard,.dbring{animation:none;opacity:1;transform:none}
+  .dbsrb i{animation:none;width:var(--w,100%)}
+  .dbskel::after{animation:none}
+}
+
+/* ── แถวแบรนด์: แถบเดียว 2 ชั้นข้อมูล (สัดส่วนแบรนด์ + ชำระแล้ว/รอชำระ) ── */
+.dbbrwrap{display:flex;flex-direction:column;gap:1rem;margin-top:.5rem}
+.dbbr{display:flex;flex-direction:column}
+.dbbrh{display:flex;align-items:baseline;gap:.45rem;font-size:.8rem;color:var(--ink-2)}
+.dbbrn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:var(--ink)}
+.dbbrv{font-size:1.02rem;color:var(--ink);white-space:nowrap}
+.dbbrp{font-size:.68rem;color:var(--ink-3);min-width:2.6rem;text-align:right}
+.dbbrb{height:11px;border-radius:6px;background:#EDF1F6;overflow:hidden;margin-top:.35rem;
+ box-shadow:inset 0 1px 2px rgba(15,23,42,.05)}
+.dbbrbf{height:100%;display:flex;border-radius:6px;overflow:hidden;width:0;
+ animation:dbgrow .9s .15s cubic-bezier(.22,1,.36,1) forwards}
+.dbbrbf .seg{display:block;height:100%}
+.dbbrbf .seg.paid{background:linear-gradient(180deg,#22C55E,#16A34A)}
+.dbbrbf .seg.wait{background:linear-gradient(180deg,#FBBF24,#D97706)}
+.dbbrf{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin-top:.35rem;font-size:.68rem;color:var(--ink-3)}
+.dbbrf b{color:var(--ink-2);font-weight:600;margin-left:.15rem}
+.dbbrn2{margin-left:auto;color:var(--ink-3)}
+.dbdot.sm{width:6px;height:6px;margin-right:.3rem}
+.dbfootnote{margin-top:.7rem;padding-top:.6rem;border-top:1px dashed var(--border);font-size:.63rem}

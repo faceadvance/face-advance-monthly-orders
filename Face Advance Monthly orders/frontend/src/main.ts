@@ -13,6 +13,7 @@ import { renderRecordReturns } from "./returns";
 import { renderReturnsList } from "./returns_list";
 import { renderEdith } from "./edith";
 import { renderSearch } from "./search";
+import { renderDashboard } from "./dashboard";
 import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import { isStale, reloadForUpdate, showUpdateModal, guardSaveVersion, startVersionWatch } from "./version";
@@ -2798,6 +2799,9 @@ function renderPage() {
   } else if (key === "search") {
     $("#pageTitle").textContent = def.title;
     renderSearch($("#pageAlt") as HTMLElement, { toast });
+  } else if (key === "dashboard") {
+    $("#pageTitle").textContent = def.title;
+    renderDashboard($("#pageAlt") as HTMLElement, { toast });
   } else {
     $("#pageTitle").textContent = def.title;
     ($("#pageAlt") as HTMLElement).innerHTML = def.built ? "" : `

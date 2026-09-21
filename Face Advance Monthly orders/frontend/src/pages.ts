@@ -1,7 +1,7 @@
 // โครงระบบหลายหน้า + สิทธิ์ตาม role (Stage 8)
 // หน้า: orders (ปัจจุบัน) · record-returns · returns-list · edith (แอดมิน)
 
-export type PageKey = "orders" | "record-returns" | "returns-list" | "search" | "edith";
+export type PageKey = "orders" | "record-returns" | "returns-list" | "search" | "edith" | "dashboard";
 
 export interface PageDef {
   key: PageKey;
@@ -17,6 +17,7 @@ export const PAGES: PageDef[] = [
   { key: "returns-list",   title: "ออเดอร์ตีกลับ",   icon: "i-clip-solid",  built: true  },
   { key: "search",         title: "ค้นหา",          icon: "i-search-solid", built: true  },
   { key: "edith",          title: "EDITH",          icon: "i-editbox", logo: true, built: true },
+  { key: "dashboard",      title: "ยอดขาย",          icon: "i-donut",  built: true },
 ];
 
 export function pageDef(key: PageKey): PageDef {
@@ -25,16 +26,18 @@ export function pageDef(key: PageKey): PageDef {
 
 // role → หน้าที่เข้าถึงได้ (เรียงตามลำดับใน PAGES เสมอเมื่อ render)
 export const ROLE_PAGES: Record<string, PageKey[]> = {
-  Adm:   ["orders", "record-returns", "returns-list", "search", "edith"],
+  Adm:   ["orders", "record-returns", "returns-list", "search", "edith", "dashboard"],
   OM:    ["orders", "search"],
   "RT+": ["record-returns", "returns-list", "search"],
   RTs:   ["returns-list", "search"],
-  Vm:    ["orders", "returns-list", "search"],
+  Vm:    ["orders", "returns-list", "search", "dashboard"],
+  // Vw = ชื่อใหม่ของ Vm (ดู docs/specs/2026-09-18-role-vm-to-vw-plan.md) — รับทั้ง 2 ชื่อระหว่างเปลี่ยน
+  Vw:    ["orders", "returns-list", "search", "dashboard"],
 };
 
 // role → แก้ไขข้อมูลได้ไหม (Vm/RTs = ดูอย่างเดียว)
 export const ROLE_CAN_EDIT: Record<string, boolean> = {
-  Adm: true, OM: true, "RT+": true, RTs: false, Vm: false,
+  Adm: true, OM: true, "RT+": true, RTs: false, Vm: false, Vw: false,
 };
 
 /** หน้าที่ role เข้าถึงได้ (เรียงตามลำดับ PAGES) — ไม่รู้จัก role → ปลอดภัยไว้ก่อน = ไม่มีหน้า */

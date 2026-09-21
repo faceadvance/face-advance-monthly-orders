@@ -22,6 +22,34 @@ export interface MonthsResponse { authorized: boolean; idle_minutes?: number; ro
 export function fetchMonths(): Promise<MonthsResponse> {
   return restRpc<MonthsResponse>("get_months", { p_token: getToken() });
 }
+// ---- Stage 14: หน้ายอดขาย (การ์ดสรุป) ----
+export type DashGran = "year" | "month" | "day";
+export interface DashBrand {
+  name: string; sales: number; paid: number; waiting: number;
+  ret_amount: number; orders: number; ret_orders: number;
+}
+export interface DashResp {
+  authorized: boolean; ok?: boolean; error?: string; empty?: boolean;
+  gran?: DashGran; from?: string; to?: string; prev_from?: string; prev_to?: string;
+  bounds?: { min: string; max: string };
+  sales?: { total: number; paid: number; waiting: number; orders: number; orders_paid: number; orders_waiting: number };
+  prev?: { total: number; orders: number };
+  returns?: { amount: number; orders: number };
+  counts?: { all: number; done: number; returned: number };
+  brands?: DashBrand[];
+}
+export function fetchDashboard(a: { gran: DashGran; from?: string; to?: string; brand?: string | null; team?: number | null }): Promise<DashResp> {
+  return restRpc<DashResp>("app_sales_dashboard", {
+    p_token: getToken(), p_gran: a.gran,
+    p_from: a.from ?? null, p_to: a.to ?? null,
+    p_brand: a.brand ?? null, p_team: a.team ?? null,
+  });
+}
+export interface DashTeamsResp { authorized: boolean; ok?: boolean; teams?: { id: number; name: string }[] }
+export function fetchDashboardTeams(): Promise<DashTeamsResp> {
+  return restRpc<DashTeamsResp>("app_sales_dashboard_teams", { p_token: getToken() });
+}
+
 export function fetchOrders(month: string): Promise<OrdersResponse> {
   return restRpc<OrdersResponse>("get_orders", { p_token: getToken(), p_month: month });
 }
