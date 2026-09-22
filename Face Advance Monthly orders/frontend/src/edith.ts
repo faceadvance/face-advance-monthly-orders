@@ -5,15 +5,15 @@ import { el, icon, nf, imageSrc, openLightbox, THAI_MONTHS_FULL } from "./util";
 import {
   fetchEdithIssues, fetchEdithDetail, fetchEdithLog,
   edithDeleteRecon, edithExchange, edithConfirmReturn, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
-  edithResolveError, edithSetPaymentStatus,
-  type EdithIssue, type EdithIssueType, type EdithCounts, type EdithLogRow,
+  edithResolveError, edithSetPaymentStatus, fetchEdithSellers, edithSetSeller,
+  type EdithIssue, type EdithIssueType, type EdithCounts, type EdithLogRow, type EdithSeller,
 } from "./api";
 import { openUserModal, resetUserModal } from "./usermgmt";
 
 let toastFn: (msg: string, ok?: boolean) => void = () => {};
 let root: HTMLElement;
 let issues: EdithIssue[] = [];
-let counts: EdithCounts = { error: 0, conflict: 0, recon: 0, dedup: 0, total: 0 };
+let counts: EdithCounts = { error: 0, conflict: 0, recon: 0, dedup: 0, noseller: 0, total: 0 };
 let selected: { type: EdithIssueType; ref: number } | null = null;
 const qFilter = new Set<EdithIssueType>(); // ว่าง = ทุกชนิด
 type Bucket = "lt2" | "2to6" | "6to12" | "gt12";
@@ -51,8 +51,10 @@ const TYPES: Record<EdithIssueType, TypeMeta> = {
     play: "ออเดอร์มีทั้งรายการ COD และตีกลับพร้อมกัน — ลบรายการที่ผิด ระบบจะคืนสถานะให้อัตโนมัติ", cls: "recon" },
   dedup:    { icon: "i-user",         label: "Dedup / ลูกค้าอาจซ้ำ", desc: "ตรวจตัวตนก่อนรวมข้อมูล",
     play: "ลูกค้าอาจเป็นคนเดียวกัน — เลือกฝั่งที่เก็บไว้ อีกฝั่งจะถูกรวมเข้ามาแล้วลบทิ้ง", cls: "dedup" },
+  noseller: { icon: "i-user",         label: "ไม่มีเซล / ไม่ระบุผู้ขาย", desc: "เติมพนักงานขายให้ออเดอร์",
+    play: "ออเดอร์ยังไม่มีพนักงานขาย — เลือกคนที่ถูกจากรายชื่อ หรือกด \"ไม่เติมเซล\" ถ้าเป็นงานส่วนกลาง", cls: "noseller" },
 };
-const TYPE_ORDER: EdithIssueType[] = ["error", "conflict", "recon", "dedup"];
+const TYPE_ORDER: EdithIssueType[] = ["error", "conflict", "recon", "dedup", "noseller"];
 
 // ---------- utils ----------
 function ageLabel(min: number): string {
@@ -357,6 +359,7 @@ async function selectIssue(type: EdithIssueType, ref: number) {
   if (type === "error") w.append(errorResolver(ref, res.order!));
   else if (type === "conflict") w.append(conflictResolver(ref, res.conflict!, res.order));
   else if (type === "recon") w.append(reconResolver(ref, res.order!));
+  else if (type === "noseller") w.append(nosellerResolver(ref, res.order!));
   else w.append(dedupResolver(ref, res.review!));
 }
 
@@ -670,6 +673,96 @@ function dedupResolver(reviewId: number, v: Record<string, unknown>): HTMLElemen
 }
 
 // ---------- actions ----------
+// ───────── noseller resolver — เติมพนักงานขาย หรือยืนยันว่าไม่มี (เจ้านายสั่ง 2026-09-22) ─────────
+let sellerCache: EdithSeller[] | null = null;
+
+function nosellerResolver(orderId: number, o: Record<string, unknown>): HTMLElement {
+  const box = el("div", { class: "ed-res type-noseller" });
+  box.append(workHeader("i-user", "ยังไม่มีพนักงานขาย",
+    `ออเดอร์ ${g(o, "order_no") || "#" + orderId} · ${g(o, "customer_name") || "—"}`));
+
+  box.append(el("div", { class: "ed-info" },
+    kv("ลูกค้า", g(o, "customer_name") || "—"),
+    kv("เบอร์โทร", el("span", { class: "ed-mono" }, g(o, "phone") || "—")),
+    kv("พื้นที่", [g(o, "district"), g(o, "province")].filter(Boolean).join(" · ") || "—"),
+    kv("แบรนด์", g(o, "brand") || "—"),
+    kv("ยอดออเดอร์", "฿" + nf(Number(o.total_sales || 0))),
+    kv("สถานะ", `${g(o, "delivery_status") || "—"} · ${g(o, "payment_status") || "—"}`),
+    kv("แทร็ค", el("span", { class: "ed-mono" }, g(o, "tracking_no") || "—")),
+    kv("รายการ", g(o, "items") || "—")));
+
+  // ── เบาะแส 2 ทาง: รหัสที่ติดมาในชื่อลูกค้า · เซลที่ลูกค้าคนนี้เคยซื้อด้วย ──
+  const codeHint = g(o, "code_in_name");
+  const hist = (o.history ?? []) as { code: string; name: string; orders: number; last_at: string }[];
+  const hints: Node[] = [];
+  if (codeHint) {
+    hints.push(el("div", { class: "ed-hint" },
+      el("b", {}, "รหัสที่ติดมาในชื่อลูกค้า: "), el("span", { class: "ed-mono" }, codeHint),
+      el("small", {}, " — ตรวจก่อนใช้ อาจพิมพ์ผิดหรือเป็นรหัสเก่า")));
+  }
+  if (hist.length) {
+    hints.push(el("div", { class: "ed-hint" },
+      el("b", {}, "ลูกค้าคนนี้เคยซื้อกับ: "),
+      ...hist.slice(0, 4).map((h) => el("span", { class: "ed-chip" },
+        `${h.name ?? "—"} (${h.code}) · ${nf(h.orders)} ออเดอร์`))));
+  }
+  if (hints.length) box.append(el("div", { class: "ed-hints" }, ...hints));
+
+  // ── เลือกพนักงานขาย ──
+  const pick = el("select", { class: "ed-select" }) as HTMLSelectElement;
+  pick.append(el("option", { value: "" }, "— เลือกพนักงานขาย —"));
+  const save = el("button", { class: "ed-btn primary sm" }, icon("i-check"), "บันทึกพนักงานขาย") as HTMLButtonElement;
+  save.disabled = true;
+  pick.addEventListener("change", () => { save.disabled = !pick.value; });
+
+  const fill = (list: EdithSeller[]) => {
+    // จัดกลุ่มตามฝ่าย → หาคนง่ายกว่ารายการเรียงยาวๆ
+    const byDept = new Map<string, EdithSeller[]>();
+    for (const sl of list) {
+      const d = sl.department === "admin" ? "แอดมิน" : sl.department === "crm" ? "CRM" : "อื่นๆ";
+      (byDept.get(d) ?? byDept.set(d, []).get(d)!).push(sl);
+    }
+    for (const [d, arr] of byDept) {
+      const grp = el("optgroup", { label: `${d} (${arr.length})` });
+      for (const sl of arr) {
+        grp.append(el("option", { value: sl.code },
+          `${sl.code} · ${sl.name ?? "—"} · ${sl.team}${sl.active ? "" : " (ไม่ใช้งาน)"}`));
+      }
+      pick.append(grp);
+    }
+    // เบาะแสตรงกับรายชื่อจริง → เลือกไว้ให้เลย (ยังต้องกดบันทึกเอง)
+    const guess = codeHint && list.some((x) => x.code === codeHint) ? codeHint
+      : hist.find((h) => list.some((x) => x.code === h.code))?.code;
+    if (guess) { pick.value = guess; save.disabled = false; }
+  };
+  if (sellerCache) fill(sellerCache);
+  else {
+    void fetchEdithSellers().then((r) => {
+      if (r.ok && r.sellers) { sellerCache = r.sellers; fill(r.sellers); }
+      else pick.append(el("option", { value: "", disabled: "" }, "โหลดรายชื่อไม่สำเร็จ"));
+    });
+  }
+
+  save.addEventListener("click", () => {
+    const code = pick.value;
+    if (!code) return;
+    const label = pick.options[pick.selectedIndex]?.text ?? code;
+    confirmAsk(`เติมพนักงานขายเป็น ${label} ให้ออเดอร์นี้?`,
+      () => runAction(save, () => edithSetSeller(orderId, code), `เติมพนักงานขายแล้ว — ${code}`));
+  });
+
+  const waive = el("button", { class: "ed-btn sm" }, icon("i-ban"), "ไม่เติมเซล (งานส่วนกลาง)") as HTMLButtonElement;
+  waive.addEventListener("click", () => confirmAsk(
+    "ยืนยันว่าออเดอร์นี้ไม่มีพนักงานขาย? เคสจะออกจากคิวและไม่กลับมาอีก (ยอดยังนับอยู่ในกลุ่ม \"อื่นๆ\" ของหน้ายอดขาย)",
+    () => runAction(waive, () => edithSetSeller(orderId, null), "บันทึกแล้ว — ไม่มีพนักงานขาย")));
+
+  box.append(el("div", { class: "ed-act" },
+    el("div", { class: "ed-pickrow" }, pick, save),
+    el("div", { class: "ed-or" }, "หรือ"),
+    waive));
+  return box;
+}
+
 async function runAction(btn: HTMLButtonElement, fn: () => Promise<{ ok?: boolean; error?: string }>, okMsg: string) {
   if (busy) return; busy = true;
   btn.classList.add("loading"); btn.disabled = true;

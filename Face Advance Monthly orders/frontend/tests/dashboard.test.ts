@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   axisLabel, rangeLabel, growth, yTicks, shortMoney,
-  barRatio, brandSplit, defaultRange, clampRange, isPartial,
+  barRatio, brandSplit, shares, defaultRange, clampRange, isPartial,
 } from "../src/dashboard_calc.ts";
 
 test("axisLabel: ปี/เดือน/วัน", () => {
@@ -75,6 +75,23 @@ test("brandSplit: total 0 ต้องไม่เป็น NaN", () => {
   const s = brandSplit(2574185, 886892);
   assert.ok(Math.abs(s.h + s.o - 1) < 1e-9, "สองส่วนรวมต้องได้ 1");
   assert.ok(Math.abs(s.h - 0.7437) < 0.001, `ได้ ${s.h}`);
+});
+
+test("shares: สัดส่วนหลายก้อน (การ์ดแยกตามฝ่าย) — รวมได้ 1 · ไม่ NaN · ค่าลบไม่พัง", () => {
+  // เคสจริง 2026-09-22: แอดมิน 66,697,620 · CRM 38,696,180 · อื่นๆ 2,047,255 = 107,441,055
+  const s = shares([66697620, 38696180, 2047255]);
+  assert.ok(Math.abs(s.reduce((a, b) => a + b, 0) - 1) < 1e-9, "รวมต้องได้ 1");
+  assert.ok(Math.abs(s[0] - 0.6208) < 0.001, `แอดมินได้ ${s[0]}`);
+  assert.ok(Math.abs(s[1] - 0.3601) < 0.001, `CRM ได้ ${s[1]}`);
+  assert.ok(Math.abs(s[2] - 0.0191) < 0.001, `อื่นๆ ได้ ${s[2]}`);
+  // ช่วงที่ยังไม่มียอดเลย → 0 ทุกก้อน ไม่ใช่ NaN (การ์ดต้องไม่โชว์ NaN%)
+  for (const v of shares([0, 0, 0])) { assert.equal(v, 0); assert.ok(!Number.isNaN(v)); }
+  assert.deepEqual(shares([]), []);
+  // ค่าลบ/NaN/Infinity ถูกปัดเป็น 0 แล้วก้อนที่เหลือยังรวมได้ 1
+  const g = shares([-5, 10, NaN, Infinity]);
+  assert.deepEqual(g, [0, 1, 0, 0]);
+  // ก้อนเดียวมีค่า → ได้ 1 เต็ม
+  assert.deepEqual(shares([0, 7, 0]), [0, 1, 0]);
 });
 
 test("defaultRange: ยึดขอบข้อมูลจริง ไม่หลุดออกนอกช่วง", () => {

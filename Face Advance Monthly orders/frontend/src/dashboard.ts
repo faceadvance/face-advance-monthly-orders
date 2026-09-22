@@ -9,7 +9,7 @@
 
 import { el, icon, nf, THAI_MONTHS_FULL } from "./util";
 import { fetchDashboard, fetchDashboardTeams, type DashGran, type DashResp } from "./api";
-import { rangeLabel, growth, brandSplit, defaultRange, clampRange } from "./dashboard_calc";
+import { rangeLabel, growth, brandSplit, shares, defaultRange, clampRange } from "./dashboard_calc";
 
 const money = (n: number) => "฿" + nf(n);
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
@@ -215,7 +215,7 @@ function pickPill(label: string, cur: string, opts: [string, string][], onPick: 
 
 // ───────── การ์ด ─────────
 /** โครงการ์ด = เหมือนการ์ด KPI หน้าออเดอร์: ลายน้ำสี + ชิปไอคอนสี + หัวข้อ + เนื้อ */
-function card(color: "blue" | "green" | "red" | "amber", ic: string, title: string, ...body: Node[]): HTMLElement {
+function card(color: "blue" | "green" | "red" | "amber" | "purple", ic: string, title: string, ...body: Node[]): HTMLElement {
   const c = el("div", { class: `kcard t${color} dbcard` });
   const wm = icon(ic); wm.setAttribute("class", `wm ${color}`);
   c.append(wm, el("div", { class: "khead" },
@@ -243,6 +243,8 @@ function statRow(label: string, value: string, ratio: number, color: string, not
 function brandRow(o: {
   name: string; dot: string; sales: number; paid: number; waiting: number;
   orders: number; shareOfAll: number;
+  /** บรรทัดย่อย (ไม่ใส่ก็ได้) — แบ่งยอดของแถวนี้ต่อตามแบรนด์ */
+  sub?: { name: string; dot: string; sales: number }[];
 }): HTMLElement {
   const r = el("div", { class: "dbbr" });
   r.append(el("div", { class: "dbbrh" },
@@ -265,6 +267,13 @@ function brandRow(o: {
     el("span", {}, el("i", { class: "dbdot sm", style: "background:var(--warn)" }),
       "รอชำระ ", el("b", { class: "num" }, money(o.waiting))),
     el("span", { class: "dbbrn2" }, `${nf(o.orders)} รายการ`)));
+  // บรรทัดย่อย: แบ่งต่อว่ายอดของแถวนี้มาจากแบรนด์ไหนเท่าไหร่ (ใช้กับการ์ด "แยกตามฝ่าย")
+  if (o.sub?.length) {
+    r.append(el("div", { class: "dbbrsub" }, ...o.sub.map((x) => el("span", { class: "dbsubchip" },
+      el("i", { class: "dbdot sm", style: `background:${x.dot}` }),
+      x.name, " ", el("b", { class: "num" }, money(x.sales)),
+      el("small", { class: "num" }, ` ${pct(x.sales, o.sales).toFixed(1)}%`)))));
+  }
   return r;
 }
 
@@ -321,8 +330,37 @@ function cards(d: DashResp): HTMLElement {
     el("div", { class: "dbcntrow" },
       donut([{ v: cnt.done, c: "var(--ok)" }, { v: cnt.returned, c: "var(--bad)" }, { v: rest, c: "#CBD5E1" }], cnt.all),
       list)));
+
+  // ── 5) ยอดแยกตามฝ่าย (แอดมิน / CRM / อื่นๆ) ── เจ้านายขอ 2026-09-22
+  // กินเต็มความกว้างแถวล่าง: ไม่เหลือช่องโหว่ในกริด 2 คอลัมน์ และแถบยาวขึ้นอ่านสัดส่วนง่ายกว่า
+  const ds = d.depts ?? [];
+  if (ds.length) {
+    const sh = shares(ds.map((x) => x.sales));
+    const deptCard = card("purple", "i-user", "ยอดแยกตามฝ่าย",
+      el("div", { class: "dbbrwrap" }, ...ds.map((x, i) => brandRow({
+        name: x.name, dot: DEPT_DOT[x.name] ?? "#94A3B8", sales: x.sales,
+        paid: x.paid, waiting: x.waiting, orders: x.orders, shareOfAll: sh[i],
+        sub: (d.dept_brands ?? []).filter((y) => y.dept === x.name)
+          .map((y) => ({ name: y.brand, dot: BRAND_DOT[y.brand] ?? "#94A3B8", sales: y.sales })),
+      }))),
+      el("div", { class: "dbcs dbfootnote" },
+        "บรรทัดย่อย = ยอดของฝ่ายนั้นแยกตามแบรนด์ · \"อื่นๆ\" = ออเดอร์ที่ไม่มีพนักงานขาย หรือแผนกอื่น (แสดงไว้เพื่อให้ผลบวกตรงยอดรวม)"));
+    deptCard.classList.add("dbwide");
+    wrap.append(deptCard);
+  }
   return wrap;
 }
+
+const BRAND_DOT: Record<string, string> = {
+  HOPEFUL: "var(--primary)",
+  "แบรนด์อื่นๆ": "var(--db-other)",
+};
+
+const DEPT_DOT: Record<string, string> = {
+  "แอดมิน": "var(--primary)",
+  "CRM": "#7C3AED",
+  "อื่นๆ": "#94A3B8",
+};
 
 function countLine(color: string, label: string, v: number, all: number, note?: string): HTMLElement {
   const line = el("div", { class: "dbcnti" },
@@ -364,7 +402,7 @@ function draw() {
 
 function skeleton(): HTMLElement {
   return el("div", { class: "dbwrap" },
-    el("div", { class: "dbcards" }, ...[0, 1, 2, 3].map(() => el("div", { class: "kcard dbcard dbskel" }))));
+    el("div", { class: "dbcards" }, ...[0, 1, 2, 3, 4].map((i) => el("div", { class: "kcard dbcard dbskel" + (i === 4 ? " dbwide" : "") }))));
 }
 
 function errorBox(msg: string): HTMLElement {

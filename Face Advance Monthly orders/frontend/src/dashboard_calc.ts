@@ -79,6 +79,16 @@ export function brandSplit(hope: number, other: number): { h: number; o: number 
   return { h: hope / t, o: other / t };
 }
 
+/** สัดส่วนของหลายก้อน (0–1) — ใช้กับการ์ด "แยกตามฝ่าย" ที่มี 3 ก้อนขึ้นไป
+ *  รวมต้องได้ 1 เสมอถ้ามีค่าบวกอยู่บ้าง · ผลรวม 0 หรือค่าลบ → 0 ทุกก้อน ไม่ใช่ NaN
+ *  (brandSplit ทำได้แค่ 2 ก้อน จึงต้องมีตัวนี้แยก) */
+export function shares(values: number[]): number[] {
+  const safe = values.map((v) => (Number.isFinite(v) && v > 0 ? v : 0));
+  const t = safe.reduce((a, b) => a + b, 0);
+  if (!(t > 0)) return values.map(() => 0);
+  return safe.map((v) => v / t);
+}
+
 /** ช่วงวันที่เริ่มต้นเมื่อสลับ granularity — ยึดขอบข้อมูลจริง ไม่หลุดออกนอกช่วง */
 export function defaultRange(gran: Gran, min: string, max: string): { from: string; to: string } {
   if (gran === "year") return { from: min, to: max };

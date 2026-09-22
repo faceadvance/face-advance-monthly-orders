@@ -37,6 +37,10 @@ export interface DashResp {
   returns?: { amount: number; orders: number };
   counts?: { all: number; done: number; returned: number };
   brands?: DashBrand[];
+  /** ยอดแยกตามฝ่าย — แอดมิน / CRM / อื่นๆ (โครงเดียวกับ brands · เรียงคงที่จาก RPC) */
+  depts?: DashBrand[];
+  /** ฝ่าย × แบรนด์ — แอดมิน/CRM ขายแบรนด์ไหนไปเท่าไหร่ */
+  dept_brands?: { dept: string; brand: string; sales: number; paid: number; waiting: number; orders: number }[];
 }
 export function fetchDashboard(a: { gran: DashGran; from?: string; to?: string; brand?: string | null; team?: number | null }): Promise<DashResp> {
   return restRpc<DashResp>("app_sales_dashboard", {
@@ -292,19 +296,32 @@ export function saveReturns(rows: ReturnRowPayload[]): Promise<SaveReturnsResp> 
 }
 
 // ---- Stage 9b: EDITH — ศูนย์รวมปัญหาทั้งระบบ (Adm only) ----
-export type EdithIssueType = "error" | "conflict" | "recon" | "dedup";
+export type EdithIssueType = "error" | "conflict" | "recon" | "dedup" | "noseller";
 export interface EdithIssue {
   type: EdithIssueType; ref: number; key: string; severity: string;
   opened_at: string; age_minutes: number; summary: string;
   extra: Record<string, unknown>;
 }
-export interface EdithCounts { error: number; conflict: number; recon: number; dedup: number; total: number; }
+export interface EdithCounts { error: number; conflict: number; recon: number; dedup: number; noseller: number; total: number; }
 export interface EdithIssuesResp {
   authorized: boolean; ok?: boolean; error?: string;
   issues?: EdithIssue[]; counts?: EdithCounts;
 }
 export function fetchEdithIssues(): Promise<EdithIssuesResp> {
   return restRpc<EdithIssuesResp>("app_edith_issues", { p_token: getToken() });
+}
+
+/** รายชื่อพนักงานขายให้เลือกในคิว noseller */
+export interface EdithSeller { code: string; name: string | null; department: string | null; team: string; active: boolean }
+export interface EdithSellersResp { authorized: boolean; ok?: boolean; error?: string; sellers?: EdithSeller[] }
+export function fetchEdithSellers(): Promise<EdithSellersResp> {
+  return restRpc<EdithSellersResp>("app_edith_sellers", { p_token: getToken() });
+}
+/** code = null → ยืนยันว่าไม่มีพนักงานขาย (งานส่วนกลาง) */
+export function edithSetSeller(orderId: number, code: string | null): Promise<EdithActionResp> {
+  return restRpc<EdithActionResp>("app_edith_set_seller", {
+    p_token: getToken(), p_order_id: orderId, p_seller_code: code,
+  });
 }
 
 export interface EdithDetailResp {
@@ -317,6 +334,7 @@ export function fetchEdithDetail(type: EdithIssueType, ref: number): Promise<Edi
   const fn = type === "error" ? "app_edith_error_detail"
     : type === "conflict" ? "app_edith_conflict_detail"
     : type === "recon" ? "app_edith_recon_detail"
+    : type === "noseller" ? "app_edith_noseller_detail"
     : "app_edith_dedup_detail";
   const arg = type === "conflict" ? { p_conflict_id: ref }
     : type === "dedup" ? { p_review_id: ref }

@@ -1506,6 +1506,7 @@ td.rlteam{white-space:nowrap}
   --ed-conflict:#D97706;--ed-conflict-soft:#FFFBEB;--ed-conflict-line:#FDE68A;
   --ed-recon:#0284C7;--ed-recon-soft:#F0F9FF;--ed-recon-line:#BAE6FD;
   --ed-dedup:#7C3AED;--ed-dedup-soft:#F5F3FF;--ed-dedup-line:#DDD6FE;
+  --ed-noseller:#0D9488;--ed-noseller-soft:#F0FDFA;--ed-noseller-line:#99F6E4;
   --type:var(--ed-accent);--type-soft:var(--ed-accent-soft);--type-line:var(--ed-accent-line);
   max-width:none;width:100%;gap:.75rem;
   background:var(--ed-canvas);color:var(--ed-ink);font-size:14px;line-height:1.6;
@@ -1514,6 +1515,7 @@ td.rlteam{white-space:nowrap}
 .edith-host .type-conflict{--type:var(--ed-conflict);--type-soft:var(--ed-conflict-soft);--type-line:var(--ed-conflict-line)}
 .edith-host .type-recon{--type:var(--ed-recon);--type-soft:var(--ed-recon-soft);--type-line:var(--ed-recon-line)}
 .edith-host .type-dedup{--type:var(--ed-dedup);--type-soft:var(--ed-dedup-soft);--type-line:var(--ed-dedup-line)}
+.edith-host .type-noseller{--type:var(--ed-noseller);--type-soft:var(--ed-noseller-soft);--type-line:var(--ed-noseller-line)}
 .edith-host .ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .edith-host .num,.edith-host time{font-variant-numeric:tabular-nums}
 :where(.edith-host) button{cursor:pointer;color:inherit;background:none;border:0;font:inherit}
@@ -1540,15 +1542,20 @@ td.rlteam{white-space:nowrap}
 .ed-refresh.spin .ic{animation:ed-spin .5s linear}
 
 /* KPI */
-.ed-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px}
-.ed-kpi{display:flex;align-items:center;gap:13px;text-align:left;min-width:0;padding:13px 17px;border:1px solid var(--ed-line);border-radius:12px;background:var(--ed-paper);position:relative;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+/* การ์ดสรุปด้านบน EDITH — แถวเดียวเสมอ ไม่ว่าจะมีกี่ชนิดปัญหา (เจ้านายสั่ง 2026-09-22)
+   ใช้ grid-auto-flow:column แทนการตั้งจำนวนคอลัมน์ตายตัว → เพิ่มชนิดที่ 6 ในอนาคตก็ยังแถวเดียว
+   วัดจริง: ไม่มีข้อความถูกตัดเมื่อกว้าง/ใบ >= ~249px · กริดกว้าง = viewport - 48
+   → ต้องมี viewport >= ~1330px จึงตั้งจุดตัดที่ 1330px */
+.ed-kpis{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:9px}
+@media(max-width:1330px){.ed-kpis{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ed-kpi{display:flex;align-items:center;gap:10px;text-align:left;min-width:0;padding:12px 13px;border:1px solid var(--ed-line);border-radius:12px;background:var(--ed-paper);position:relative;box-shadow:0 1px 2px rgba(15,23,42,.04)}
 .ed-kpi:hover{border-color:#cbd5e1;box-shadow:0 2px 8px rgba(15,23,42,.07)}
 .ed-kpi[aria-pressed=true]{border-color:var(--type);box-shadow:0 0 0 1px var(--type)}
-.ed-kpi-ic{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--type);background:var(--type-soft);border:1px solid var(--type-line)}
+.ed-kpi-ic{width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--type);background:var(--type-soft);border:1px solid var(--type-line)}
 .ed-kpi-copy{flex:1;min-width:0}
-.ed-kpi-copy b{display:block;font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ed-kpi-copy small{display:block;font-size:12px;color:var(--ed-muted);margin-top:1px}
-.ed-kpi-n{font-size:30px;font-weight:700;letter-spacing:-.04em;line-height:1;color:var(--ed-ink)}
+.ed-kpi-copy b{display:block;font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-kpi-copy small{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ed-muted);margin-top:1px}
+.ed-kpi-n{font-size:26px;font-weight:700;letter-spacing:-.04em;line-height:1;color:var(--ed-ink)}
 
 /* desk grid */
 .ed-desk{display:grid;grid-template-columns:300px minmax(0,1fr) 312px;gap:12px;flex:1;min-height:0}
@@ -1584,6 +1591,7 @@ td.rlteam{white-space:nowrap}
 .ed-chip.type-conflict.on{color:var(--ed-conflict);background:var(--ed-conflict-soft);border-color:var(--ed-conflict-line)}
 .ed-chip.type-recon.on{color:var(--ed-recon);background:var(--ed-recon-soft);border-color:var(--ed-recon-line)}
 .ed-chip.type-dedup.on{color:var(--ed-dedup);background:var(--ed-dedup-soft);border-color:var(--ed-dedup-line)}
+.ed-chip.type-noseller.on{color:var(--ed-noseller);background:var(--ed-noseller-soft);border-color:var(--ed-noseller-line)}
 
 /* aging (time-bucket) */
 .ed-aging{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
@@ -2334,8 +2342,11 @@ body.umopen #dockWrap{display:none!important}
 .dbcalapply{width:100%;margin-top:.5rem;justify-content:center}
 
 /* ── การ์ด 4 ใบ ── */
+/* 🔴 align-content:center + เนื้อหาสูงเกินกรอบ = แถวแรกถูกดันขึ้นเหนือพื้นที่ scroll แล้วเลื่อนขึ้นไปดูไม่ได้
+   (เจอตอนเพิ่มการ์ดใบที่ 5: scrollTop=0 แล้วการ์ดใบแรกยังอยู่เหนือขอบ 36px)
+   `safe center` = จัดกลางเมื่อพอดี · ชิดบนเมื่อล้น · ประกาศ center ไว้ก่อนเป็น fallback ให้เบราว์เซอร์เก่า */
 .dbcards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:min-content;
- align-content:center;gap:1rem;flex:1;min-height:0}
+ align-content:center;align-content:safe center;gap:1rem;flex:1;min-height:0}
 @media(max-width:1100px){.dbcards{grid-template-columns:minmax(0,1fr);align-content:start}}
 .dbcard{padding:1.1rem 1.3rem;gap:.1rem;justify-content:flex-start;min-height:0;opacity:0;transform:translateY(9px);
  animation:dbrise .46s cubic-bezier(.22,1,.36,1) forwards}
@@ -2350,6 +2361,20 @@ body.umopen #dockWrap{display:none!important}
 .kcard.tamber{--tint:#FFFBEB}
 .kicon.amber{background:#FFFBEB;color:#B45309}
 .wm.amber{color:#D97706}
+/* บรรทัดย่อยในการ์ด "แยกตามฝ่าย" — ยอดของฝ่ายนั้นแยกตามแบรนด์ */
+.dbbrsub{display:flex;flex-wrap:wrap;gap:.3rem .5rem;margin-top:.35rem;padding-top:.35rem;
+ border-top:1px dashed var(--border)}
+.dbsubchip{display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;color:var(--ink-2);
+ background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:.12rem .55rem}
+.dbsubchip b{color:var(--ink);font-weight:700}
+.dbsubchip small{color:var(--ink-3)}
+.kcard.tpurple{--tint:#F5F3FF}
+.kicon.purple{background:#F5F3FF;color:#6D28D9}
+.wm.purple{color:#7C3AED}
+/* การ์ด "ยอดแยกตามฝ่าย" กินเต็มความกว้าง — กริด 2 คอลัมน์จะไม่เหลือช่องโหว่เวลามีการ์ด 5 ใบ */
+.dbwide{grid-column:1/-1}
+@media(max-width:1100px){.dbwide{grid-column:auto}}
+.dbcards .dbcard:nth-child(5){animation-delay:.28s}
 .dbbig{display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap;margin-top:.05rem;font-size:2rem;line-height:1.1}
 .dbbig-sm{font-size:1.3rem;font-weight:700;line-height:1.15;letter-spacing:-.02em;
  font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums}
@@ -2434,3 +2459,16 @@ body.umopen #dockWrap{display:none!important}
 .dbbrn2{margin-left:auto;color:var(--ink-3)}
 .dbdot.sm{width:6px;height:6px;margin-right:.3rem}
 .dbfootnote{margin-top:.7rem;padding-top:.6rem;border-top:1px dashed var(--border);font-size:.63rem}
+
+/* คิว noseller: แถวเลือกพนักงานขาย · เบาะแสช่วยเดา · ตัวคั่น "หรือ" */
+.ed-pickrow{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.ed-select{font-family:inherit;font-size:.85rem;color:var(--ink);background:#fff;
+ border:1px solid var(--border);border-radius:.5rem;padding:.45rem .6rem;min-width:22rem;max-width:100%}
+.ed-select:focus{outline:none;border-color:var(--type,var(--primary));box-shadow:0 0 0 3px var(--type-soft,#EFF6FF)}
+.ed-or{font-size:.75rem;color:var(--ink-3);text-align:center;padding:.1rem 0}
+.ed-hints{display:flex;flex-direction:column;gap:.4rem;margin:.6rem 0}
+.ed-hint{font-size:.8rem;color:var(--ink-2);background:var(--type-soft,var(--bg));
+ border:1px solid var(--type-line,var(--border));border-radius:.5rem;padding:.45rem .65rem;
+ display:flex;flex-wrap:wrap;gap:.3rem;align-items:center}
+.ed-hint b{color:var(--ink);font-weight:600}
+.ed-hint small{color:var(--ink-3)}
