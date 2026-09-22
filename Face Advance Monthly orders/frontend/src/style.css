@@ -2472,3 +2472,22 @@ body.umopen #dockWrap{display:none!important}
  display:flex;flex-wrap:wrap;gap:.3rem;align-items:center}
 .ed-hint b{color:var(--ink);font-weight:600}
 .ed-hint small{color:var(--ink-3)}
+
+/* ไฮไลท์ข้อความในโน้ต (sidebar) — เจ้านายสั่ง 2026-09-22 */
+.nhl{border-radius:.2rem;padding:0 .08em}
+.notebody.nhlmode{cursor:text;outline:2px dashed var(--primary);outline-offset:3px;border-radius:.3rem;user-select:text}
+.nhlbar{display:flex;align-items:center;flex-wrap:wrap;gap:.35rem;margin-top:.45rem;padding-top:.45rem;
+ border-top:1px dashed var(--border);font-size:.74rem;color:var(--ink-2)}
+.nhllab{color:var(--ink-3)}
+.nhlgrow{flex:1}
+.nhlhint{color:var(--primary);font-weight:600}
+.nhlcolor{width:1.7rem;height:1.5rem;padding:0;border:1px solid var(--border);border-radius:.3rem;
+ background:none;cursor:pointer}
+/* ปุ่มทั้งหมดในหัวโน้ตอยู่กล่องเดียว ชิดขวาและติดกัน
+   (เดิม .tlhead ใช้ justify-content:space-between กับลูก 4 ตัว → กระจายห่าง ดูแปลก) */
+.noteacts{margin-left:auto;display:flex;align-items:center;gap:.3rem;flex:none}
+.notecard .tlhead{justify-content:flex-start}
+/* ปุ่มไฮไลท์เป็นปุ่มข้อความ ไม่ใช่ไอคอน — ไอคอนปากกาไฮไลท์ดูไม่ชัดในขนาดเล็ก */
+.notehl{background:none;border:1px solid var(--border);cursor:pointer;color:var(--ink-2);
+ padding:.08rem .45rem;border-radius:.35rem;font-family:inherit;font-size:.7rem;line-height:1.5;white-space:nowrap}
+.notehl:hover{color:var(--primary);border-color:var(--primary);background:rgba(37,99,235,.08)}

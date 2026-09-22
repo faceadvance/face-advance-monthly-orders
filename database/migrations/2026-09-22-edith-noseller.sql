@@ -73,11 +73,22 @@ begin
     'ordered_at', (o.ordered_at at time zone 'Asia/Bangkok'),
     'customer_name', o.customer_name, 'phone', o.phone,
     'province', o.province, 'district', o.district,
+    'subdistrict', o.subdistrict, 'addr_detail', o.addr_detail, 'postal_code', o.postal_code,
     'brand', b.name, 'total_sales', o.total_sales,
     'payment_method', o.payment_method, 'payment_status', o.payment_status,
-    'delivery_status', o.delivery_status, 'tracking_no', o.tracking_no,
+    'delivery_status', o.delivery_status, 'tracking_no', o.tracking_no, 'carrier', o.carrier,
+    'return_reason', o.return_reason, 'status_detail', o.status_detail,
     'note', o.note,
-    'items', coalesce((select string_agg(p.name || ' ×' || i.quantity, ', ' order by i.id)
+    -- โน้ตติดตามล่าสุดจากไทม์ไลน์ (ช่วยเดาว่าใครดูแลออเดอร์นี้อยู่)
+    'last_note', (select t.note from public.order_tracking t
+                   where t.order_id = o.id and t.entry_type = 'note'
+                     and nullif(btrim(coalesce(t.note,'')),'') is not null
+                   order by t.created_at desc limit 1),
+    'last_note_by', (select t.created_by_name from public.order_tracking t
+                      where t.order_id = o.id and t.entry_type = 'note'
+                        and nullif(btrim(coalesce(t.note,'')),'') is not null
+                      order by t.created_at desc limit 1),
+    'items', coalesce((select string_agg(p.name || ' ×' || public.qty_txt(i.quantity), ', ' order by i.id)
                        from public.order_items i join public.products p on p.id = i.product_id
                        where i.order_id = o.id), '—'),
     -- เบาะแส: ชื่อลูกค้ามักมีรหัสเซลต่อท้าย (เช่น "คุณสมหญิง m11") → ช่วยให้เดาถูกเร็ว
@@ -151,9 +162,13 @@ begin
   update public.orders
      set seller_id = v_sid, seller_waived = false, updated_at = now()
    where id = p_order_id;
+  -- 🔴 ต้อง coalesce ชื่อเซล: 20 จาก 74 คนไม่มีชื่อในระบบ (name เป็น NULL)
+  --    ต่อสตริงกับ NULL ใน Postgres ได้ NULL ทั้งก้อน → detail หายทั้งช่อง ไทม์ไลน์ไม่บอกอะไรเลย
+  --    (เจอตอนกดทดสอบจริงกับ m01 ที่ไม่มีชื่อ — 2026-09-22)
   insert into public.order_tracking(order_id, entry_type, old_value, new_value, detail, created_by, created_by_name)
     values (p_order_id, 'note', coalesce(v_oldname, '—'), v_code,
-            'เติมพนักงานขาย: ' || v_sname || ' (' || v_code || ')', v_uid, v_uname);
+            'เติมพนักงานขาย: ' || coalesce(nullif(btrim(v_sname), ''), '(ไม่มีชื่อในระบบ)')
+              || ' (' || v_code || ')', v_uid, v_uname);
   insert into public.audit_log(user_id, username, event, detail)
     values (v_uid, v_uname, 'edith_set_seller',
             jsonb_build_object('order_id', p_order_id, 'order_no', v_order_no,

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  VIEW_VERSION, MAX_AGE_DAYS, MAX_MONTHS, buildView, parseSaved, planRestore, upsertMonth,
+  VIEW_VERSION, VIEW_PAGE, MAX_AGE_DAYS, MAX_MONTHS, buildView, parseSaved, planRestore, upsertMonth,
   monthView, isStale, isNarrowed, defaultMonth, restoreSummary, type MonthView, type SavedView,
 } from "../src/view_state.ts";
 
@@ -169,4 +169,8 @@ test("ข้อความแจ้งผู้ใช้: ขึ้นเฉพ
   assert.match(msg, /สิงหาคม 2026/);
   assert.match(msg, /ตัวกรอง 1 คอลัมน์/);
   assert.match(msg, /0839/);
+});
+
+test("VIEW_PAGE: ชื่อหน้าที่ใช้เป็นคีย์ใน DB (ย้ายจาก localStorage มาเก็บต่อผู้ใช้)", () => {
+  assert.equal(VIEW_PAGE, "orders");
 });

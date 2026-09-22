@@ -5,6 +5,8 @@ import {
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery,
   getDetailPresets, fetchNotifications, editNote,
   fetchImportHistory, type ImportHistResp, type NotifKind,
+  fetchUserView, saveUserView,
+  fetchNoteMarks, saveNoteMarks,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole, setDisplayName } from "./session";
@@ -17,9 +19,10 @@ import { renderDashboard } from "./dashboard";
 import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import { isStale, reloadForUpdate, showUpdateModal, guardSaveVersion, startVersionWatch } from "./version";
+import { addMark, compact, okColor, parseMarks, segments, type Mark } from "./note_marks";
 import {
-  VIEW_KEY, buildView, parseSaved, planRestore, restoreSummary, upsertMonth, monthView,
-  type RestorePlan, type MonthView,
+  VIEW_PAGE, buildView, parseSaved, planRestore, restoreSummary, upsertMonth, monthView,
+  type RestorePlan, type MonthView, type SavedView,
 } from "./view_state";
 import type { Order, OrderItem, OrdersResponse, Kpi, Daily, TrackingEntry } from "./types";
 import {
@@ -27,6 +30,9 @@ import {
   cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
   loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder, attachTopScrollbar,
 } from "./util";
+
+/** จำนวนสินค้าสำหรับแสดงผล — 0/ว่าง = ไม่ทราบจำนวน (ตรงกับ public.qty_txt ใน DB) */
+const qtyTxt = (n: number | null | undefined) => (n == null || n === 0 ? "?" : String(n));
 
 const MAX_SELECT = 30;
 
@@ -525,28 +531,67 @@ function scrollToRow(id: number): boolean {
   return true;
 }
 
-function readSavedViews() {
-  try { return parseSaved(localStorage.getItem(VIEW_KEY)); } catch { return null; }
+// 🔄 2026-09-22: ย้ายจาก localStorage (ผูกเครื่อง) → เก็บใน DB ต่อผู้ใช้ (ข้ามเครื่องได้)
+//    เจ้านายสั่ง "เปิดเครื่องไหนก็ได้ผลเหมือนกัน · เอา local ออกได้เลย"
+//
+// วิธี: เก็บ cache ในหน่วยความจำ + โหลดครั้งเดียวตอนล็อกอิน
+//   → ตรรกะที่เรียก readSavedViews() แบบ sync ทั้งหมดไม่ต้องรื้อ (applyStoredView · saveView)
+//   → การเขียนกลายเป็น network จึงยืด debounce 400ms → 1200ms และข้ามถ้าค่าไม่เปลี่ยน
+let viewCache: SavedView | null = null;
+
+/** โหลดมุมมองของผู้ใช้จาก DB ครั้งเดียวตอนล็อกอิน (ต้อง await ก่อนคำนวณแผนคืนค่า) */
+async function loadUserViews() {
+  try {
+    const r = await fetchUserView(VIEW_PAGE);
+    // RPC คืน data เป็น jsonb (object) ไม่ใช่สตริง → แปลงก่อนส่งเข้า parseSaved ที่ไม่เชื่อใจข้อมูลอยู่แล้ว
+    viewCache = r.authorized && r.ok && r.data != null ? parseSaved(JSON.stringify(r.data)) : null;
+  } catch { viewCache = null; }
+  // ล้างของเก่าที่ค้างใน localStorage ทิ้ง — ไม่ใช้แล้ว กันสับสนว่าทำไมค่าไม่ตรง
+  try { localStorage.removeItem("fa_view_orders"); } catch { /* */ }
 }
 
+function readSavedViews() { return viewCache; }
+
 let saveViewTimer: number | undefined;
-/** เขียนมุมมองของ "เดือนที่ดูอยู่" ลง localStorage — ไม่เรียกตอน scroll (ยิงถี่มาก) แต่อ่านแถวบนสุดตอนเซฟ
+let lastSentJson = "";
+
+/** เก็บมุมมองปัจจุบันลง cache (sync · ไม่ยิง network)
  *  month ระบุได้ เผื่อต้องเก็บเดือนที่กำลังจะออกจาก ก่อน state.month ถูกเปลี่ยน */
-function saveView(month = state.month) {
+function captureView(month = state.month) {
   if (state.page !== "orders" || !month || !state.data) return;
-  const view = buildView({
+  viewCache = upsertMonth(viewCache, month, buildView({
     filters: state.filters as Iterable<[string, Iterable<string>]>,
     sort: state.sort,
     search: state.search,
-    anchorId: topVisibleId() ?? null,
-  });
-  try {
-    localStorage.setItem(VIEW_KEY, JSON.stringify(upsertMonth(readSavedViews(), month, view)));
-  } catch { /* เต็ม/โหมดส่วนตัว → ข้ามเงียบๆ ไม่ให้หน้าพัง */ }
+    anchorId: topVisibleId() ?? null,     // อ่านแถวบนสุดตอนนี้ ไม่ต้องดักทุก scroll
+  }));
 }
+
+/** ส่ง cache ขึ้น DB — ข้ามถ้าเนื้อหาไม่เปลี่ยนจากครั้งก่อน (กันยิงซ้ำโดยไม่จำเป็น) */
+async function flushView() {
+  if (!viewCache) return;
+  const json = JSON.stringify(viewCache);
+  if (json === lastSentJson) return;
+  lastSentJson = json;
+  try {
+    const r = await saveUserView(VIEW_PAGE, viewCache);
+    if (!r.ok) lastSentJson = "";     // ไม่สำเร็จ → ให้ลองใหม่ได้ครั้งหน้า
+  } catch { lastSentJson = ""; }
+}
+
+/** เก็บ + ส่งทันที — ใช้ตอนออกจากหน้า/ปิดแท็บ/ก่อนสลับเดือน (รอ debounce ไม่ได้) */
+function saveView(month = state.month) {
+  window.clearTimeout(saveViewTimer);
+  captureView(month);
+  void flushView();
+}
+
+/** 🔴 เรียกจาก renderTable ทุกครั้งที่ตารางเปลี่ยน — ต้อง capture ด้วย ไม่ใช่ flush เปล่าๆ
+ *  (บั๊กที่เพิ่งเจอ: เดิม scheduleSaveView ชี้ไป flushView ตรงๆ แล้ว cache ไม่มีใครเติม
+ *   → กรองแล้วไม่มีอะไรถูกบันทึกเลย · เจอเพราะไปดู DB จริงว่าตารางว่าง) */
 function scheduleSaveView() {
   window.clearTimeout(saveViewTimer);
-  saveViewTimer = window.setTimeout(() => saveView(), 400);
+  saveViewTimer = window.setTimeout(() => { captureView(); void flushView(); }, 1200);
 }
 
 /** ใส่มุมมองที่เก็บไว้ลง state (ยังไม่วาด — ให้ผู้เรียกวาดเอง) · คืน true ถ้ามีการใส่ตัวกรอง/คำค้นจริง */
@@ -766,6 +811,41 @@ function applyOrdHidden() {
   for (const c of COLUMNS) {
     const hide = ordHidden.has(c.key);
     wrap.querySelectorAll<HTMLElement>(".col-" + c.key).forEach((e) => { e.style.display = hide ? "none" : ""; });
+  }
+  applyColWidths();
+}
+
+/** ซ่อนคอลัมน์แล้วให้คอลัมน์ที่เหลือกว้างขึ้นตามสัดส่วน จนเต็มความกว้างที่มี (เจ้านายขอ 2026-09-22)
+ *
+ *  COL_W เป็นพิกเซลคงที่ รวมทุกคอลัมน์ 2,091px ซึ่งกว้างกว่าจอ → ปกติตารางเลื่อนแนวนอน
+ *  ฉะนั้นซ่อน 1–2 คอลัมน์จะยังไม่เห็นผล (ยังกว้างเกินจอ) · จะเริ่มขยายเมื่อซ่อนมากพอ
+ *  ให้ผลรวมน้อยกว่าความกว้างกรอบ แล้วขยายทุกคอลัมน์ด้วยตัวคูณเดียวกันจนพอดี
+ *
+ *  🔴 ความกว้างเปลี่ยน → ข้อความตัดบรรทัดใหม่ → ความสูงแถวเปลี่ยน
+ *     ต้องสั่ง virtual scroll คำนวณ offsets ใหม่ ไม่งั้นตำแหน่ง scroll เพี้ยน */
+function applyColWidths() {
+  const wrap = document.getElementById("tableWrap");
+  const htr = wrap?.querySelector("thead tr") as HTMLElement | null;
+  if (!wrap || !htr) return;
+  const cols = orderedColumns().filter((c) => !ordHidden.has(c.key));
+  if (!cols.length) return;
+
+  const base = cols.reduce((t, c) => t + (COL_W[c.key] ?? 100), 0);
+  // พื้นที่ที่ใช้ได้ = กรอบ − คอลัมน์ปุ่มแก้ไข (sticky ขวาสุด) − กันเผื่อ scrollbar
+  const avail = wrap.clientWidth - ACT_W - 2;
+  const scale = avail > 0 && base > 0 ? Math.max(1, avail / base) : 1;
+
+  let changed = false;
+  for (const c of cols) {
+    const w = Math.floor((COL_W[c.key] ?? 100) * scale);
+    const th = htr.querySelector<HTMLElement>("th.col-" + c.key);
+    if (th && th.style.width !== w + "px") { th.style.width = w + "px"; changed = true; }
+  }
+  if (changed && state.data) {
+    // ความสูงแถวอาจเปลี่ยนเพราะข้อความตัดบรรทัดใหม่ → คำนวณ offsets ใหม่แล้ววาดหน้าต่างเดิม
+    buildOffsets();
+    vFirst = vLast = -1;
+    renderWindow(true);
   }
 }
 function updateOrdProgress() {
@@ -1060,7 +1140,8 @@ function buildItemsCell(o: Order, tr: HTMLElement): HTMLElement {
   const td = el("td", { class: "items" });
   const items = o.items || [];
   if (items.length === 0) { td.append("—"); return td; }
-  const line = (it: OrderItem) => `${it.name} ×${it.qty}`;
+  // qty 0 = ไม่ทราบจำนวน (นำเข้าย้อนหลังจากไฟล์ที่เขียนเป็น '-') → โชว์ ? ไม่ใช่ 0
+  const line = (it: OrderItem) => `${it.name} ×${qtyTxt(it.qty)}`;
   const first = el("div", { class: "iln0" }, el("span", { class: "itxt", title: line(items[0]) }, line(items[0])));
   if (items.length > 1) {
     const tog = el("span", { class: "itemtoggle", title: "ดู/ซ่อนรายละเอียดทั้งแถว" }, icon("i-caret"));
@@ -1614,7 +1695,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   // ---- ส่วนแสดงข้อมูล (อ่านอย่างเดียว) — กริดกระชับ เห็นครบ ----
   const itemsNode = el("span", { class: "sbitems" });
   const its = o.items || [];
-  if (its.length) its.forEach((it, i) => { if (i) itemsNode.append(el("br")); itemsNode.append(`${it.name} ×${it.qty}`); });
+  if (its.length) its.forEach((it, i) => { if (i) itemsNode.append(el("br")); itemsNode.append(`${it.name} ×${qtyTxt(it.qty)}`); });
   else itemsNode.append("—");
   const seller = o.seller_code || o.seller_name
     ? `${o.seller_code || "—"}${o.seller_name ? " · " + o.seller_name : ""}` : "ไม่ระบุ";
@@ -2143,11 +2224,166 @@ async function loadTimeline(orderId: number, noteBox: HTMLElement, logBox: HTMLE
     const all = r.timeline ?? [];
     const notes = all.filter((e) => e.type === "note");
     if (noteCount) noteCount.textContent = notes.length ? `(${notes.length})` : "";
+    await loadNoteMarks(orderId, notes);      // ต้องได้ไฮไลท์มาก่อนวาด ไม่งั้นต้องวาดซ้ำ
     renderNotes(noteBox, notes, orderId);
     renderTimeline(logBox, all.filter((e) => e.type !== "note"));
   } catch {
     for (const b of [noteBox, logBox]) { b.textContent = ""; b.append(el("div", { class: "tlempty err" }, "โหลดไม่สำเร็จ")); }
   }
+}
+
+
+// ───────── ไฮไลท์ข้อความในโน้ต (เจ้านายสั่ง 2026-09-22) ─────────
+// แสดงเฉพาะที่นี่ (sidebar) · เป็นของแต่ละคน · เก็บเป็นช่วงตัวอักษรใน DB ไม่ใช่ HTML ในตัวโน้ต
+// คณิตการซ้อนทับ/รวมช่วง อยู่ note_marks.ts (เทสแยก 14 เคส)
+const noteMarks = new Map<number, Mark[]>();          // note_id → ช่วงไฮไลท์ของเราเอง
+
+// จำสีที่ใช้ล่าสุด (เจ้านายขอ 2026-09-22) — เก็บต่อผู้ใช้ใน app_user_views เลยข้ามเครื่องได้
+// ใช้โครงเดิมที่ทำไว้ตอนย้ายตัวกรอง ไม่ต้องสร้างตาราง/RPC ใหม่
+const HL_PAGE = "note_hl";
+let hlColors = { bg: "#fef08a", fg: "#713f12" };     // เหลืองอ่อน/น้ำตาลเข้ม = ปากกาไฮไลท์มาตรฐาน
+let hlColorsLoaded = false;
+let hlSaveTimer: number | undefined;
+
+async function loadHlColors() {
+  if (hlColorsLoaded) return;
+  hlColorsLoaded = true;
+  try {
+    const r = await fetchUserView(HL_PAGE);
+    const d = r.ok && r.data && typeof r.data === "object" ? r.data as Record<string, unknown> : null;
+    if (d && okColor(d.bg) && okColor(d.fg)) hlColors = { bg: d.bg, fg: d.fg };
+  } catch { /* โหลดไม่ได้ → ใช้สีมาตรฐาน */ }
+}
+function rememberHlColors(bg: string, fg: string) {
+  if (!okColor(bg) || !okColor(fg)) return;
+  if (hlColors.bg === bg && hlColors.fg === fg) return;
+  hlColors = { bg, fg };
+  window.clearTimeout(hlSaveTimer);
+  hlSaveTimer = window.setTimeout(() => { void saveUserView(HL_PAGE, hlColors); }, 600);
+}
+
+/** วาดข้อความโน้ตพร้อมสีไฮไลท์ — ใช้ textContent เท่านั้น ไม่มี innerHTML (กัน XSS จากข้อความโน้ต) */
+function paintNote(box: HTMLElement, text: string, marks: Mark[]) {
+  box.textContent = "";
+  for (const g of segments(text, marks)) {
+    if (!g.bg) { box.append(g.text); continue; }
+    box.append(el("mark", { class: "nhl", style: `background:${g.bg};color:${g.fg}` }, g.text));
+  }
+}
+
+/** ตำแหน่งตัวอักษรของ selection เทียบกับข้อความทั้งก้อน (เดินผ่าน text node ทั้งหมด) */
+function selectionRange(box: HTMLElement): { s: number; e: number } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const r = sel.getRangeAt(0);
+  if (!box.contains(r.startContainer) || !box.contains(r.endContainer)) return null;
+  let pos = 0, s = -1, e = -1;
+  const walk = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    const len = (n.textContent ?? "").length;
+    if (n === r.startContainer) s = pos + r.startOffset;
+    if (n === r.endContainer) e = pos + r.endOffset;
+    pos += len;
+  }
+  if (s < 0 || e < 0 || e - s < 1) return null;
+  return { s, e };
+}
+
+function startHighlight(item: HTMLElement, body: HTMLElement, e: TrackingEntry) {
+  if (item.querySelector(".nhlbar")) return;
+  // 🔴 ไฮไลท์กับแก้ไขโน้ตเป็น 2 เรื่องแยกกัน (เจ้านายย้ำ 2026-09-22) — เปิดพร้อมกันไม่ได้
+  //    ถ้ากำลังแก้ข้อความอยู่ ให้ปิดโหมดแก้ก่อน ไม่งั้นข้อความที่ไฮไลท์อยู่กับที่พิมพ์ค้างจะคนละตัว
+  const editing = item.querySelector<HTMLElement>(".noteeditta");
+  if (editing) {
+    item.querySelector<HTMLElement>(".noteeditrow .btncancel")?.click();
+    if (item.querySelector(".noteeditta")) return;   // ปิดไม่สำเร็จ → ไม่เปิดโหมดไฮไลท์ทับ
+  }
+  const text = e.note ?? "";
+  const saved = noteMarks.get(e.id) ?? [];
+  let pending: Mark[] = [...saved];                    // แก้บนสำเนา ยังไม่บันทึกจนกด "ยืนยัน"
+
+  const bgIn = el("input", { type: "color", value: hlColors.bg, class: "nhlcolor", title: "สีพื้น" }) as HTMLInputElement;
+  const fgIn = el("input", { type: "color", value: hlColors.fg, class: "nhlcolor", title: "สีตัวอักษร" }) as HTMLInputElement;
+  // โหลดสีล่าสุดจากเซิร์ฟเวอร์ (ครั้งแรกของ session) แล้วเติมให้ทันทีที่ได้
+  void loadHlColors().then(() => { bgIn.value = hlColors.bg; fgIn.value = hlColors.fg; });
+  for (const inp of [bgIn, fgIn]) inp.addEventListener("change", () => rememberHlColors(bgIn.value, fgIn.value));
+  const undo = el("button", { class: "ed-btn sm", type: "button" }, "ย้อนกลับ") as HTMLButtonElement;
+  const clear = el("button", { class: "ed-btn sm", type: "button" }, "ลบไฮไลท์ทั้งหมด") as HTMLButtonElement;
+  const ok = el("button", { class: "fbtn p", type: "button" }, "ยืนยัน") as HTMLButtonElement;
+  const cancel = el("button", { class: "btncancel", type: "button" }, "ยกเลิก") as HTMLButtonElement;
+  const hint = el("span", { class: "nhlhint" }, "ลากคลุมข้อความที่ต้องการ");
+  const bar = el("div", { class: "nhlbar" },
+    el("span", { class: "nhllab" }, "พื้น"), bgIn,
+    el("span", { class: "nhllab" }, "ตัวอักษร"), fgIn,
+    hint, el("span", { class: "nhlgrow" }), undo, clear, cancel, ok);
+
+  body.classList.add("nhlmode");
+  item.append(bar);
+  const repaint = () => {
+    paintNote(body, text, pending);
+    undo.disabled = pending.length === 0;
+    hint.textContent = pending.length ? `ไฮไลท์ไว้ ${pending.length} ช่วง` : "ลากคลุมข้อความที่ต้องการ";
+  };
+  repaint();
+
+  // ลากคลุมแล้วปล่อย → เพิ่มช่วง (อ่านตำแหน่งจาก selection)
+  const onUp = () => {
+    const r = selectionRange(body);
+    if (!r) return;
+    pending = addMark(pending, { ...r, bg: bgIn.value, fg: fgIn.value });
+    rememberHlColors(bgIn.value, fgIn.value);
+    window.getSelection()?.removeAllRanges();
+    repaint();
+  };
+  body.addEventListener("mouseup", onUp);
+
+  const close = () => {
+    body.removeEventListener("mouseup", onUp);
+    body.classList.remove("nhlmode");
+    bar.remove();
+    paintNote(body, text, noteMarks.get(e.id) ?? []);   // กลับไปตามที่บันทึกไว้จริง
+  };
+  undo.addEventListener("click", () => { pending = pending.slice(0, -1); repaint(); });
+  cancel.addEventListener("click", close);
+
+  clear.addEventListener("click", async () => {
+    clear.disabled = true;
+    try {
+      const r = await saveNoteMarks(e.id, null);
+      if (r.ok) { noteMarks.delete(e.id); toast("ลบไฮไลท์แล้ว", true); close(); }
+      else { toast("ลบไม่สำเร็จ", false); clear.disabled = false; }
+    } catch { toast("เชื่อมต่อไม่ได้", false); clear.disabled = false; }
+  });
+
+  ok.addEventListener("click", async () => {
+    ok.disabled = true;
+    const tidy = compact(text, pending);               // รวมช่วงซ้ำ/ตัดที่ถูกทับ ก่อนส่ง
+    try {
+      const r = await saveNoteMarks(e.id, tidy.length ? tidy : null);
+      if (r.ok) {
+        if (tidy.length) noteMarks.set(e.id, tidy); else noteMarks.delete(e.id);
+        toast(tidy.length ? `บันทึกไฮไลท์ ${tidy.length} ช่วงแล้ว` : "ลบไฮไลท์แล้ว", true);
+        close();
+      } else { toast("บันทึกไม่สำเร็จ: " + (r.error || "?"), false); ok.disabled = false; }
+    } catch { toast("เชื่อมต่อไม่ได้", false); ok.disabled = false; }
+  });
+}
+
+/** โหลดไฮไลท์ของเราสำหรับออเดอร์นี้ — เรียกก่อน renderNotes */
+async function loadNoteMarks(orderId: number, notes: TrackingEntry[]) {
+  noteMarks.clear();
+  try {
+    const r = await fetchNoteMarks(orderId);
+    if (!r.authorized || !r.ok || !r.marks) return;
+    const byId = new Map(notes.map((n) => [n.id, (n.note ?? "").length]));
+    for (const [k, v] of Object.entries(r.marks)) {
+      const id = Number(k);
+      const len = byId.get(id);
+      if (!Number.isFinite(id) || !len) continue;
+      const m = parseMarks(v, len);
+      if (m.length) noteMarks.set(id, m);
+    }
+  } catch { /* โหลดไฮไลท์ไม่ได้ → โน้ตยังอ่านได้ปกติ ไม่ต้องรบกวนผู้ใช้ */ }
 }
 
 // ประวัติโน้ต (แยก) — บับเบิลครีม
@@ -2164,13 +2400,23 @@ function renderNotes(box: HTMLElement, notes: TrackingEntry[], orderId: number) 
     const item = el("div", { class: "notecard" });
     const head = el("div", { class: "tlhead" },
       el("span", { class: "tldate" }, trackTime(e.at)), el("span", { class: "tlby" }, e.by || "—"));
-    const body = el("div", { class: "notebody" }, e.note ?? "");
+    const body = el("div", { class: "notebody" });
+    paintNote(body, e.note ?? "", noteMarks.get(e.id) ?? []);
     item.append(head, body);
+    // ปุ่มทั้งหมดอยู่ในกล่องเดียว ชิดขวาและติดกัน (เจ้านายแจ้ง 2026-09-22 ว่าเดิมกระจายห่างดูแปลก)
+    const acts = el("div", { class: "noteacts" });
+    head.append(acts);
+    // ปุ่มไฮไลท์ — เป็นปุ่มข้อความ ไม่ใช่ไอคอน (ไอคอนดูไม่ชัด) · ทุกโน้ตไฮไลท์ได้
+    if (e.type === "note" && (e.note ?? "").length) {
+      const hlBtn = el("button", { class: "notehl", type: "button", title: "ไฮไลท์ข้อความ (เห็นเฉพาะคุณ)" }, "ไฮไลท์");
+      hlBtn.addEventListener("click", () => startHighlight(item, body, e));
+      acts.append(hlBtn);
+    }
     // แก้ไขได้เฉพาะโน้ตของตัวเอง + เป็นวันนี้ (server บังคับซ้ำอีกชั้นใน app_edit_note)
     if (e.type === "note" && !!today && e.at.slice(0, 10) === today && isMine(e)) {
       const editBtn = el("button", { class: "noteedit", type: "button", title: "แก้ไขโน้ต" }, icon("i-edit"));
       editBtn.addEventListener("click", () => startEditNote(item, body, e, orderId, e.id === latest?.id));
-      head.append(editBtn);
+      acts.append(editBtn);
     }
     box.append(item);
   }
@@ -2193,6 +2439,8 @@ function refreshLastNoteCells(o: Order) {
 // แก้ไขโน้ต inline
 function startEditNote(item: HTMLElement, body: HTMLElement, e: TrackingEntry, orderId: number, isLatest: boolean) {
   if (item.querySelector(".noteeditta")) return;
+  // กำลังไฮไลท์อยู่ → ปิดโหมดไฮไลท์ก่อน (2 โหมดแยกกัน ไม่ทำพร้อมกัน)
+  item.querySelector<HTMLElement>(".nhlbar .btncancel")?.click();
   const ta = el("textarea", { class: "sbtextarea noteeditta", rows: "2" }) as HTMLTextAreaElement;
   ta.value = e.note ?? "";
   const save = el("button", { class: "fbtn p", type: "button" }, "บันทึก");
@@ -2502,6 +2750,7 @@ function applyZoom(pct: number) {
   document.documentElement.style.fontSize = `${(16 * pct) / 100}px`;
   $("#zoomLvl").textContent = `${pct}%`;
   localStorage.setItem("fa_zoom", String(pct));
+  if (state.page === "orders") applyColWidths();   // ซูมเปลี่ยน → ความกว้างกรอบเปลี่ยน คิดสัดส่วนใหม่
 }
 function initZoom() {
   const saved = Number(localStorage.getItem("fa_zoom")) || 100;
@@ -2717,9 +2966,18 @@ async function bootstrap() {
   initZoom();
   initOrdersDeco();
 
+  // ย่อ/ขยายหน้าต่าง หรือเปลี่ยนซูม → ความกว้างกรอบเปลี่ยน ต้องคิดสัดส่วนคอลัมน์ใหม่
+  let colWTimer: number | undefined;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(colWTimer);
+    colWTimer = window.setTimeout(() => { if (state.page === "orders") applyColWidths(); }, 150);
+  });
+
   // ปิดแท็บ/สลับแอป/พับจอ → เก็บมุมมองทันที (ไม่รอ debounce ที่อาจไม่ทันยิง)
   // ใช้ visibilitychange ไม่ใช่ beforeunload เพราะ Safari/มือถือมักไม่ยิง beforeunload
   document.addEventListener("visibilitychange", () => {
+    // ปิดแท็บ/สลับแอป → ส่งทันที · ⚠️ ถ้าปิดแท็บเร็วมาก request อาจไม่ทันจบ
+    //    ตำแหน่ง scroll ครั้งสุดท้ายอาจหาย แต่ตัว debounce 1.2s ครอบกรณีปกติไว้แล้ว
     if (document.visibilityState === "hidden") saveView();
   });
 
@@ -2851,9 +3109,8 @@ async function startApp() {
     // คืนมุมมองเดิมเฉพาะ "หน้าออเดอร์ ที่เป็นหน้าแรกของ role นั้น" และเฉพาะตอนล็อกอินเข้ามา
     // (role ที่หน้าแรกไม่ใช่ออเดอร์ เช่น RT+ / RTs ไม่เข้าเงื่อนไข)
     if (target === "orders" && accessible[0] === "orders") {
-      let raw: string | null = null;
-      try { raw = localStorage.getItem(VIEW_KEY); } catch { /* ปิด/โหมดส่วนตัว */ }
-      pendingRestore = planRestore(parseSaved(raw), [...state.monthsWithData]);
+      await loadUserViews();                       // ต้องโหลดเสร็จก่อน ไม่งั้นแผนคืนค่าจะคำนวณจากค่าว่าง
+      pendingRestore = planRestore(viewCache, [...state.monthsWithData]);
     }
     await setPage(target);
     void loadNotifs();   // เติม badge กระดิ่งตอนเข้าระบบ

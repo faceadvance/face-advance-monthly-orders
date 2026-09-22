@@ -234,3 +234,13 @@ export function searchBlob(o: Order): string {
   return [o.phone, o.customer_name, o.tracking_no, o.address, o.note, itemsLabel(o.items)]
     .join(" ").toLowerCase();
 }
+
+/** ตอนนี้ผู้ใช้กำลังพิมพ์อยู่ในช่องกรอกไหม — ใช้ก่อนทำคีย์ลัดตัวอักษรเดี่ยว (เช่น "/")
+ *  🔴 ถ้าไม่เช็ค: พิมพ์ "/" ในช่องค้นหาค่าของตัวกรอง แล้วโฟกัสจะกระเด็นไปช่องค้นหาหลัก
+ *     (เจ้านายเจอบั๊กนี้ 2026-09-22 ที่หน้าค้นหา) */
+export function isTyping(el: Element | null = document.activeElement): boolean {
+  if (!el) return false;
+  const t = (el as HTMLElement).tagName;
+  if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return true;
+  return (el as HTMLElement).isContentEditable === true;
+}

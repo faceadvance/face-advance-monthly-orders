@@ -54,6 +54,32 @@ export function fetchDashboardTeams(): Promise<DashTeamsResp> {
   return restRpc<DashTeamsResp>("app_sales_dashboard_teams", { p_token: getToken() });
 }
 
+// ---- ไฮไลท์ข้อความในโน้ต (ต่อผู้ใช้ · เห็นแค่เจ้าของ · ข้ามเครื่องได้) ----
+export interface NoteMarksResp {
+  authorized: boolean; ok?: boolean;
+  /** คีย์เป็น note_id (สตริง) → อาร์เรย์ช่วงไฮไลท์ */
+  marks?: Record<string, unknown>;
+}
+export function fetchNoteMarks(orderId: number): Promise<NoteMarksResp> {
+  return restRpc<NoteMarksResp>("app_note_marks", { p_token: getToken(), p_order_id: orderId });
+}
+/** marks = null หรือ [] → ลบไฮไลท์ของโน้ตนั้น (ของเราเท่านั้น) */
+export interface SaveMarksResp { authorized: boolean; ok?: boolean; error?: string; cleared?: boolean }
+export function saveNoteMarks(noteId: number, marks: unknown[] | null): Promise<SaveMarksResp> {
+  return restRpc<SaveMarksResp>("app_save_note_marks", { p_token: getToken(), p_note_id: noteId, p_marks: marks });
+}
+
+// ---- จำมุมมองตารางต่อผู้ใช้ (ข้ามเครื่อง) — แทน localStorage เดิม ----
+export interface ViewGetResp { authorized: boolean; ok?: boolean; data?: unknown }
+export function fetchUserView(page: string): Promise<ViewGetResp> {
+  return restRpc<ViewGetResp>("app_get_view", { p_token: getToken(), p_page: page });
+}
+/** data = null → ล้างมุมมองที่เก็บไว้ */
+export interface ViewSaveResp { authorized: boolean; ok?: boolean; error?: string; cleared?: boolean }
+export function saveUserView(page: string, data: unknown | null): Promise<ViewSaveResp> {
+  return restRpc<ViewSaveResp>("app_save_view", { p_token: getToken(), p_page: page, p_data: data });
+}
+
 export function fetchOrders(month: string): Promise<OrdersResponse> {
   return restRpc<OrdersResponse>("get_orders", { p_token: getToken(), p_month: month });
 }

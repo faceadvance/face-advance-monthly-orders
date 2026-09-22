@@ -1,7 +1,7 @@
 // หน้า EDITH (Stage 9b) — ศูนย์จัดการเคสทั้งระบบ · Adm only
 // ดีไซน์: layout เดซี่ v3 (KPI + คิว time-bucket + โต๊ะตรวจ + audit filter) · พาเลตมืดเดซี่ v1
 // ปัญหา 4 ชนิด: error(COD ยอดไม่ตรง) · conflict(บันทึกตีกลับชน) · recon(รับเงินแล้ว+ตีกลับ) · dedup(ลูกค้าซ้ำ)
-import { el, icon, nf, imageSrc, openLightbox, THAI_MONTHS_FULL } from "./util";
+import { el, icon, nf, imageSrc, openLightbox, THAI_MONTHS_FULL, isTyping} from "./util";
 import {
   fetchEdithIssues, fetchEdithDetail, fetchEdithLog,
   edithDeleteRecon, edithExchange, edithConfirmReturn, edithRestoreRecon, edithResolveConflict, edithMerge, edithDismissDup,
@@ -155,6 +155,13 @@ function buildShell(container: HTMLElement) {
         const inp = wrap.querySelector("input") as HTMLInputElement;
         let deb = 0;
         inp.addEventListener("input", () => { clearTimeout(deb); deb = window.setTimeout(() => { searchText = inp.value.trim().toLowerCase(); paintQueue(); paintAging(); }, 180); });
+        // ป้าย kbd "/" ข้างช่องนี้เคยเป็นป้ายเปล่า — ไม่มีตัวจับคีย์เลย กดแล้วไม่เกิดอะไร
+        // ใส่ให้ทำงานจริง + กันไม่ให้ยิงตอนกำลังพิมพ์อยู่ในช่องอื่น (บั๊กเดียวกับหน้าค้นหา)
+        document.addEventListener("keydown", (e) => {
+          if (e.key !== "/" || isTyping()) return;
+          if (!document.getElementById("edQSearch")) return;      // ไม่ได้อยู่หน้า EDITH แล้ว
+          e.preventDefault(); inp.focus(); inp.select();
+        });
         return wrap;
       })(),
       el("div", { class: "ed-chips", id: "edQChips", "aria-label": "กรองประเภทคิว" }),
@@ -681,15 +688,32 @@ function nosellerResolver(orderId: number, o: Record<string, unknown>): HTMLElem
   box.append(workHeader("i-user", "ยังไม่มีพนักงานขาย",
     `ออเดอร์ ${g(o, "order_no") || "#" + orderId} · ${g(o, "customer_name") || "—"}`));
 
-  box.append(el("div", { class: "ed-info" },
+  // รายละเอียดออเดอร์ให้ครบ — เจ้านายแจ้ง 2026-09-22 ว่าต้องเห็นข้อมูลออเดอร์นั้นด้วย
+  // ไม่ใช่แค่พอเดาเซล แต่ต้องพอ "ตัดสินใจ" ได้ว่าใครควรเป็นเจ้าของออเดอร์
+  const addr = [g(o, "addr_detail"), g(o, "subdistrict"), g(o, "district"), g(o, "province"), g(o, "postal_code")]
+    .filter(Boolean).join(" ");
+  const ordered = g(o, "ordered_at");
+  const info = el("div", { class: "ed-info" },
+    kv("เลขออเดอร์", el("span", { class: "ed-mono" }, g(o, "order_no") || "—")),
+    kv("วันที่สั่งซื้อ", ordered ? ordered.replace("T", " ").slice(0, 16) : "—"),
     kv("ลูกค้า", g(o, "customer_name") || "—"),
     kv("เบอร์โทร", el("span", { class: "ed-mono" }, g(o, "phone") || "—")),
-    kv("พื้นที่", [g(o, "district"), g(o, "province")].filter(Boolean).join(" · ") || "—"),
+    kv("ที่อยู่", addr || "—"),
     kv("แบรนด์", g(o, "brand") || "—"),
+    kv("รายการสินค้า", g(o, "items") || "—"),
     kv("ยอดออเดอร์", "฿" + nf(Number(o.total_sales || 0))),
-    kv("สถานะ", `${g(o, "delivery_status") || "—"} · ${g(o, "payment_status") || "—"}`),
-    kv("แทร็ค", el("span", { class: "ed-mono" }, g(o, "tracking_no") || "—")),
-    kv("รายการ", g(o, "items") || "—")));
+    kv("การชำระ", `${g(o, "payment_method") || "—"} · ${g(o, "payment_status") || "—"}`),
+    kv("การจัดส่ง", `${g(o, "delivery_status") || "—"}${g(o, "carrier") ? " · " + g(o, "carrier") : ""}`),
+    kv("แทร็ค", el("span", { class: "ed-mono" }, g(o, "tracking_no") || "—")));
+  if (g(o, "return_reason")) info.append(kv("เหตุผลตีกลับ", g(o, "return_reason")));
+  if (g(o, "status_detail")) info.append(kv("รายละเอียดสถานะ", g(o, "status_detail")));
+  if (g(o, "note")) info.append(kv("หมายเหตุออเดอร์", g(o, "note")));
+  if (g(o, "last_note")) {
+    info.append(kv("โน๊ตติดตามล่าสุด",
+      el("span", {}, g(o, "last_note"),
+        g(o, "last_note_by") ? el("small", { class: "ed-by" }, ` — ${g(o, "last_note_by")}`) : "")));
+  }
+  box.append(info);
 
   // ── เบาะแส 2 ทาง: รหัสที่ติดมาในชื่อลูกค้า · เซลที่ลูกค้าคนนี้เคยซื้อด้วย ──
   const codeHint = g(o, "code_in_name");

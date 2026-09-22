@@ -1,7 +1,7 @@
 // หน้า "ค้นหา" (Stage 9c) — ค้นทั้งระบบ 4 ฟิลด์ (เบอร์/ชื่อ/ที่อยู่/แทร็คส่งออก) ข้ามรอบเดือน
 // 2 โหมด: แบบออเดอร์ / แบบหักยอดตีกลับ — ยกตาราง+funnel+การ์ดของหน้านั้นๆ มาเลย (คำนวณจากผลค้นหา · ไม่มีเดือน)
 // ตาราง+ตัวกรอง funnel + caret ใช้คลาสร่วมกับหน้า order/หักยอด · ไม่มี sidebar (ดูจากตารางพอ)
-import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, paymentMethodLabel, attachTopScrollbar } from "./util";
+import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, paymentMethodLabel, attachTopScrollbar, isTyping} from "./util";
 import { makeVTable, type VTable } from "./virtual";
 import { searchOrders, type SearchRow, type SearchResp } from "./api";
 
@@ -278,7 +278,13 @@ function buildShell(container: HTMLElement) {
   input.addEventListener("input", () => { query = input.value; clearBtn.hidden = query.length === 0; window.clearTimeout(debTimer); debTimer = window.setTimeout(() => void doSearch(), 320); });
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { window.clearTimeout(debTimer); void doSearch(); } if (e.key === "Escape") { input.value = ""; query = ""; clearBtn.hidden = true; resp = null; allRows = []; paint(); } });
   clearBtn.addEventListener("click", () => { input.value = ""; query = ""; clearBtn.hidden = true; resp = null; allRows = []; input.focus(); paint(); });
-  root.addEventListener("keydown", (e) => { if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); } });
+  // คีย์ลัด "/" โฟกัสช่องค้นหา — แต่ต้องไม่ยิงตอนกำลังพิมพ์อยู่ในช่องอื่น
+  // 🔴 ของเดิมยกเว้นแค่ช่องค้นหาหลักช่องเดียว → พิมพ์ "/" ในช่องค้นหาค่าของตัวกรอง
+  //    (หรือช่องไหนก็ตาม) โฟกัสจะกระเด็นไปช่องบน พิมพ์ต่อไม่ได้ (เจ้านายแจ้ง 2026-09-22)
+  root.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || isTyping()) return;
+    e.preventDefault(); input.focus();
+  });
   if (!outsideBound) { outsideBound = true; document.addEventListener("click", (e) => { const t = e.target as HTMLElement; if (openDrop && !t.closest?.(".fdrop") && !t.closest?.(".funnel")) closeDrop(); }); }
 
   paint(); setTimeout(() => input.focus(), 30);
