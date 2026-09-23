@@ -30,9 +30,7 @@ import {
   cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
   loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder, attachTopScrollbar,
 } from "./util";
-
-/** จำนวนสินค้าสำหรับแสดงผล — 0/ว่าง = ไม่ทราบจำนวน (ตรงกับ public.qty_txt ใน DB) */
-const qtyTxt = (n: number | null | undefined) => (n == null || n === 0 ? "?" : String(n));
+import { qtyTxt } from "./qty";
 
 const MAX_SELECT = 30;
 

@@ -50,3 +50,6 @@ file-backups/
 # เอกสารวางแผนภายใน (repo เป็น public) — เก็บ local ไม่ขึ้น GitHub
 HANDOFF.md
 ROADMAP.md
+# ฉบับเก่าที่เก็บไว้ย้อนอ่าน (HANDOFF-2026-09-17.md ถูก track ไปแล้วก่อนหน้านี้)
+HANDOFF-*.md
+TASK-*.md

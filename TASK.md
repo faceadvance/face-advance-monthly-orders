@@ -1,42 +1,53 @@
-# TASK — EDITH Exception Center (Stage 9b)
+# TASK — นำเข้าข้อมูลย้อนหลังปี 2025 + 2024
 
-> spec: `Face Advance Monthly orders/docs/specs/2026-09-07-edith-exception-center-design.md`
-> ธีม dark premium · 3-pane · Adm only · เริ่ม 2026-09-07
+> เริ่ม 2026-09-22 · งานข้าม session · **เจ้านายตรวจผ่านแล้วลบไฟล์นี้ทิ้ง**
+> บริบทเต็ม: `HANDOFF.md` · ไฟล์ตรวจสอบ: `database/ตรวจสอบ2025/`
+> (ไฟล์เก่าของ Stage 9b ย้ายไป `TASK-2026-09-07-stage9b-edith.md` แล้ว)
 
-## ✅ ก่อนหน้า
-- [x] ① auto-revert trigger (ลบ recon → คืน baseline) · verify 3 เคส · DB live
+## 🔴 รอเจ้านายตรวจ (บล็อกการนำเข้า) — ไฟล์ตรวจสอบ 2025 ✅ เคาะครบแล้ว
 
-## Slice 1 — DB (RPC ทั้งหมด) ✅ เสร็จ+verify 2026-09-07
-- [x] `app_edith_issues` — unified queue 4 ชนิด + counts (Adm ok · Vm forbidden ✓)
-- [x] `app_edith_error_detail` / `_conflict_detail` / `_recon_detail` / `_dedup_detail`
-- [x] `app_edith_fix_cod_amount` (+log) — ยอดผิด→error→แก้→ชำระแล้ว ✓
-- [x] `app_edith_delete_recon` + `app_edith_restore_recon` (undo) — del→revert→restore ✓
-- [x] `app_edith_resolve_conflict` — เลือก A/B → resolved + reconcile ✓
-- [x] `app_edith_merge_customers` — merge + review cascade หาย ✓
-- [x] `app_edith_log` — audit timeline + filter + pagination (total 806 ✓)
-- [x] verify tx/rollback ทุกตัว · edith log 0 ตกค้าง · role gate ผ่าน
+> 2026-09-23 ฟรายเดย์กรอกข้อเสนอลงไฟล์แล้วทั้ง 4 ข้อ (สีเหลือง = ข้อเสนอ · สีส้ม ⚠️ = ต้องอนุมัติพิเศษ) · รายละเอียดใน `HANDOFF.md`
 
-## Slice 2 — FE shell ✅ 2026-09-07
-- [x] api.ts (EDITH types+fn) · edith.ts · main.ts wire · pages.ts built:true
-- [x] 3-pane layout · Bento · Queue (filter chip) · Log feed · build ผ่าน
+- [x] **07 สถานะส่งไม่รู้จัก** ✅ จบ 2026-09-23 — 259 แถว (256 + หลุดรายงาน 3) — แยก 3 คอลัมน์แล้ว (ส่ง · ชำระ · รายละเอียด) · เคลมแล้ว→ชำระแล้ว · ตีกลับ→รอชำระ ยังไม่ถึง · ก.ย.!3720 เคลมไม่ได้→มีปัญหา/ยกเลิก
+- [x] **08 ไม่มีรหัสเซล** ✅ จบ 2026-09-23 — 745 แถว · รหัสจากในชื่อ 606 · "ไม่มีเซล (ยืนยัน)" 139 → seller_waived
+- [x] **11 เบอร์โทร** ✅ จบ 2026-09-23 — ได้เบอร์ครบ 4/4 (ชื่อ+ที่อยู่ตรงเป๊ะ · เม.ย.!3406 เจ้านายให้เบอร์)
+- [x] **12 ช่องสินค้าว่าง** ✅ จบ 2026-09-23 — ก.พ.!2369 → `[ LYO CONDITIONER * 2 ]`
+- [x] **ตีกลับ / COD ปี 2025** — คนละส่วน ทำหลังนำเข้าคำสั่งซื้อ (เจ้านายสั่ง 2026-09-23)
+- [x] **13 ออเดอร์ยกเลิก** ✅ จบ 2026-09-23 — เก็บ 120 เป็น ยกเลิก/ยกเลิก · ตัดทิ้ง 209
+- [x] 🔒 **ล็อกตาราง `_bak_*`/`_stg_*`** ✅ 2026-09-23 (33 ตาราง · ทดสอบแล้ว anon ถูกปฏิเสธ)
 
-## Slice 3 — Resolver ทีละชนิด ✅ verify E2E browser (friday=Adm)
-- [x] conflict (เลือก A/B · dual + ไฮไลต์ ≠) — render สวย
-- [x] dedup (merge) — **full loop ผ่าน**: กด merge → คิวหาย → log ขึ้นทันที
-- [x] error/recon RPC verify rollback แล้ว (slice1) · resolver render ตาม pattern เดียวกัน
-- [~] error/recon resolver ยังไม่ได้เทส action บนจอ (mock ไม่มี COD · optional seed)
+## ⚙️ ทำได้เลย ไม่ต้องรอคำตอบ
 
-## Slice 4 — เอฟเฟกต์ polish ✅ (v2 Aurora Command Center)
-- [x] full-bleed aurora bg + grid · glass panel มีมิติ · Bento glow เก็บมุม · number ticker
-- [x] overview hero (orb เรืองแสง+วงแหวน · status · pills · recent) · undo countdown · shake · SLA border-beam
-- [x] boss เห็น v2 แล้ว (ยังรอ feedback รอบ 2)
+- [x] **แก้ `returns.ts:353`** ✅ แก้ในเครื่องแล้ว รอ deploy 17:00 (2026-09-23) — ให้ใช้ `qtyTxt` (ตอนนี้ `×${it.qty}` ตรงๆ → จะโชว์ `×0` แทน `×?` หลังนำเข้า 2025) 🔴 ต้องเสร็จก่อนนำเข้า
+- [ ] **ปรับ `transform.py` ให้รับปีเป็นพารามิเตอร์**
+  - [ ] prefix `HIST25MM-` / `HIST24MM-`
+  - [ ] ชื่อชีต พ.ศ. `68` (2025) / `67` (2024)
+  - [ ] normalize `เเ` → `แ` (มี 9 สินค้าใน DB สะกดด้วย `เเ`)
+  - [ ] `ยอดTranfer` = ธงยืนยัน ไม่ใช่ยอดเงิน · `ไม่ใช่งานขาย` 747 แถว
+  - [ ] ฝังลิสต์ของข้อ 5: ลบ 6 แถว + แก้เลขพัสดุ 3 แถว (รายละเอียดใน `HANDOFF.md`)
+  - [ ] คัดแถว #N/A ทิ้ง · ออเดอร์ยกเลิกทำตามไฟล์ 13 (เก็บ 120 · ตัด 209)
+  - [ ] แก้ regex รหัสเซลให้ตัดวงเล็บท้ายชื่อก่อน (ข้อ 08) · รหัสต้องตรงตัวพิมพ์กับ `employee_code`
+  - [ ] อ่านคำตอบไฟล์ 07/08/11/12/13 ตามชื่อหัวคอลัมน์
+  - [ ] 08: ค่า "ไม่มีเซล (ยืนยัน)" → seller_id null + `seller_waived=true` (ต้องเพิ่มคอลัมน์นี้ใน `_stg_hist` + `import_month.sh`)
 
-## Slice 5 — ปิด
-- [ ] ล้าง seed ทดสอบ · built:true · deploy (push main) · verify prod
-- [ ] อัปเดต ROADMAP + ลบ TASK.md เมื่อ boss ตรวจผ่าน
+## 📥 นำเข้าจริง (หลังเคาะครบ)
 
-## หมายเหตุ
-- auth idiom: `app_session_uid(token)` → null=unauth · role Adm เท่านั้น
-- audit_log: `save_returns` log แล้ว · gap = recon delete + EDITH resolve (เขียนใน RPC)
-- return_conflicts.submissions = array 2 obj {by,at,tracking_return,inspection_result,damage_detail,damage_items,photo_url,no_deduct} · status pending→resolved
-- go-live pending (ไม่ใช่ stage นี้): reset RTs pw · jj87 xlsx · go-live wipe
+- [x] dry-run ปี 2025 ✅ (เจอ ก.พ.!2535 ยอดว่าง 1 แถว)
+- [x] นำเข้าจริงปี 2025 ✅ ครบ 12 เดือน 63,445 รายการ (2026-09-23)
+- [x] verify ✅ เลขพัสดุซ้ำ 0 · ยอดรายเดือนตรง dry-run · คิวไม่มีเซลไม่เพิ่ม · (เหลือ: สุ่มเปิดดูบนหน้าเว็บจริง — ให้เจ้านายเปิดดู)
+- [ ] ทำไฟล์ตรวจสอบปี 2024 แบบเดียวกัน → เคาะ → นำเข้า (ปี 2024 เอาเฉพาะออเดอร์)
+
+## 💰 COD ปี 2025
+
+- [x] ตรวจเทียบไฟล์เงินเข้า ✅ ไฟล์ตรวจสอบอยู่ `database/ตรวจสอบ2025-COD/`
+- [x] C1 ✅ แก้ยอด 4 · เม.ย.!2593 รอฟีเจอร์ "บางส่วน"
+- [x] C2 ✅ สร้างเงินเข้า 18 รายการ (ระบบ + หมายเหตุ)
+- [ ] เจ้านายเคาะ C6 (เงินเข้าไม่มีออเดอร์ 367) · ใช้วันรับเงินเป็น recorded_at
+- [ ] นำเข้าเงินเข้า ≈ 56,178 แถว (แยกทีละเดือน · ตรวจว่าไม่มีออเดอร์เปลี่ยนเป็น error โดยไม่ตั้งใจ)
+- [ ] ตีกลับปี 2025 (ทำหลัง COD)
+
+## 🧹 เก็บกวาดหลังจบ
+
+- [ ] ลบข้อมูลจำลองปี 2024 (`MOCK24xx-`) ด้วย `database/seed/mock-2024-rollback.sql` — **หลังเทสเสร็จหมดแล้วเท่านั้น**
+- [ ] ลบตาราง `_bak_*` / `_stg_*` (~68 MB) เมื่อเจ้านายเช็คโอเค
+- [ ] ลบ `TASK.md` + ไฟล์ `database/ตรวจสอบ2025/` เมื่อเจ้านายตรวจผ่าน

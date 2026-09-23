@@ -3,6 +3,7 @@
 //   · ตรวจซ้ำ/ไม่พบออเดอร์ตั้งแต่ตอนกรอก (ไม่รับค่า) · เสียหาย/ไม่ครบ → เลือกสินค้าในออเดอร์ + จำนวน (ไม่เกินที่มี)
 //   · ธง "ไม่หักยอด" (default ปิด · ใช้คิดค่าคอมในหน้ารายการตีกลับ) · รูปพรีวิวกดดูใหญ่ได้ · ร่างกู้คืนได้ถ้าไฟดับ
 import { el, icon, nf, imageSrc, openLightbox } from "./util";
+import { itemLine } from "./qty";
 import { lookupReturnTracking, saveReturns, fetchReturnsStats, checkReturnPhoto, type ReturnOrder, type ReturnsStats } from "./api";
 import { displayName } from "./session";
 import { guardSaveVersion } from "./version";
@@ -350,7 +351,7 @@ function orderInfo(o: ReturnOrder | null, animate = false): HTMLElement {
   const prodList = el("div", { class: "rtoplist" });
   if (o) {
     const items = o.items_list ?? [];
-    const lines = items.length ? items.map((i) => `${i.name} ×${i.qty}`) : [o.items || "—"];
+    const lines = items.length ? items.map(itemLine) : [o.items || "—"];
     for (const t of lines) prodList.append(leaf(t, "rtoprod", 0));
   } else {
     prodList.append(el("div", { class: "rtoprod" }, ""));   // เว้นบรรทัดว่างไว้

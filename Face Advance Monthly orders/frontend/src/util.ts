@@ -1,4 +1,5 @@
 import type { Order, OrderItem } from "./types";
+import { itemLine } from "./qty";
 
 export const THAI_MONTHS_FULL = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -204,7 +205,7 @@ export function paymentMethodLabel(v: string): string {
 /** รายการสินค้า → "ชื่อ ×2, ชื่อ ×1" */
 export function itemsLabel(items: OrderItem[]): string {
   if (!items || items.length === 0) return "";
-  return items.map((it) => `${it.name} ×${it.qty}`).join(", ");
+  return items.map(itemLine).join(", ");
 }
 
 /** ตีกลับถึงแล้ว → "ถึงแล้ว" / "-" */
