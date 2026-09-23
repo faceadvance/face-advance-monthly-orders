@@ -2212,6 +2212,10 @@ body.umopen #dockWrap{display:none!important}
 .srch-bar{display:flex;gap:.7rem;align-items:center;flex:none;flex-wrap:wrap}
 .srch-inwrap{flex:1;min-width:16rem;display:flex;align-items:center;gap:.5rem;background:var(--surface);border:1px solid var(--border);border-radius:.8rem;padding:.55rem .8rem;transition:border-color .15s,box-shadow .15s}
 .srch-inwrap:focus-within{border-color:#3B82F6;box-shadow:0 0 0 3px rgba(59,130,246,.14)}
+/* ตัวเลือกคอลัมน์หน้าช่องค้นหา (2026-09-23) — ดูเป็นส่วนหนึ่งของกล่องค้นหา มีเส้นคั่นก่อนไอคอน */
+.srch-field{flex:none;border:none;outline:none;background:transparent;font:inherit;font-size:.88rem;font-weight:600;color:var(--ink-2);cursor:pointer;padding:.1rem 1.35rem .1rem .1rem;margin-right:.15rem;border-right:1px solid var(--border);appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .5rem center}
+.srch-field.on{color:#2563EB}
+.srch-field:focus-visible{border-radius:.35rem;box-shadow:0 0 0 2px rgba(59,130,246,.35)}
 .srch-inwrap>svg{width:1.15rem;height:1.15rem;color:var(--ink-3);flex:none}
 .srch-input{flex:1;border:none;outline:none;background:transparent;font-size:.95rem;font-family:inherit;color:var(--ink)}
 .srch-clear{border:none;background:var(--bg);border-radius:99px;width:1.4rem;height:1.4rem;display:grid;place-items:center;cursor:pointer;color:var(--ink-3);flex:none}

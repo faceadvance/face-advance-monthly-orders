@@ -1,3 +1,4 @@
+import type { SearchField } from "./search_fields";
 import { SUPABASE_URL, ANON_KEY, FUNCTIONS_URL } from "./config";
 import { getToken } from "./session";
 import type { OrdersResponse, TrackingEntry } from "./types";
@@ -466,11 +467,11 @@ export interface SearchRow {
 }
 export interface SearchResp {
   authorized: boolean; ok?: boolean; error?: string;
-  view?: "order" | "deduct"; query?: string; too_short?: boolean;
+  view?: "order" | "deduct"; field?: SearchField; query?: string; too_short?: boolean;
   rows?: SearchRow[]; count?: number;
 }
-export function searchOrders(query: string, view: "order" | "deduct"): Promise<SearchResp> {
-  return restRpc<SearchResp>("app_search_orders", { p_token: getToken(), p_query: query, p_view: view });
+export function searchOrders(query: string, view: "order" | "deduct", field: SearchField = "all"): Promise<SearchResp> {
+  return restRpc<SearchResp>("app_search_orders", { p_token: getToken(), p_query: query, p_view: view, p_field: field });
 }
 
 export function authLogin(username: string, password: string): Promise<AuthResp> {

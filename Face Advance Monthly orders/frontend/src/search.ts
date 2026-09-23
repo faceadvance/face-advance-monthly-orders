@@ -1,13 +1,16 @@
-// หน้า "ค้นหา" (Stage 9c) — ค้นทั้งระบบ 4 ฟิลด์ (เบอร์/ชื่อ/ที่อยู่/แทร็คส่งออก) ข้ามรอบเดือน
+// หน้า "ค้นหา" (Stage 9c) — ค้นทั้งระบบ 5 ฟิลด์ (เบอร์/ชื่อ/ที่อยู่/แทร็คส่งออก/หมายเหตุ) ข้ามรอบเดือน
+// เลือกค้นเฉพาะช่องได้จากตัวเลือกหน้าช่องค้นหา (ค่าเริ่มต้น "ทั้งหมด" · เจ้านายขอ 2026-09-23)
 // 2 โหมด: แบบออเดอร์ / แบบหักยอดตีกลับ — ยกตาราง+funnel+การ์ดของหน้านั้นๆ มาเลย (คำนวณจากผลค้นหา · ไม่มีเดือน)
 // ตาราง+ตัวกรอง funnel + caret ใช้คลาสร่วมกับหน้า order/หักยอด · ไม่มี sidebar (ดูจากตารางพอ)
 import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, paymentMethodLabel, attachTopScrollbar, isTyping} from "./util";
 import { makeVTable, type VTable } from "./virtual";
 import { searchOrders, type SearchRow, type SearchResp } from "./api";
+import { SEARCH_FIELDS, normalizeField, searchPlaceholder, searchHint, type SearchField } from "./search_fields";
 
 let toastFn: (m: string, ok?: boolean) => void = () => {};
 let root: HTMLElement;
 let view: "order" | "deduct" = "order";
+let field: SearchField = "all";
 let resp: SearchResp | null = null;
 let allRows: SearchRow[] = [];
 let query = "";
@@ -266,12 +269,22 @@ function buildCards(rows: SearchRow[]): HTMLElement {
 // ---------- shell ----------
 function buildShell(container: HTMLElement) {
   // ล้างการค้นหาเดิมทุกครั้งที่เข้าหน้าใหม่ (เปลี่ยนหน้าแล้วกลับมา = เริ่มใหม่)
-  view = "order"; resp = null; allRows = []; query = ""; filters.clear(); sort = null; closeDrop();
+  view = "order"; field = "all"; resp = null; allRows = []; query = ""; filters.clear(); sort = null; closeDrop();
   root = container; container.classList.add("srch"); container.innerHTML = "";
-  const input = el("input", { class: "srch-input", id: "srchInput", type: "search", placeholder: "ค้นหา เบอร์ · ชื่อ · ที่อยู่ · แทร็ค · หมายเหตุ…", autocomplete: "off", spellcheck: "false" }) as HTMLInputElement;
+  const input = el("input", { class: "srch-input", id: "srchInput", type: "search", placeholder: searchPlaceholder("all"), autocomplete: "off", spellcheck: "false" }) as HTMLInputElement;
   const clearBtn = el("button", { class: "srch-clear", id: "srchClear", title: "ล้าง", hidden: "" }, icon("i-x")) as HTMLButtonElement;
+  // ตัวเลือกคอลัมน์ที่จะค้น (หน้าช่องค้นหา) — ค่าเริ่มต้น "ทั้งหมด"
+  const fieldSel = el("select", { class: "srch-field", id: "srchField", "aria-label": "ค้นหาในคอลัมน์" },
+    ...SEARCH_FIELDS.map((f) => el("option", { value: f.value }, f.label))) as HTMLSelectElement;
+  fieldSel.addEventListener("change", () => {
+    field = normalizeField(fieldSel.value);
+    fieldSel.classList.toggle("on", field !== "all");
+    input.placeholder = searchPlaceholder(field);
+    input.focus();
+    if (query.trim().length >= 2) { window.clearTimeout(debTimer); void doSearch(); } else paint();
+  });
   const bar = el("div", { class: "srch-bar" },
-    el("div", { class: "srch-inwrap" }, icon("i-search"), input, clearBtn),
+    el("div", { class: "srch-inwrap" }, fieldSel, icon("i-search"), input, clearBtn),
     el("div", { class: "rlseg", id: "srchSeg" }, modeBtn("order", "รายออเดอร์", "i-truck-solid"), modeBtn("deduct", "หักยอด", "i-clip-solid")));
   container.append(bar, el("div", { class: "srch-recent", id: "srchRecent" }), el("div", { class: "srch-cardsrow", id: "srchCards" }), el("div", { class: "srch-meta", id: "srchMeta" }), el("div", { class: "srch-results", id: "srchResults" }));
 
@@ -315,7 +328,7 @@ async function doSearch() {
   filters.clear(); sort = null; closeDrop();
   if (term.length < 2) { resp = term.length ? { authorized: true, ok: true, too_short: true, rows: [], count: 0 } : null; allRows = []; paint(); return; }
   const results = q("#srchResults"); if (results) { results.innerHTML = ""; results.append(el("div", { class: "srch-loading" }, el("span", { class: "srch-spin" }), "กำลังค้นหา…")); }
-  try { const r = await searchOrders(term, view); if (seq !== reqSeq) return; resp = r; allRows = r.rows ?? []; if (r.ok && (r.count ?? 0) > 0) pushRecent(term); }
+  try { const r = await searchOrders(term, view, field); if (seq !== reqSeq) return; resp = r; allRows = r.rows ?? []; if (r.ok && (r.count ?? 0) > 0) pushRecent(term); }
   catch { if (seq === reqSeq) { resp = { authorized: true, ok: false, error: "network" }; allRows = []; } }
   paint(); paintRecent();
 }
@@ -325,11 +338,14 @@ function paint() {
   const meta = q("#srchMeta"); const results = q("#srchResults"); const cards = q("#srchCards");
   if (!meta || !results || !cards) return;
   meta.innerHTML = ""; results.innerHTML = ""; cards.innerHTML = "";
-  if (!resp) { results.append(emptyState("i-search", "ค้นหาออเดอร์ทั้งระบบ", "พิมพ์ เบอร์ · ชื่อ · ที่อยู่ · แทร็คส่งออก · หมายเหตุ (อย่างน้อย 2 ตัว)")); paintRecent(); return; }
+  if (!resp) { results.append(emptyState("i-search", "ค้นหาออเดอร์ทั้งระบบ", searchHint(field))); paintRecent(); return; }
   if (resp.authorized === false) { results.append(emptyState("i-lock", "หมดสิทธิ์", "กรุณาเข้าสู่ระบบใหม่")); return; }
   if (resp.ok === false) { results.append(emptyState("i-alert", "ค้นหาไม่สำเร็จ", "เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง")); return; }
   if (resp.too_short) { results.append(emptyState("i-search", "พิมพ์อย่างน้อย 2 ตัวอักษร", "ค้นได้จาก เบอร์ · ชื่อ · ที่อยู่ · แทร็ค · หมายเหตุ")); return; }
-  if (!allRows.length) { results.append(emptyState("i-search", "ไม่พบผลลัพธ์", `ไม่พบออเดอร์ที่ตรงกับ "${resp.query}"`)); return; }
+  if (!allRows.length) {
+    const where = field === "all" ? "" : `ที่${SEARCH_FIELDS.find((f) => f.value === field)!.label}`;
+    results.append(emptyState("i-search", "ไม่พบผลลัพธ์", `ไม่พบออเดอร์${where}ตรงกับ "${resp.query}"`)); return;
+  }
 
   const rows = computeVisible();
   cards.append(buildCards(rows));
