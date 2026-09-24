@@ -6,6 +6,7 @@ import { el, icon, nf, dmy, deliveryBadge, paymentBadge, paymentStatusLabel, pay
 import { makeVTable, type VTable } from "./virtual";
 import { searchOrders, type SearchRow, type SearchResp } from "./api";
 import { SEARCH_FIELDS, normalizeField, searchPlaceholder, searchHint, type SearchField } from "./search_fields";
+import { isPaidStatus } from "./payment";
 
 let toastFn: (m: string, ok?: boolean) => void = () => {};
 let root: HTMLElement;
@@ -244,7 +245,7 @@ function buildCards(rows: SearchRow[]): HTMLElement {
     const exported = rows.filter((r) => r.delivery_status && r.delivery_status !== "กำลังส่ง").length;
     const delivered = rows.filter((r) => r.delivery_status === "ส่งสำเร็จ").length;
     const succRate = exported ? (delivered / exported) * 100 : 0;
-    const paid = rows.filter((r) => r.payment_status === "ชำระแล้ว").reduce((a, r) => a + (r.total_sales || 0), 0);
+    const paid = rows.filter((r) => isPaidStatus(r.payment_status)).reduce((a, r) => a + (r.total_sales || 0), 0);
     const unpaid = rows.filter((r) => r.payment_status === "รอชำระ").reduce((a, r) => a + (r.total_sales || 0), 0);
     const total = rows.reduce((a, r) => a + (r.total_sales || 0), 0);
     const returned = rows.filter((r) => r.delivery_status === "ตีกลับ").length;

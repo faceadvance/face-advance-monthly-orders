@@ -141,14 +141,18 @@ export interface CodImportResp {
   fixed?: number;
   paid?: number;
   err?: number;
+  /** เงินเคลม (ทำเคลม) น้อยกว่ายอดขาย → ต้องยืนยันรับ "บางส่วน" · ไม่ยืนยัน = ไม่บันทึกทั้งไฟล์ */
+  partials?: CodPartial[];
+  partial?: number;
 }
+export interface CodPartial { tracking: string; order_no: string | null; order_id: number; order_amount: number; received_amount: number; }
 export function importCodPayments(
   rows: unknown[], mode: "preflight" | "confirm",
-  fixTrackings: string[] = [], source: string | null = null,
+  fixTrackings: string[] = [], source: string | null = null, confirmPartial = false,
 ): Promise<CodImportResp> {
   return restRpc<CodImportResp>("app_import_cod_payments", {
     p_token: getToken(), p_rows: rows, p_mode: mode,
-    p_fix_trackings: fixTrackings, p_source: source,
+    p_fix_trackings: fixTrackings, p_source: source, p_confirm_partial: confirmPartial,
   });
 }
 
@@ -174,6 +178,7 @@ export interface SaveTrackingArgs {
   return_reason?: string;
   status_detail?: string;
   note?: string;
+  paid_amount?: number;   // ยอดที่รับจริง — ส่งเฉพาะตอนตั้ง "บางส่วน"
 }
 export interface TrackingResp {
   authorized: boolean;
@@ -184,6 +189,7 @@ export interface TrackingResp {
   payment_status?: string;
   return_reason?: string;
   status_detail?: string;
+  paid_amount?: number | null;
   timeline?: TrackingEntry[];
 }
 // แก้ไขโน้ต (เฉพาะของตัวเอง + วันนี้ · server บังคับ)
@@ -200,6 +206,7 @@ export function saveOrderTracking(orderId: number, a: SaveTrackingArgs): Promise
     p_return_reason: a.return_reason ?? null,
     p_status_detail: a.status_detail ?? null,
     p_note: a.note ?? null,
+    p_paid_amount: a.paid_amount ?? null,
   });
 }
 // แก้ "สถานะจัดส่ง" ทีเดียวหลายรายการ (ยกเลิก → payment=ยกเลิก ด้วย · ทำที่ server)

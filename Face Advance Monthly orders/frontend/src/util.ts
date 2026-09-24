@@ -179,6 +179,7 @@ export function deliveryBadge(s: string): { cls: string; icon: string } {
 export function paymentBadge(s: string): { cls: string; icon: string } {
   switch (s) {
     case "ชำระแล้ว": return { cls: "g", icon: "i-check" };
+    case "บางส่วน":  return { cls: "g", icon: "i-coin" };        // ได้เงินไม่เต็ม (เช่น เงินเคลม) · นับเหมือนชำระแล้ว
     case "รอชำระ":   return { cls: "a", icon: "i-clock" };
     case "ยกเลิก":   return { cls: "n", icon: "i-x" };
     case "error":    return { cls: "w", icon: "i-alert-solid" };   // ยอด COD ไม่ตรง ระบบตั้งเอง

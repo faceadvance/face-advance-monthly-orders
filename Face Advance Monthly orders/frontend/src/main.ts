@@ -1,7 +1,7 @@
 import "./style.css";
 import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
-  importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch,
+  importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch, type CodPartial,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery,
   getDetailPresets, fetchNotifications, editNote,
   fetchImportHistory, type ImportHistResp, type NotifKind,
@@ -16,6 +16,7 @@ import { renderReturnsList } from "./returns_list";
 import { renderEdith } from "./edith";
 import { renderSearch } from "./search";
 import { renderDashboard } from "./dashboard";
+import { PARTIAL, isPaidStatus, validatePartial, partialLabel } from "./payment";
 import { computeDockLayout, dockHitBox } from "./dock";
 import { parseWorkbook, parseCodWorkbook, type ImportRow, type ParseResult, type CodRow } from "./import";
 import { isStale, reloadForUpdate, showUpdateModal, guardSaveVersion, startVersionWatch } from "./version";
@@ -169,7 +170,8 @@ function computeKpiDaily(d: OrdersResponse) {
     if (o.delivery_status === "ส่งสำเร็จ") kpi.delivered_count++;
     kpi.sales_total += amt;
     if (inRange) daily.exported[idx]++;
-    if (o.payment_status === "ชำระแล้ว") { kpi.sales_paid += amt; if (inRange) daily.sales_paid[idx] += amt; }
+    if (isPaidStatus(o.payment_status)) { kpi.sales_paid += amt;   // บางส่วน = ชำระแล้วเต็มจำนวน (เจ้านายเคาะ)
+      if (inRange) daily.sales_paid[idx] += amt; }
     else if (o.payment_status === "รอชำระ") { kpi.sales_unpaid += amt; if (inRange) daily.sales_unpaid[idx] += amt; }
     else if (o.payment_status === "error") { kpi.sales_error += amt; }
     // จำนวน/อัตรา/กราฟ + ยอดตีกลับจากสถานะ = ใช้สถานะจัดส่ง "ตีกลับ"
@@ -1486,7 +1488,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 //  การบันทึกติดตาม (Stage 5): แก้สถานะ inline + sidebar
 // ======================================================
 const DELIVERY_STATUSES = ["กำลังส่ง", "ส่งสำเร็จ", "ตีกลับ", "ยกเลิก", "มีปัญหา"];
-const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", "ยกเลิก", "ไม่ใช่งานขาย"];
+const PAYMENT_STATUSES = ["รอชำระ", "ชำระแล้ว", PARTIAL, "ยกเลิก", "ไม่ใช่งานขาย"];
 const RETURN_REASONS = [
   "ไม่สามารถติดต่อลูกค้าได้",
   "ลูกค้าไม่สะดวกรับในรอบการจัดส่ง",
@@ -1510,6 +1512,8 @@ function trackErrMsg(err?: string): string {
     case "bad_delivery_status":
     case "bad_payment_status":     return "สถานะไม่ถูกต้อง";
     case "cod_payment_locked":     return "ออเดอร์ COD ระบบคุมสถานะชำระอัตโนมัติ แก้เองไม่ได้";
+    case "partial_needs_problem":  return "สถานะชำระ \"บางส่วน\" ใช้ได้เฉพาะสถานะจัดส่ง \"มีปัญหา\"";
+    case "bad_paid_amount":        return "ยอดที่รับจริงต้องมากกว่า 0 และน้อยกว่ายอดขาย";
     default:                       return "บันทึกไม่สำเร็จ";
   }
 }
@@ -1527,9 +1531,10 @@ function deriveLastNote(o: Order, timeline: TrackingEntry[]) {
   o.last_note_at = atMax ? atMax.slice(0, 10) : null;
   o.last_note_text = noteText;
 }
-function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_status?: string; return_reason?: string; status_detail?: string; timeline?: TrackingEntry[] }) {
+function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_status?: string; return_reason?: string; status_detail?: string; paid_amount?: number | null; timeline?: TrackingEntry[] }) {
   if (r.delivery_status) o.delivery_status = r.delivery_status;
   if (r.payment_status) o.payment_status = r.payment_status;
+  if (r.paid_amount !== undefined) o.paid_amount = r.paid_amount;
   o.return_reason = r.return_reason ?? "";
   o.status_detail = r.status_detail ?? "";
   // ติดตามล่าสุด/โน๊ตล่าสุด: คำนวณจาก timeline ที่ RPC คืนมา (ตรงกับสูตร get_orders) → คอลัมอัปเดตสดโดยไม่ต้อง refetch
@@ -1592,6 +1597,12 @@ function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "pay
     if (field === "delivery" && (sel === "ตีกลับ" || sel === "มีปัญหา")) {
       closeDrop();
       openSidebar(o, { presetDelivery: sel });
+      return;
+    }
+    // บางส่วน ต้องกรอกยอดที่รับจริง + ต้องเป็นมีปัญหา → เด้งเปิด sidebar ให้กรอก
+    if (field === "payment" && sel === PARTIAL) {
+      closeDrop();
+      openSidebar(o, { presetDelivery: "มีปัญหา", presetPayment: PARTIAL });
       return;
     }
     closeDrop();
@@ -1669,7 +1680,7 @@ async function resumePendingSidebar() {
   if (o) { openSidebar(o); toast("กลับมาที่รายการเดิม — ข้อมูลที่กรอกไว้ถูกกู้คืนแล้ว"); }
 }
 
-function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
+function openSidebar(o: Order, opts?: { presetDelivery?: string; presetPayment?: string }) {
   if (!requireEditor()) return;
   closeSidebar();
   document.body.classList.add("sbopen");   // Dock อยู่ขวาเหมือน sidebar → ซ่อน Dock ระหว่างเปิด
@@ -1708,7 +1719,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   const heroL = el("div", { class: "sbherol" }, nameEl, el("div", { class: "sbphone" }, o.phone || "—"));
   // ยอดขาย + ช่องทางชำระ อยู่แถวเดียวกับชื่อ/เบอร์ (ชิดขวา) — ช่องทางชำระบน, ยอดตัวเลขล่าง (ไม่มี label "ยอดขาย")
   // สียอดขายตามสถานะชำระ: ชำระแล้ว=เขียว · ยกเลิก=แดง · รอชำระ=ส้ม (เฉดเดียวกับการ์ด KPI)
-  const payColor = o.payment_status === "ชำระแล้ว" ? "#059669" : o.payment_status === "ยกเลิก" ? "#DC2626" : "#EA580C";
+  const payColor = isPaidStatus(o.payment_status) ? "#059669" : o.payment_status === "ยกเลิก" ? "#DC2626" : "#EA580C";
   const heroR = el("div", { class: "sbheror" },
     el("div", { class: "sbpay" }, paymentMethodLabel(o.payment_method) || "—"),
     el("div", { class: "sbmoneyval", style: "color:" + payColor }, "฿" + nf(o.total_sales)));
@@ -1737,6 +1748,9 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   );
   infoC.body.append(meta);
   infoC.body.append(gridField("รายการสินค้า", itemsNode, true));
+  // ยอดที่รับจริง — โชว์เฉพาะสถานะชำระ "บางส่วน" (ไม่มีในตาราง · เจ้านายเคาะ)
+  if (o.payment_status === PARTIAL && o.paid_amount != null)
+    infoC.body.append(gridField("ยอดที่รับจริง", el("span", { class: "sbpartial" }, partialLabel(o.paid_amount, o.total_sales)), true));
   if (o.note) infoC.body.append(gridField("หมายเหตุ", o.note, true));
   // เหตุผล/รายละเอียดสถานะปัจจุบัน (ถ้ามี)
   if (o.return_reason || o.status_detail) {
@@ -1750,7 +1764,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
   // ---- ส่วนแก้ไขสถานะ (chip เห็นทันที ไม่ใช่ dropdown) ----
   const editC = infoCard("i-editbox", "ico-indigo", "แก้ไขสถานะ");
   let selDelivery = opts?.presetDelivery ?? o.delivery_status;
-  let selPayment = o.payment_status;
+  let selPayment = opts?.presetPayment ?? o.payment_status;
   let selReason = "";
 
   const delGroup = chipGroup(DELIVERY_STATUSES, selDelivery, deliveryBadge, (v) => { selDelivery = v; syncCond(); updateSaveState(); });
@@ -1773,14 +1787,31 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     problemTa.value = o.status_detail || "";
   }
 
-  const payGroup = chipGroup(PAYMENT_STATUSES, selPayment, paymentBadge, (v) => { selPayment = v; updateSaveState(); });
+  const payGroup = chipGroup(PAYMENT_STATUSES, selPayment, paymentBadge, (v) => { selPayment = v; syncCond(); updateSaveState(); });
+  // บางส่วน: ช่องยอดที่รับจริง (บังคับ) + ต้องเป็นมีปัญหา
+  const partialAmt = el("input", { class: "sbinput num", type: "number", inputmode: "decimal", min: "0", step: "0.01",
+    placeholder: `น้อยกว่า ${nf(o.total_sales)}` }) as HTMLInputElement;
+  if (o.paid_amount != null) partialAmt.value = String(o.paid_amount);
+  const partialMsg = el("div", { class: "sbpartialmsg" });
+  const partialBlock = el("div", { class: "sbcond" },
+    el("div", { class: "sbsublabel" }, "ยอดที่รับจริง ", el("span", { class: "sbhintinline" }, `จากยอดขาย ฿${nf(o.total_sales)}`)),
+    partialAmt);
+  const partialVal = () => (partialAmt.value.trim() === "" ? null : Number(partialAmt.value));
+  function partialError(): string | null {
+    if (selPayment !== PARTIAL) return null;
+    if (selDelivery !== "มีปัญหา") return "สถานะชำระ \"บางส่วน\" ใช้ได้เฉพาะสถานะจัดส่ง \"มีปัญหา\"";
+    return validatePartial(partialVal(), o.total_sales);
+  }
+  partialAmt.addEventListener("input", () => updateSaveState());
   // COD: สถานะชำระแก้มือไม่ได้ (ระบบ reconcile จัดการ) → แสดง badge อย่างเดียว + โน้ต
   // (ห่อไว้ใน div เดียวแล้ว re-render ได้ เพราะการเลือก "ยกเลิก" ต้องอัปเดต badge นี้ด้วย)
   const payLock = el("div", { class: "sbpaylock" });
   const renderPayLock = () => payLock.replaceChildren(
     badge(paymentBadge(selPayment), paymentStatusLabel(selPayment)),
     el("span", { class: "sbpaylocknote" }, icon("i-lock"),
-      selPayment === "error" ? "COD — ยอดไม่ตรง โปรดตรวจสอบ" : "COD — ระบบจัดการอัตโนมัติ"));
+      selPayment === "error" ? "COD — ยอดไม่ตรง โปรดตรวจสอบ"
+        : selPayment === PARTIAL && o.paid_amount != null ? `COD — รับเงินบางส่วน · ${partialLabel(o.paid_amount, o.total_sales)}`
+        : "COD — ระบบจัดการอัตโนมัติ"));
   if (isCOD(o)) renderPayLock();
   const paymentEl = isCOD(o) ? payLock : payGroup.el;
 
@@ -1788,12 +1819,14 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     el("div", { class: "sbfld" }, "สถานะจัดส่ง"), delGroup.el,
     reasonBlock, problemBlock,
     el("div", { class: "sbfld sbfld-gap" }, "สถานะชำระเงิน"), paymentEl,
+    ...(isCOD(o) ? [] : [partialBlock]), partialMsg,
   );
   // (editC ต่อท้าย "บันทึกการติดตาม" ด้านล่าง ตามที่เจ้านายสั่ง)
 
   function syncCond() {
     reasonBlock.style.display = selDelivery === "ตีกลับ" ? "" : "none";
     problemBlock.style.display = selDelivery === "มีปัญหา" ? "" : "none";
+    partialBlock.style.display = selPayment === PARTIAL ? "" : "none";
     reasonExtraWrap.style.display = selDelivery === "ตีกลับ" && REASONS_WITH_EXTRA.has(selReason) ? "" : "none";
     // ยกเลิกออเดอร์ = ไม่ได้ส่ง ไม่มีเงินเข้า → เด้ง "สถานะชำระเงิน" เป็น ยกเลิก ให้เห็นก่อนกดบันทึก
     // server ผูกให้เหมือนกัน (app_save_order_tracking) — ตรงนี้แค่ทำให้ผู้ใช้เห็นล่วงหน้า ไม่ใช่ตัวตัดสิน
@@ -1815,6 +1848,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     let changed = selDelivery !== o.delivery_status || selPayment !== o.payment_status || noteT !== "";
     if (selDelivery === "ตีกลับ") changed = changed || selReason !== (o.return_reason || "") || reasonExtra.value.trim() !== (o.status_detail || "");
     if (selDelivery === "มีปัญหา") changed = changed || problemTa.value.trim() !== (o.status_detail || "");
+    if (selPayment === PARTIAL) changed = changed || partialVal() !== (o.paid_amount ?? null);
     return changed;
   }
   // เปิด/ปิดปุ่มยืนยันบันทึก: ต้องมีการแก้ไข + ฟิลด์จำเป็นครบ
@@ -1826,9 +1860,13 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     } else if (selDelivery === "มีปัญหา") {
       if (!problemTa.value.trim()) ok = false;
     }
+    const pErr = partialError();
+    partialMsg.textContent = pErr ?? "";
+    partialMsg.style.display = pErr && (selPayment === PARTIAL) ? "" : "none";
+    if (pErr) ok = false;
     saveBtn.disabled = !(hasChanges() && ok);
     // เก็บร่างอัตโนมัติทุกการแก้ไข (กู้คืนถ้าไฟดับ) · ไม่มีแก้ไข → ลบร่าง
-    if (hasChanges()) saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value });
+    if (hasChanges()) saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value, pa: partialAmt.value });
     else clearSbDraft(o.id);
   }
   sbHasChanges = hasChanges;   // ให้ beforeunload เช็คได้
@@ -1888,6 +1926,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     if (draft.p) { selPayment = draft.p; payGroup.set(selPayment); }
     selReason = draft.r || selReason; reasonG.set(selReason);
     reasonExtra.value = draft.re || ""; problemTa.value = draft.pr || ""; noteTa.value = draft.n || "";
+    if (draft.pa !== undefined) partialAmt.value = draft.pa;
     syncCond();
     window.setTimeout(() => toast("กู้คืนร่างที่ยังไม่บันทึกไว้"), 400);
   }
@@ -1903,7 +1942,7 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
     // มีอัปเดตระบบ → บล็อกการบันทึก · เซฟร่าง + จำว่าค้างที่ออเดอร์ไหน แล้วเด้ง popup ให้รีเฟรช
     // (หลังรีเฟรช ระบบเปิด sidebar เดิมให้เอง + กู้ค่าที่กรอกไว้ครบ → กดบันทึกต่อได้เลย)
     const okVer = await guardSaveVersion(() => {
-      saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value });
+      saveSbDraft(o.id, { d: selDelivery, p: selPayment, r: selReason, re: reasonExtra.value, pr: problemTa.value, n: noteTa.value, pa: partialAmt.value });
       setPendingSidebar(o.id);
     });
     if (!okVer) { restoreBtn(); return; }
@@ -1923,12 +1962,15 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string }) {
       detail = problemTa.value.trim();
       if (!detail) { toast("กรุณากรอกรายละเอียดปัญหา", false); restoreBtn(); return; }
     }
+    const pErr = partialError();
+    if (pErr) { toast(pErr, false); restoreBtn(); return; }
     const args: SaveTrackingArgs = {
       delivery_status: newDelivery,
       payment_status: newPayment,
       return_reason: reason,
       status_detail: detail,
       note: note || undefined,
+      paid_amount: newPayment === PARTIAL && !isCOD(o) ? partialVal() ?? undefined : undefined,
     };
     try {
       const r = await saveOrderTracking(o.id, args);
@@ -3347,6 +3389,8 @@ let importRows: ImportRow[] = [];
 let codRows: CodRow[] = [];
 const codFix = new Set<string>();   // เลขแทร็คที่พนักงานเลือกแก้ยอด
 let codEvidence: File | null = null;   // ไฟล์หลักฐานที่แนบ (ด่านก่อนนำเข้า)
+let codPartials: CodPartial[] = [];     // เงินเคลมน้อยกว่ายอดขาย (จาก preflight) → ต้องยืนยันรับ "บางส่วน"
+let codPartialOk = false;               // ยืนยันแล้วในรอบนำเข้านี้
 
 function closeImportModal() {
   if (importOv) { importOv.remove(); importOv = null; }
@@ -3473,17 +3517,31 @@ function openCodManualSidebar() {
   addBtn.addEventListener("click", addRow);
 
   const save = el("button", { class: "fbtn p", type: "button" }, "บันทึก");
-  save.addEventListener("click", async () => {
-    const data = rows
-      .map((r) => ({ tracking_out: r.tracking.value.trim(), amount: r.amount.value.trim() === "" ? null : Number(r.amount.value), received_from: r.from.value, note: r.note.value.trim() || null }))
-      .filter((r) => r.tracking_out !== "");
-    if (!data.length) { toast("กรุณากรอกอย่างน้อย 1 รายการ (เลขแทร็ค)", false); return; }
-    if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อก (ค่าที่กรอกยังอยู่ในฟอร์ม)
+  async function doManualSave(data: { tracking_out: string; amount: number | null; received_from: string; note: string | null }[], confirmPartial: boolean) {
     save.disabled = true;
     result.textContent = "กำลังบันทึก…";
     try {
-      const res = await importCodPayments(data, "confirm", [], "manual");
+      const res = await importCodPayments(data, "confirm", [], "manual", confirmPartial);
       if (!res.authorized) { toast("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", false); save.disabled = false; return; }
+      // เงินเคลมน้อยกว่ายอดขาย → ถามยืนยัน "บางส่วน" · ไม่ยืนยัน = ไม่บันทึกอะไรเลย
+      if (res.error === "partial_unconfirmed") {
+        const list = res.partials ?? [];
+        result.textContent = "";
+        const yes = el("button", { class: "fbtn p", type: "button" }, `ยืนยัน บางส่วน ${list.length} รายการ`);
+        const no = el("button", { class: "btncancel", type: "button" }, "ไม่ยืนยัน");
+        yes.addEventListener("click", () => void doManualSave(data, true));
+        no.addEventListener("click", () => {
+          result.textContent = "";
+          result.append(el("div", { class: "codmerr" }, "ยังไม่ได้บันทึกอะไร — แก้ยอด/ได้รับจาก แล้วกดบันทึกใหม่ได้"));
+          save.disabled = false;
+        });
+        result.append(el("div", { class: "codpartask" },
+          el("div", { class: "ibh" }, icon("i-coin"), `เงินเคลมน้อยกว่ายอดขาย ${list.length} รายการ — ยืนยันรับ "บางส่วน" ใช่ไหม?`),
+          codPartialList(list),
+          el("div", { class: "codpartwarn" }, icon("i-alert-solid"), "ถ้าไม่ยืนยัน จะไม่บันทึกอะไรเลยทั้งชุด"),
+          el("div", { class: "codpartact" }, no, yes)));
+        return;
+      }
       if (!res.ok) {
         result.textContent = "";
         result.append(el("div", { class: "codmerr" }, `บันทึกไม่ได้ — มี ${res.problems?.length || 0} รายการต้องแก้:`));
@@ -3491,10 +3549,18 @@ function openCodManualSidebar() {
         save.disabled = false;
         return;
       }
-      toast(`บันทึก COD ${res.inserted || data.length} รายการ · ชำระแล้ว ${res.paid || 0}${res.err ? ` · ยอดไม่ตรง ${res.err}` : ""}`);
+      toast(`บันทึก COD ${res.inserted || data.length} รายการ · ชำระแล้ว ${res.paid || 0}${res.partial ? ` · บางส่วน ${res.partial}` : ""}${res.err ? ` · ยอดไม่ตรง ${res.err}` : ""}`);
       closeSidebar();
       if (state.month) await loadMonth(state.month);   // รีเฟรชให้เห็นสถานะชำระใหม่
     } catch { toast("บันทึกไม่สำเร็จ", false); save.disabled = false; }
+  }
+  save.addEventListener("click", async () => {
+    const data = rows
+      .map((r) => ({ tracking_out: r.tracking.value.trim(), amount: r.amount.value.trim() === "" ? null : Number(r.amount.value), received_from: r.from.value, note: r.note.value.trim() || null }))
+      .filter((r) => r.tracking_out !== "");
+    if (!data.length) { toast("กรุณากรอกอย่างน้อย 1 รายการ (เลขแทร็ค)", false); return; }
+    if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อก (ค่าที่กรอกยังอยู่ในฟอร์ม)
+    await doManualSave(data, false);
   });
   panel.append(el("div", { class: "sbfoot" }, save));
 
@@ -3597,6 +3663,7 @@ function showCodPreview(body: HTMLElement, fname: string, pre: CodImportResp) {
   const problems = pre.problems ?? [];
   const mismatches = pre.mismatches ?? [];
   const canConfirm = problems.length === 0 && (pre.rows_total ?? 0) > 0;
+  codPartials = pre.partials ?? []; codPartialOk = false;
 
   body.append(el("div", { class: "ifile" }, icon("i-check"), fname));
   body.append(el("div", { class: "istats" },
@@ -3619,7 +3686,10 @@ function showCodPreview(body: HTMLElement, fname: string, pre: CodImportResp) {
     const box = el("div", { class: "ibox warn" });
     box.append(el("div", { class: "ibh" }, icon("i-alert-solid"),
       `${mismatches.length} รายการยอดรับไม่ตรงกับออเดอร์ — เลือกแก้ยอด หรือปล่อยเป็น Error ให้ตรวจภายหลัง`));
-    for (const m of mismatches) box.append(codMismatchRow(m));
+    const partialSet = new Set(codPartials.map((p) => p.tracking));
+    for (const m of mismatches) box.append(codMismatchRow(m, partialSet.has(m.tracking)));
+    if (codPartials.length) box.append(el("div", { class: "codpartnote" }, icon("i-coin"),
+      `${codPartials.length} รายการเป็นเงินเคลม (ทำเคลม) น้อยกว่ายอดขาย — ถ้าไม่แก้ยอด จะถามยืนยันรับ "บางส่วน" ก่อนนำเข้า`));
     body.append(box);
   }
 
@@ -3633,10 +3703,11 @@ function showCodPreview(body: HTMLElement, fname: string, pre: CodImportResp) {
   body.append(foot);
 }
 
-function codMismatchRow(m: CodMismatch): HTMLElement {
+function codMismatchRow(m: CodMismatch, isPartial = false): HTMLElement {
   const row = el("div", { class: "codmm" });
   const info = el("div", { class: "codmmi" },
-    el("div", { class: "codmmt" }, m.tracking, m.order_no ? el("span", { class: "codmmord" }, `#${m.order_no}`) : ""),
+    el("div", { class: "codmmt" }, m.tracking, m.order_no ? el("span", { class: "codmmord" }, `#${m.order_no}`) : "",
+      isPartial ? el("span", { class: "codparttag" }, "ทำเคลม · บางส่วน") : ""),
     el("div", { class: "codmma" },
       "ออเดอร์ ", el("b", {}, "฿" + nf(m.order_amount)),
       " · รับจริง ", el("b", { class: "hl" }, m.received_amount === null ? "—" : "฿" + nf(m.received_amount))));
@@ -3702,6 +3773,9 @@ function showCodEvidence(body: HTMLElement) {
 
 async function doCodConfirm(body: HTMLElement) {
   if (!codEvidence) { showCodEvidence(body); return; }
+  // เงินเคลมน้อยกว่ายอดขายที่ไม่ได้เลือกแก้ยอด → ต้องยืนยัน "บางส่วน" ก่อน (ไม่ยืนยัน = ยกเลิกทั้งไฟล์)
+  const pending = codPartials.filter((p) => !codFix.has(p.tracking));
+  if (pending.length && !codPartialOk) { showCodPartialConfirm(body, pending); return; }
   if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อกก่อนอัปโหลด/นำเข้าจริง
   importLoading(body, "กำลังอัปโหลดไฟล์หลักฐาน...");
   const up = await uploadCodEvidence(codEvidence);
@@ -3712,19 +3786,50 @@ async function doCodConfirm(body: HTMLElement) {
   importLoading(body, "กำลังนำเข้าข้อมูล...");
   let res: CodImportResp;
   try {
-    res = await importCodPayments(codRows, "confirm", [...codFix], up.path);
+    res = await importCodPayments(codRows, "confirm", [...codFix], up.path, codPartialOk);
   } catch (e: any) {
     codImportError(body, "นำเข้าไม่สำเร็จ: " + (e?.message ?? e));
     return;
   }
   if (!res.authorized) { closeImportModal(); toLogin(); return; }
-  if (!res.ok) { codImportError(body, res.error === "no_evidence" ? "ต้องแนบไฟล์หลักฐานก่อนนำเข้า" : (res.error ?? "นำเข้าไม่สำเร็จ")); return; }
+  if (!res.ok) {
+    codImportError(body, res.error === "no_evidence" ? "ต้องแนบไฟล์หลักฐานก่อนนำเข้า"
+      : res.error === "partial_unconfirmed" ? "มีรายการรับเงินบางส่วนที่ยังไม่ได้ยืนยัน — ยังไม่ได้บันทึกอะไร"
+      : (res.error ?? "นำเข้าไม่สำเร็จ"));
+    return;
+  }
   closeImportModal();
-  const paid = res.paid ?? 0, err = res.err ?? 0;
-  toast(`นำเข้า COD ${nf(res.inserted ?? 0)} รายการ — ชำระแล้ว ${nf(paid)}${err ? ` · Error ${nf(err)}` : ""}`);
+  const paid = res.paid ?? 0, err = res.err ?? 0, part = res.partial ?? 0;
+  toast(`นำเข้า COD ${nf(res.inserted ?? 0)} รายการ — ชำระแล้ว ${nf(paid)}${part ? ` · บางส่วน ${nf(part)}` : ""}${err ? ` · Error ${nf(err)}` : ""}`);
   try {
     if (state.month) await loadMonth(state.month);
   } catch { /* refresh พลาดไม่ร้ายแรง */ }
+}
+
+// กล่องยืนยันรับ "บางส่วน" — ไม่ยืนยัน = ยกเลิกการนำเข้าทั้งไฟล์ (ไม่บันทึกอะไรเลย · เจ้านายเคาะ)
+function codPartialList(list: CodPartial[]): HTMLElement {
+  const box = el("div", { class: "codpartlist" });
+  for (const p of list) box.append(el("div", { class: "codpartrow" },
+    el("span", { class: "mono" }, p.tracking), p.order_no ? el("span", { class: "codmmord" }, `#${p.order_no}`) : "",
+    el("span", { class: "codpartamt" }, "ยอดขาย ", el("b", {}, "฿" + nf(p.order_amount)), " · ได้รับ ", el("b", { class: "hl" }, "฿" + nf(p.received_amount)))));
+  return box;
+}
+function showCodPartialConfirm(body: HTMLElement, list: CodPartial[]) {
+  setImportBack(() => void handleCodPreflightRefresh(body));
+  body.textContent = "";
+  body.append(el("div", { class: "ibox warn" },
+    el("div", { class: "ibh" }, icon("i-coin"), `ยืนยันรับเงิน "บางส่วน" ${list.length} รายการใช่ไหม?`),
+    el("div", { class: "codpartexp" }, "เงินเคลมน้อยกว่ายอดขาย · ยืนยันแล้ว ออเดอร์จะเป็น ",
+      el("b", {}, "บางส่วน · มีปัญหา"), " และบันทึกยอดที่รับจริง (นับยอดขายเต็มจำนวน)"),
+    codPartialList(list),
+    el("div", { class: "codpartwarn" }, icon("i-alert-solid"), "ถ้าไม่ยืนยัน จะยกเลิกการนำเข้าทั้งไฟล์ — ไม่บันทึกอะไรเลย")));
+  const foot = el("div", { class: "modal-foot" });
+  const no = el("button", { class: "fbtn" }, "ไม่ยืนยัน · ยกเลิกทั้งไฟล์");
+  no.addEventListener("click", () => { closeImportModal(); toast("ยกเลิกการนำเข้าแล้ว — ยังไม่ได้บันทึกอะไร", false); });
+  const yes = el("button", { class: "btn" }, icon("i-check"), `ยืนยัน บางส่วน ${list.length} รายการ`);
+  yes.addEventListener("click", () => { codPartialOk = true; void doCodConfirm(body); });
+  foot.append(no, yes);
+  body.append(foot);
 }
 
 function codUploadErr(code: string): string {

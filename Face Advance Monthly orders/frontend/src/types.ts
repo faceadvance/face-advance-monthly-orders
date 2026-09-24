@@ -14,6 +14,7 @@ export interface Order {
   total_sales: number;
   delivery_status: string;
   payment_status: string;
+  paid_amount?: number | null;   // ยอดที่รับจริง — มีเฉพาะสถานะชำระ "บางส่วน" (โชว์แค่ใน sidebar)
   return_arrived: boolean;   // ตีกลับถึงแล้ว (ระบบตั้งจากตาราง reconcile)
   return_reason: string;     // เหตุผลตีกลับ (dropdown) — "" ถ้าไม่มี
   status_detail: string;     // ข้อความเพิ่มเติม/รายละเอียดปัญหา — "" ถ้าไม่มี
