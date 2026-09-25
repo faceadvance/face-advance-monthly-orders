@@ -1168,6 +1168,18 @@ body.sbopen #dockWrap{display:none}
 .rtitem.miss .rtiname{color:#B91C1C}
 .rtitem.miss .tick{color:#DC2626}
 .rtkind{display:flex;gap:4px;flex:none}
+/* หัวข้อ เสียหาย / ขาด (สินค้าเดียวกันเลือกได้ทั้งสองหัวข้อ · จำนวนรวมไม่เกินออเดอร์) */
+.rtksec{display:flex;flex-direction:column;gap:6px}
+.rtksec + .rtksec{margin-top:8px}
+.rtkhead{font-size:.74rem;font-weight:800;letter-spacing:.02em;display:flex;align-items:center;gap:6px}
+.rtkhead::before{content:"";width:8px;height:8px;border-radius:50%}
+.rtksec.dmg .rtkhead{color:#C2410C}
+.rtksec.dmg .rtkhead::before{background:#F97316}
+.rtksec.miss .rtkhead{color:#B91C1C}
+.rtksec.miss .rtkhead::before{background:#EF4444}
+.rtitem.full{opacity:.55}
+.rtitem.full .rtiname{cursor:not-allowed}
+.rtkhint{font-size:.78rem;color:#B91C1C;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:6px 10px}
 .rtkbtn{border:1px solid var(--border);background:#fff;color:var(--ink-3);border-radius:8px;padding:5px 10px;font-size:.73rem;font-weight:700;font-family:inherit;cursor:pointer;transition:all .14s}
 .rtkbtn.d:hover{border-color:#FDBA74;color:#C2410C}
 .rtkbtn.m:hover{border-color:#FCA5A5;color:#B91C1C}

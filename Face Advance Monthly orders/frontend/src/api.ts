@@ -252,6 +252,7 @@ export interface ReturnOrder {
   total_sales: number; items: string; carrier: string;
   delivery_status: string; payment_status: string; payment_method: string;
   ordered_date: string; seller_code: string | null; seller_name: string | null;
+  items_list?: { name: string; qty: number }[];   // สินค้าแยกชนิด (ใช้เลือกเสียหาย/ขาด)
 }
 export interface LookupResp { authorized: boolean; ok?: boolean; error?: string; order?: ReturnOrder }
 export interface SaveReturnsResp {

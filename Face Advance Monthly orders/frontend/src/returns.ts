@@ -7,6 +7,7 @@ import { itemLine } from "./qty";
 import { lookupReturnTracking, saveReturns, fetchReturnsStats, checkReturnPhoto, type ReturnOrder, type ReturnsStats } from "./api";
 import { displayName } from "./session";
 import { guardSaveVersion } from "./version";
+import { kindsFor, maxQty, findDamage, toggleDamage, clampQty, damageOk as damageItemsOk, canBoth, type DamageKind, type DamageItem } from "./damage";
 
 export const INSPECTIONS = [
   { v: "สินค้าครบ ไม่เสียหาย", cls: "g", short: "ครบ ไม่เสียหาย" },
@@ -15,8 +16,6 @@ export const INSPECTIONS = [
   { v: "สินค้าไม่ครบและเสียหาย", cls: "r", short: "ไม่ครบ+เสียหาย" },
 ] as const;
 
-type DamageKind = "damaged" | "missing";   // เสียหาย (ส้ม) · ไม่ครบ/ไม่กลับมา (แดง)
-interface DamageItem { name: string; qty: number; kind: DamageKind }
 interface Row {
   id: number;
   tracking_out: string;
@@ -39,8 +38,10 @@ let saveTimer: number | undefined;
 const draftKey = () => `fa_returns_draft_${displayName() || "user"}`;
 const newRow = (): Row => ({ id: seq++, tracking_out: "", tracking_return: "", photo_url: "", inspection_result: "", damage_items: [], damage_detail: "", no_deduct: false, order: null });
 const needDetail = (r: Row) => r.inspection_result !== "" && r.inspection_result !== "สินค้าครบ ไม่เสียหาย";
-/** ต้องมีสินค้าครบทุกชนิดที่ผลตรวจกำหนด (ไม่ครบ+เสียหาย = ต้องมีทั้ง "เสียหาย" และ "ขาด") */
-const damageOk = (r: Row) => kindsFor(r.inspection_result).every((k) => r.damage_items.some((d) => d.kind === k));
+/** จำนวนสินค้าชนิดนี้ในออเดอร์ (ใช้คุมจำนวนเสียหาย+ขาดรวมกัน) */
+const orderQtyOf = (r: Row, name: string) => r.order?.items_list?.find((it) => it.name === name)?.qty ?? 0;
+/** ต้องมีสินค้าครบทุกหัวข้อที่ผลตรวจกำหนด (ไม่ครบ+เสียหาย = ทั้ง "เสียหาย" และ "ขาด") + รวมไม่เกินจำนวนในออเดอร์ */
+const damageOk = (r: Row) => damageItemsOk(r.inspection_result, r.damage_items, (n) => orderQtyOf(r, n));
 const photoOk = (r: Row) => /^https?:\/\//i.test(r.photo_url.trim());
 /** เพิ่มเข้ารายการได้ = พบออเดอร์ + กรอกแทร็คตีกลับ + ลิงก์รูป + เลือกผลตรวจ + สินค้าครบตามผลตรวจ */
 const rowReady = (r: Row) => !!r.order && r.tracking_return.trim() !== "" && photoOk(r) && !!r.inspection_result && damageOk(r);
@@ -49,13 +50,6 @@ function syncDetailText(r: Row) {
   const g = (k: DamageKind) => r.damage_items.filter((d) => d.kind === k).map((d) => `${d.name} ×${d.qty}`).join(", ");
   const d = g("damaged"), m = g("missing");
   r.damage_detail = [d && `เสียหาย: ${d}`, m && `ขาด: ${m}`].filter(Boolean).join(" · ");
-}
-/** ผลตรวจ → ชนิดที่อนุญาต (ไม่ครบและเสียหาย = ต้องเลือกทีละชิ้นว่าอะไรเสียหาย อะไรไม่กลับมา) */
-function kindsFor(ins: string): DamageKind[] {
-  if (ins === "สินค้าเสียหาย") return ["damaged"];
-  if (ins === "สินค้าไม่ครบ") return ["missing"];
-  if (ins === "สินค้าไม่ครบและเสียหาย") return ["damaged", "missing"];
-  return [];
 }
 
 
@@ -384,6 +378,10 @@ function inspectBlock(r: Row): HTMLElement {
     c.addEventListener("click", () => {
       r.inspection_result = on ? "" : ins.v;
       if (!needDetail(r)) { r.damage_items = []; r.damage_detail = ""; }
+      else {   // เปลี่ยนผลตรวจ → ทิ้งสินค้าในหัวข้อที่ผลตรวจใหม่ไม่มี (กันบันทึก "ขาด" ติดไปกับผล "เสียหาย")
+        const ks = kindsFor(r.inspection_result);
+        r.damage_items = r.damage_items.filter((d) => ks.includes(d.kind)); syncDetailText(r);
+      }
       refreshInspect();
     });
     btns.append(c);
@@ -393,49 +391,50 @@ function inspectBlock(r: Row): HTMLElement {
     el("div", { class: "rtfield" }, el("span", { class: "rtflabel" }, "ผลการตรวจสอบ"), btns));
 
   if (needDetail(r)) {
+    // หัวข้อ "เสียหาย" / "ขาด" ตามผลตรวจ · ใต้แต่ละหัวข้อมีสินค้าทุกชนิดในออเดอร์ให้เลือก
+    // สินค้าชนิดเดียวกันเลือกได้ทั้งสองหัวข้อ แต่จำนวนรวมกันต้องไม่เกินที่มีในออเดอร์ (sync กัน)
     const list = r.order?.items_list ?? [];
-    const items = el("div", { class: "rtdetail" });
-    if (!list.length) items.append(el("span", { class: "rtmuted" }, "ไม่พบรายการสินค้าในออเดอร์"));
     const kinds = kindsFor(r.inspection_result);
-    for (const it of list) {
-      const picked = r.damage_items.find((d) => d.name === it.name);
-      const row = el("div", { class: `rtitem${picked ? (picked.kind === "damaged" ? " dmg" : " miss") : ""}` });
-      const toggle = (k: DamageKind) => {
-        const i = r.damage_items.findIndex((d) => d.name === it.name);
-        if (i >= 0 && r.damage_items[i].kind === k) r.damage_items.splice(i, 1);
-        else if (i >= 0) r.damage_items[i].kind = k;
-        else r.damage_items.push({ name: it.name, qty: 1, kind: k });
-        syncDetailText(r); refreshInspect();
-      };
-      const pick = el("button", { class: "rtiname", type: "button" },
-        el("span", { class: "tick" }, picked ? "✓" : ""), it.name,
-        el("span", { class: "rtiqty" }, `มี ${it.qty}`)) as HTMLElement;
-      pick.addEventListener("click", () => toggle(picked ? picked.kind : kinds[0]));
-      row.append(pick);
-      // เลือกทีละชิ้นว่า "เสียหาย" หรือ "ไม่ครบ" (เฉพาะกรณีผลตรวจเป็นทั้งสองอย่าง)
-      if (kinds.length > 1) {
-        const kb = (k: DamageKind, cls: string, label: string) => {
-          const b = el("button", { class: `rtkbtn ${cls}${picked?.kind === k ? " on" : ""}`, type: "button" }, label) as HTMLElement;
-          b.addEventListener("click", () => toggle(k));
-          return b;
-        };
-        row.append(el("div", { class: "rtkind" }, kb("damaged", "d", "เสียหาย"), kb("missing", "m", "ขาด")));
+    const box = el("div", { class: "rtdetail" });
+    if (!list.length) box.append(el("span", { class: "rtmuted" }, "ไม่พบรายการสินค้าในออเดอร์"));
+    else if (kinds.length > 1 && !canBoth(list))
+      box.append(el("span", { class: "rtkhint" }, "ออเดอร์นี้มีสินค้ารวมแค่ 1 ชิ้น — เลือกทั้งเสียหายและขาดไม่ได้ (เลือกผลตรวจ \"เสียหาย\" หรือ \"ไม่ครบ\" แทน)"));
+    for (const k of list.length ? kinds : []) {
+      const sec = el("div", { class: `rtksec ${k === "damaged" ? "dmg" : "miss"}` },
+        el("span", { class: "rtkhead" }, k === "damaged" ? "เสียหาย" : "ขาด"));
+      for (const it of list) {
+        const picked = findDamage(r.damage_items, it.name, k);
+        const left = maxQty(r.damage_items, it.name, k, it.qty);
+        const full = !picked && left < 1;   // ถูกใช้ครบในอีกหัวข้อแล้ว
+        const row = el("div", { class: `rtitem${picked ? (k === "damaged" ? " dmg" : " miss") : ""}${full ? " full" : ""}` });
+        const pick = el("button", { class: "rtiname", type: "button", ...(full ? { disabled: "", title: "จำนวนถูกใช้ครบในอีกหัวข้อแล้ว" } : {}) },
+          el("span", { class: "tick" }, picked ? "✓" : ""), it.name,
+          el("span", { class: "rtiqty" }, full ? `ใช้ครบ ${it.qty} แล้ว` : `มี ${it.qty}`)) as HTMLElement;
+        pick.addEventListener("click", () => {
+          const next = toggleDamage(r.damage_items, it.name, k, it.qty);
+          if (!next) { toastFn(`${it.name} ถูกใช้ครบ ${it.qty} ชิ้นในอีกหัวข้อแล้ว`, false); return; }
+          r.damage_items = next; syncDetailText(r); refreshInspect();
+        });
+        row.append(pick);
+        if (picked) {
+          const max = Math.max(1, left);
+          const qty = el("input", { class: "rtqty", type: "number", inputmode: "numeric", min: "1", max: String(max), value: String(picked.qty), "aria-label": `จำนวน${k === "damaged" ? "เสียหาย" : "ขาด"} ${it.name}` }) as HTMLInputElement;
+          const clamp = () => {
+            const want = Math.floor(Number(qty.value));
+            const n = clampQty(r.damage_items, it.name, k, want, it.qty);
+            if (want > n) toastFn(`${it.name} เสียหาย+ขาด รวมกันได้ไม่เกิน ${it.qty} ชิ้น`, false);
+            qty.value = String(n); picked.qty = n; syncDetailText(r); updateStats(); saveDraft(); refreshInspect();
+          };
+          qty.addEventListener("input", () => { picked.qty = Math.floor(Number(qty.value) || 1); syncDetailText(r); saveDraft(); });
+          qty.addEventListener("blur", clamp);
+          qty.addEventListener("keydown", (e) => { if (e.key === "Enter") qty.blur(); });
+          row.append(qty);
+        }
+        sec.append(row);
       }
-      if (picked) {
-        const qty = el("input", { class: "rtqty", type: "number", inputmode: "numeric", min: "1", max: String(it.qty), value: String(picked.qty), "aria-label": `จำนวน ${it.name}` }) as HTMLInputElement;
-        const clamp = () => {
-          let n = Math.floor(Number(qty.value) || 1);
-          if (n < 1) n = 1;
-          if (n > it.qty) { n = it.qty; toastFn(`ออเดอร์นี้มี ${it.name} แค่ ${it.qty} ชิ้น`, false); }
-          qty.value = String(n); picked.qty = n; syncDetailText(r); updateStats(); saveDraft();
-        };
-        qty.addEventListener("input", () => { picked.qty = Math.floor(Number(qty.value) || 1); syncDetailText(r); saveDraft(); });
-        qty.addEventListener("blur", clamp);
-        row.append(qty);
-      }
-      items.append(row);
+      box.append(sec);
     }
-    wrap.append(el("div", { class: "rtfield" }, el("span", { class: "rtflabel" }, "ระบุสินค้าที่เสียหาย / หายไป"), items));
+    wrap.append(el("div", { class: "rtfield" }, el("span", { class: "rtflabel" }, "ระบุสินค้าที่เสียหาย / หายไป"), box));
   }
   return wrap;
 }
@@ -613,6 +612,8 @@ async function doLookup(input: HTMLInputElement) {
     if (!res.ok || !res.order) { rejectValue(input, LOOKUP_MSG[res.error ?? ""] ?? "ตรวจสอบเลขแทร็คไม่สำเร็จ"); return; }
     draft.tracking_out = tr;
     draft.order = res.order;
+    // ออเดอร์ใหม่ → ล้างสินค้าเสียหาย/ขาดที่เลือกไว้จากออเดอร์ก่อน (กันจำนวนเกินของออเดอร์ใหม่ติดไปบันทึก)
+    if (draft.damage_items.length) { draft.damage_items = []; syncDetailText(draft); refreshInspect(); }
     renderOrderArea(true);   // อัปเดตเฉพาะโซนออเดอร์ + พิมพ์ดีดค่า (ไม่กระพริบ ไม่แตะช่องกรอก/รูป)
     updateStats(); paintCards(); saveDraft();
     focusField("back");

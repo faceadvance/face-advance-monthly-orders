@@ -206,7 +206,7 @@ export function renderReturnsList(root: HTMLElement, deps: { toast: (msg: string
       document.body.classList.remove("rldragsel");
     });
   }
-  void load(true);
+  void load();
 }
 
 function segBtn(mode: "deduct" | "status", label: string, ic: string): HTMLElement {
@@ -220,7 +220,7 @@ function segBtn(mode: "deduct" | "status", label: string, ic: string): HTMLEleme
     filters.clear(); sort = null; closeDrop();
     document.querySelectorAll<HTMLElement>("#rlMode .rlsegbtn")
       .forEach((x) => x.classList.toggle("on", x.getAttribute("data-mode") === mode));
-    void load(false);
+    void load();
   });
   return b;
 }
@@ -241,8 +241,8 @@ function buildPeriod(): HTMLElement {
       el("span", { class: "rlpsub", id: "rlPSub" }, "")),
     icon("i-chev"));
   const pop = el("div", { class: "mpick", id: "rlMonthPick", hidden: "" });
-  prev.addEventListener("click", () => { if (state.cycle) { state.cycle = monthShift(state.cycle, -1); void load(false); } });
-  next.addEventListener("click", () => { if (state.cycle) { state.cycle = monthShift(state.cycle, 1); void load(false); } });
+  prev.addEventListener("click", () => { if (state.cycle) { state.cycle = monthShift(state.cycle, -1); void load(); } });
+  next.addEventListener("click", () => { if (state.cycle) { state.cycle = monthShift(state.cycle, 1); void load(); } });
   center.addEventListener("click", (e) => {
     e.stopPropagation();
     const p = document.getElementById("rlMonthPick"); if (!p) return;
@@ -272,7 +272,7 @@ function buildMonthGrid() {
     if (pickerYear === selY && m === selM) cls.push("sel");
     if (have.has(ym)) cls.push("has");
     const cell = el("div", { class: cls.join(" ") }, THAI_MONTHS_SHORT[m - 1]);
-    cell.addEventListener("click", (e) => { e.stopPropagation(); pick.hidden = true; state.cycle = ym; void load(false); });
+    cell.addEventListener("click", (e) => { e.stopPropagation(); pick.hidden = true; state.cycle = ym; void load(); });
     grid.append(cell);
   }
   pick.append(grid);
@@ -415,7 +415,8 @@ function fillTeamOptions() {
   field.style.display = teams.length > 1 || !!data?.all_teams ? "" : "none";
   const opts: DDOpt[] = [{ v: "", label: "ทุกทีม" }, ...teams.map((t) => ({ v: String(t.id), label: t.name }))];
   renderDD("rlTeam", opts, state.teamId ? String(state.teamId) : "", new Set(), (v) => {
-    state.teamId = v ? Number(v) : null; state.sellerCode = null; fillSellerOptions(); void load(false);
+    // วาดใหม่ทันที — ไม่งั้นป้ายปุ่มค้าง "ทุกทีม" และค่า cur ใน closure เก่าทำให้กด "ทุกทีม" กลับไม่ได้
+    state.teamId = v ? Number(v) : null; state.sellerCode = null; fillTeamOptions(); fillSellerOptions(); void load();
   });
 }
 function fillSellerOptions() {
@@ -427,7 +428,7 @@ function fillSellerOptions() {
   if (cur === "") state.sellerCode = null;
   const withRet = new Set(data?.sellers_with_returns ?? []);   // จุดเขียว = พนักงานที่มีตีกลับในรอบนี้
   const opts: DDOpt[] = [{ v: "", label: "ทุกคน" }, ...list.map((s) => ({ v: s.code, label: s.name ? `${s.code} — ${s.name}` : s.code }))];
-  renderDD("rlSeller", opts, cur, withRet, (v) => { state.sellerCode = v || null; void load(false); });
+  renderDD("rlSeller", opts, cur, withRet, (v) => { state.sellerCode = v || null; void load(); });
 }
 
 // ---------- load ----------
@@ -437,7 +438,7 @@ function renderRlLoading() {
   if (wrap) { wrap.onscroll = null; wrap.innerHTML = ""; wrap.append(el("div", { class: "loadbox" }, el("span", { class: "loadspin" }), el("span", {}, "กำลังโหลดข้อมูล…"))); }
   document.getElementById("rlCards")?.classList.add("cards-loading");   // คงกรอบการ์ด ซ่อนแค่ตัวเลข
 }
-async function load(first: boolean) {
+async function load() {
   renderRlLoading();   // ล้างของเดิมออกทันที + โชว์กำลังโหลด (ไม่ให้รู้สึกค้างระหว่างรอ fetch)
   const resp = await fetchReturnsList(state.cycle, state.mode, state.teamId, state.sellerCode);
   data = resp;
@@ -445,7 +446,7 @@ async function load(first: boolean) {
   if (!resp.ok) { paintMessage(resp.error === "forbidden" ? "ไม่มีสิทธิ์ดูหน้านี้" : "เกิดข้อผิดพลาดในการโหลดข้อมูล"); return; }
   if (state.cycle == null) state.cycle = resp.cycle?.value ?? null;
   allRows = resp.rows ?? [];
-  if (first) fillTeamOptions();
+  fillTeamOptions();   // ทุกครั้ง (รายชื่อทีมไม่ขึ้นกับทีมที่เลือก) — ป้าย/ค่าที่เลือกตรงกับ state เสมอ
   fillSellerOptions();   // เรียกทุกครั้ง — จุดเขียวเปลี่ยนตามรอบ/โหมด
   paintPeriod();
   paintCards();
