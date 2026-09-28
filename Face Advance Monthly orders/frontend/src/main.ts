@@ -31,6 +31,7 @@ import {
   cellValue, searchBlob, paymentMethodLabel, paymentStatusLabel, THAI_MONTHS_SHORT, THAI_MONTHS_FULL, type ColKey,
   loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder, attachTopScrollbar,
 } from "./util";
+import { includeNewValues } from "./filter_sync";
 import { qtyTxt } from "./qty";
 
 const MAX_SELECT = 30;
@@ -1543,8 +1544,10 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
   renderKpi(state.data!);
   // อัปเดต "เฉพาะแถวที่เปลี่ยน" (ไม่ re-render ทั้งตาราง/ไม่ cascade ใหม่)
   // ยกเว้นมี filter/sort บนคอลัมน์สถานะ ที่การเปลี่ยนอาจทำให้แถวย้าย/หาย → ต้อง render ใหม่
+  // ค่าใหม่ที่ไม่เคยมีในเดือนนี้ (เช่น รายละเอียดปัญหาคำใหม่) → เติมเข้าตัวกรองที่เปิดอยู่ ไม่ให้แถวหาย/ตัวเลือกใหม่ไม่ถูกติ๊ก
+  const addedToFilter = includeNewValues(state.filters, state.data!.orders, o, (x, c) => cellValue(x, c, today()));
   const cols = ["delivery_status", "payment_status", "problem", "return_arrived"];
-  const affectsView = (state.sort != null && cols.includes(state.sort.col))
+  const affectsView = addedToFilter.length > 0 || (state.sort != null && cols.includes(state.sort.col))
     || [...state.filters.keys()].some((k) => cols.includes(k));
   const tr = document.querySelector<HTMLElement>(`#tableWrap tbody tr[data-oid="${o.id}"]`);
   // ต้องวาดใหม่ (มีตัวกรอง/เรียงบนคอลัมสถานะ) → คงตำแหน่งเดิม + ยึดแถวที่เพิ่งแก้เป็นหลัก
