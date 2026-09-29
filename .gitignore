@@ -8,6 +8,10 @@ database/seed/sellers_seed.sql
 database/seed/products_seed_01.tsv
 database/seed/stg_insert.sql
 database/seed/*_seed.sql
+# คลังงานที่จบแล้ว (ไฟล์ต้นฉบับ/ไฟล์ตรวจ/สคริปต์นำเข้าย้อนหลัง มีข้อมูลลูกค้า) + เครื่องมือ/อ้างอิงภายใน
+database/_เก็บถาวร/
+database/อ้างอิง/
+database/เครื่องมือ/
 **/import_orders.sql
 /tmp/import_orders.sql
 
