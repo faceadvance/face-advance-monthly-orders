@@ -7,6 +7,7 @@ import {
   fetchImportHistory, type ImportHistResp, type NotifKind,
   fetchUserView, saveUserView,
   fetchNoteMarks, saveNoteMarks,
+  setSessionExpiredHandler,
 } from "./api";
 import { renderLogin } from "./auth";
 import { getToken, clearSession, displayName, getRole, setRole, setDisplayName } from "./session";
@@ -32,6 +33,7 @@ import {
   loadColsHidden, saveColsHidden, loadColsOrder, saveColsOrder, attachTopScrollbar,
 } from "./util";
 import { includeNewValues } from "./filter_sync";
+import { dateRanges, thaiDow } from "./date_gap";
 import { qtyTxt } from "./qty";
 
 const MAX_SELECT = 30;
@@ -3102,6 +3104,17 @@ async function bootstrap() {
   // idle-timeout: ออกจากระบบอัตโนมัติเมื่อไม่มีการใช้งาน (อายุตามบัญชี — ตั้งจาก get_months)
   setupIdleTracking();
 
+  // session หมดอายุ → เด้งไปหน้า login อัตโนมัติ (ดักจุดกลางใน api.ts ครอบทุกหน้า)
+  setSessionExpiredHandler(onSessionExpired);
+  // กลับมาที่แท็บ → เช็ค session ทันที (เบาๆ · ไม่เกินนาทีละครั้ง) ให้เด้งก่อนผู้ใช้กดอะไร
+  let lastVisCheck = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !getToken() || !document.body.classList.contains("authed")) return;
+    if (Date.now() - lastVisCheck < 60_000) return;
+    lastVisCheck = Date.now();
+    void fetchMonths().catch(() => { /* เน็ตหลุด → ไม่ทำอะไร */ });
+  });
+
   // ปิด dropdown/picker เมื่อคลิกนอก
   document.addEventListener("click", (e) => {
     const t = e.target as Node;
@@ -3319,7 +3332,7 @@ function layoutDock(cursorY: number | null, smooth = false) {
   dock.style.height = `${L.dockHeight.toFixed(1)}px`;   // ยืดแค่บน-ล่าง · ความกว้างคงที่ (CSS)
 }
 
-function toLogin() {
+function toLogin(notice?: string) {
   clearSession();
   // session หลุด/idle timeout → ถ้าโค้ดเก่า ให้รีเฟรชตรงนี้เลย (ล้าง session แล้ว = ไม่วนลูป)
   // เดิมเด้งหน้า login แบบไม่รีเฟรช → พนักงานล็อกอินใหม่แล้วยังใช้โค้ดเก่าค้างอยู่
@@ -3332,8 +3345,15 @@ function toLogin() {
   dw.hidden = true;
   dw.classList.remove("open");
   document.body.classList.remove("authed");
-  renderLogin(() => { void startApp(); });
+  renderLogin(() => { void startApp(); }, notice);
   document.body.classList.add("ready");
+}
+
+/** session หมดอายุ (RPC ตอบ authorized:false) → ไปหน้า login ทันที · กันเด้งซ้ำตอนหลายคำขอตอบพร้อมกัน
+ *  ร่างที่กรอกค้าง (sidebar / บันทึกตีกลับ) ถูกเก็บลงเครื่องระหว่างพิมพ์อยู่แล้ว → ล็อกอินใหม่แล้วกู้คืนได้ */
+function onSessionExpired() {
+  if (!document.body.classList.contains("authed")) return;   // อยู่หน้า login แล้ว
+  toLogin("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่");
 }
 
 function updateUserDisplay() {
@@ -3394,10 +3414,12 @@ const codFix = new Set<string>();   // เลขแทร็คที่พน�
 let codEvidence: File | null = null;   // ไฟล์หลักฐานที่แนบ (ด่านก่อนนำเข้า)
 let codPartials: CodPartial[] = [];     // เงินเคลมน้อยกว่ายอดขาย (จาก preflight) → ต้องยืนยันรับ "บางส่วน"
 let codPartialOk = false;               // ยืนยันแล้วในรอบนำเข้านี้
+let importMissing: string[] = [];       // วันที่ขาดช่วง (จาก preflight ออเดอร์) → ต้องยืนยันข้ามก่อนนำเข้า
 
 function closeImportModal() {
   if (importOv) { importOv.remove(); importOv = null; }
   importRows = [];
+  importMissing = [];
   codRows = [];
   codFix.clear();
   codEvidence = null;
@@ -4002,6 +4024,7 @@ async function handleImportFile(file: File, body: HTMLElement) {
     return;
   }
   if (!pre.authorized) { closeImportModal(); toLogin(); return; }
+  importMissing = pre.missing_dates ?? [];
   showImportPreview(body, file.name, parsed, pre);
 }
 
@@ -4032,6 +4055,10 @@ function showImportPreview(body: HTMLElement, fname: string, parsed: ParseResult
     istat(nf(pre.new_customers ?? 0), "ลูกค้าใหม่", "plain")));
 
   if (pre.error) body.append(el("div", { class: "ibox err" }, icon("i-x"), pre.error));
+  if (canConfirm && importMissing.length) body.append(el("div", { class: "ibox warn" },
+    el("div", { class: "ibh" }, icon("i-cal"), `วันที่ไม่ต่อจากข้อมูลล่าสุด — ขาด ${nf(importMissing.length)} วัน`),
+    gapRangeList(importMissing),
+    el("div", { class: "codpartexp" }, "กดนำเข้าแล้วจะให้ยืนยันว่าวันเหล่านี้ไม่มีข้อมูลจริง")));
 
   const problems = pre.problems ?? [];
   if (problems.length) {
@@ -4053,17 +4080,53 @@ function showImportPreview(body: HTMLElement, fname: string, parsed: ParseResult
   cancel.addEventListener("click", () => showImportPick(body));
   const confirm = el("button", { class: "btn" }, icon("i-upload"), `ยืนยันนำเข้า ${nf(pre.orders_ok ?? 0)} ออเดอร์`) as HTMLButtonElement;
   confirm.disabled = !canConfirm;
-  confirm.addEventListener("click", () => void doImportConfirm(body));
+  confirm.addEventListener("click", () => {
+    if (importMissing.length) showImportGapConfirm(body, fname, parsed, pre);
+    else void doImportConfirm(body, []);
+  });
   foot.append(cancel, confirm);
   body.append(foot);
 }
 
-async function doImportConfirm(body: HTMLElement) {
+// วันที่ขาดช่วง → รวมวันติดกันเป็นช่วง เช่น "29/9/2026 (อ.) – 2/10/2026 (ศ.) · 4 วัน"
+function gapRangeList(dates: string[]): HTMLElement {
+  const box = el("div", { class: "codpartlist" });
+  for (const r of dateRanges(dates)) box.append(el("div", { class: "codpartrow" },
+    el("b", {}, `${dmy(r.from)} (${thaiDow(r.from)})`),
+    r.days > 1 ? el("span", {}, "– ", el("b", {}, `${dmy(r.to)} (${thaiDow(r.to)})`)) : "",
+    el("span", { class: "codpartamt" }, `${nf(r.days)} วัน`)));
+  return box;
+}
+
+// ถามผู้นำเข้า: ข้ามวันที่เหล่านี้เพราะไม่มีข้อมูลใช่ไหม · ใช่ = นำเข้า + บันทึกคำตอบ (DB) · ไม่ใช่ = ยกเลิก ไม่นำเข้าอะไร
+function showImportGapConfirm(body: HTMLElement, fname: string, parsed: ParseResult, pre: ImportResp) {
+  const missing = [...importMissing];
+  const dates = pre.dates ?? [];
+  setImportBack(() => { setImportBack(null); showImportPreview(body, fname, parsed, pre); });
+  body.textContent = "";
+  body.append(el("div", { class: "ibox warn" },
+    el("div", { class: "ibh" }, icon("i-cal"), `ต้องการข้ามวันที่ ${nf(missing.length)} วันนี้ เพราะวันนั้นไม่มีข้อมูลใช่ไหม?`),
+    el("div", { class: "codpartexp" },
+      pre.last_date_before ? el("span", {}, "ข้อมูลล่าสุดในระบบ ", el("b", {}, dmy(pre.last_date_before)), " · ") : "",
+      "ไฟล์นี้ ", el("b", {}, dates.length ? (dates.length > 1 ? `${dmy(dates[0])} – ${dmy(dates[dates.length - 1])}` : dmy(dates[0])) : "—")),
+    gapRangeList(missing),
+    el("div", { class: "codpartexp" }, "ยืนยันแล้ว ระบบจะบันทึกว่าคุณยืนยันข้ามวันที่เหล่านี้ (ครั้งหน้าจะไม่ถามซ้ำ)"),
+    el("div", { class: "codpartwarn" }, icon("i-alert-solid"), "ถ้าลืมดึงข้อมูลวันนั้น กดยกเลิกแล้วไปดึงไฟล์มาใหม่ — ยังไม่นำเข้าอะไรเลย")));
+  const foot = el("div", { class: "modal-foot" });
+  const no = el("button", { class: "fbtn" }, "ไม่ใช่ · ยกเลิกการนำเข้า");
+  no.addEventListener("click", () => { closeImportModal(); toast("ยกเลิกการนำเข้าแล้ว — ยังไม่ได้นำเข้าอะไร", false); });
+  const yes = el("button", { class: "btn" }, icon("i-check"), `ใช่ ข้าม ${nf(missing.length)} วัน · นำเข้า ${nf(pre.orders_ok ?? 0)} ออเดอร์`);
+  yes.addEventListener("click", () => { setImportBack(null); void doImportConfirm(body, missing); });
+  foot.append(no, yes);
+  body.append(foot);
+}
+
+async function doImportConfirm(body: HTMLElement, skipDates: string[]) {
   if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อกก่อนนำเข้าจริง (ไฟล์เลือกใหม่ได้)
   importLoading(body, "กำลังนำเข้าข้อมูล...");
   let res: ImportResp;
   try {
-    res = await importOrders(importRows, "confirm");
+    res = await importOrders(importRows, "confirm", skipDates);
   } catch (e: any) {
     importError(body, "นำเข้าไม่สำเร็จ: " + (e?.message ?? e));
     return;

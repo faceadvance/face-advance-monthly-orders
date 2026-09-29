@@ -5,7 +5,7 @@ import { setSession } from "./session";
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 
 /** แสดงหน้า login (ครอบทั้งจอ) · เรียก onSuccess เมื่อ login+OTP ผ่าน */
-export function renderLogin(onSuccess: () => void) {
+export function renderLogin(onSuccess: () => void, notice?: string) {
   document.body.classList.remove("authed");
   const root = $("#authRoot");
   // ก้อนแสงเคลื่อนที่ (aurora) — สร้างครั้งเดียว
@@ -80,6 +80,8 @@ export function renderLogin(onSuccess: () => void) {
     btn.addEventListener("click", submit);
     pInput.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") submit(); });
 
+    // เด้งมาจาก session หมดอายุ → บอกเหตุผลให้ชัด (แสดงครั้งแรกที่เปิดหน้า login เท่านั้น)
+    if (notice) { card.append(el("div", { class: "authnotice" }, icon("i-alert"), el("span", {}, notice))); notice = undefined; }
     card.append(
       brand("ระบบจัดการออเดอร์"),
       el("div", { class: "authtitle" }, "เข้าสู่ระบบ"),

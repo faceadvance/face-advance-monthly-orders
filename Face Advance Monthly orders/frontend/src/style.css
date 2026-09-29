@@ -633,6 +633,8 @@ body:not(.authed) #authRoot{
 .authnote{display:flex;align-items:center;gap:.5rem;justify-content:center;color:#8595AE;font-size:.75rem;margin-top:1.2rem}
 .authnote .g{color:#34D399}
 .autherr{background:rgba(239,68,68,.12);color:#FCA5A5;border:1px solid rgba(239,68,68,.3);border-radius:.6rem;padding:.55rem .75rem;font-size:.78rem;display:flex;gap:.45rem;align-items:center;margin-bottom:.9rem}
+.authnotice{background:rgba(245,158,11,.14);color:#FCD34D;border:1px solid rgba(245,158,11,.35);border-radius:.6rem;padding:.55rem .75rem;font-size:.78rem;display:flex;gap:.45rem;align-items:center;margin-bottom:.9rem}
+.authnotice svg{width:15px;height:15px;flex:none}
 .autherr[hidden]{display:none}
 .otpboxes{display:flex;gap:.55rem;justify-content:center;margin:1.1rem 0 .3rem}
 .otpd{width:2.7rem;height:3.2rem;border:1.5px solid rgba(148,163,184,.2);border-radius:.65rem;text-align:center;

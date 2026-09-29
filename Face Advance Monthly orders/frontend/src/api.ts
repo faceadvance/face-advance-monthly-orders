@@ -15,8 +15,16 @@ async function restRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
     body: JSON.stringify(args),
   });
   if (!res.ok) throw new Error(`${fn}: HTTP ${res.status}`);
-  return res.json() as Promise<T>;
+  const data = await res.json();
+  // session หมด/ถูกตัด → แจ้งจุดกลางครั้งเดียว ให้แอปพาไปหน้า login ทันที (เจ้านายขอ 2026-09-29)
+  //   ทุกหน้าเรียกผ่านที่นี่ → ไม่ต้องไล่แก้ทีละหน้า · เช็คเฉพาะคำขอที่ส่ง token (หน้า login ไม่มี token)
+  if (sessionExpiredHandler && "p_token" in args && args.p_token && data && data.authorized === false) sessionExpiredHandler();
+  return data as T;
 }
+
+let sessionExpiredHandler: (() => void) | null = null;
+/** ตั้งตัวจัดการเมื่อ RPC ตอบว่าหมดสิทธิ์ (session หมดอายุ/ถูกตัด) */
+export function setSessionExpiredHandler(fn: (() => void) | null): void { sessionExpiredHandler = fn; }
 
 export interface MonthsResponse { authorized: boolean; idle_minutes?: number; role?: string; display_name?: string; months?: string[]; months_error?: string[]; months_conflict?: string[]; months_done?: string[]; }
 
@@ -100,9 +108,14 @@ export interface ImportResp {
   dates?: string[];
   new_customers?: number;
   inserted?: number;
+  missing_dates?: string[];          // วันที่ขาดช่วง (ต้องยืนยันข้ามก่อน confirm)
+  last_date_before?: string | null;  // วันที่ออเดอร์ล่าสุดในระบบก่อนไฟล์นี้
 }
-export function importOrders(rows: unknown[], mode: "preflight" | "confirm"): Promise<ImportResp> {
-  return restRpc<ImportResp>("app_import_orders", { p_token: getToken(), p_rows: rows, p_mode: mode });
+// confirm ส่ง skipDates เสมอ (ไม่มีวันขาด = []) → DB บังคับว่าวันที่ขาดทุกวันต้องถูกยืนยันข้าม ไม่งั้นไม่นำเข้าเลย
+export function importOrders(rows: unknown[], mode: "preflight" | "confirm", skipDates?: string[]): Promise<ImportResp> {
+  const args: Record<string, unknown> = { p_token: getToken(), p_rows: rows, p_mode: mode };
+  if (mode === "confirm") args.p_confirm_skip_dates = skipDates ?? [];
+  return restRpc<ImportResp>("app_import_orders", args);
 }
 
 // ---- ประวัติการนำเข้า (อ่านจาก audit_log · Adm/OM) ----
