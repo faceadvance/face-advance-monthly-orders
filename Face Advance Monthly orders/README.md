@@ -1,40 +1,53 @@
-# เว็บแอป Face Advance (local)
+# ระบบ MO — Face Advance Monthly Orders
 
-เว็บแอปดูออเดอร์ + **login (username+password+LINE OTP)** — frontend static ต่อ **Supabase** (Edge Functions + RPC) ตรง · ยังไม่ deploy GitHub
+เว็บแอปจัดการออเดอร์รายเดือนของ Face Advance: ตารางออเดอร์ · ติดตามสถานะจัดส่ง/ชำระ · นำเข้าไฟล์ออเดอร์และเงินเข้า COD · บันทึก/รายการตีกลับ · หน้าค้นหา · แดชบอร์ดยอดขาย · EDITH (ศูนย์จัดการเคส) · จัดการผู้ใช้
 
-## เริ่มใช้งาน
-```bash
-cd "webapp/frontend" && npm run dev
-```
-เปิด **http://127.0.0.1:5173** → หน้า login → กรอก username+รหัส → OTP เด้งเข้ากลุ่ม LINE → กรอก → เข้าแอป
-> (ไม่ต้องรัน backend Python แล้ว — frontend คุย Supabase ตรง · `start-dev.sh`/`backend/` = ของเก่า Stage 1 เก็บไว้อ้างอิง)
-
-## สร้าง/รีเซ็ตบัญชีผู้ใช้
-```bash
-bash "webapp/auth/create_user.sh"     # ถาม username + password (ซ่อน) → เก็บ bcrypt hash
-```
-
-## โครงสร้าง
-- `frontend/` — Vite + TypeScript · login (`src/auth.ts`) + ดูออเดอร์ · เรียก Supabase RPC/Edge ตรง (`src/config.ts`, `src/api.ts`)
-- `edge-functions/auth/` — Edge Function login/verify/logout (ส่ง OTP Flex เข้ากลุ่ม LINE) — deploy บน Supabase แล้ว
-- `auth/` — `create_user.sh`/`create_user.py` สร้างบัญชี
-- `backend/` — **(เลิกใช้)** FastAPI Stage 1 เดิม เก็บไว้อ้างอิง (venv ยังใช้โดย create_user)
-- `design/` — mockup (`mockup-orders-v6.html`, `mockup-login.html`) · `DESIGN-DECISIONS.md`
+- เว็บจริง: https://faceadvance.github.io/face-advance-monthly-orders/
+- ประวัติการเปลี่ยนแปลงทุก deploy: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## สถาปัตยกรรม (Architecture A)
-- frontend static (anon key = public ปลอดภัย) → **Supabase RPC** (get_orders/get_months ตรวจ session token ในตัว) + **Edge Function `auth`** (ถือ service role + LINE token ข้างใน)
-- RLS ล็อกทุกตาราง อ่านผ่าน SECURITY DEFINER fn เท่านั้น · service key/DB url/LINE token ไม่อยู่ frontend
-- deploy ทีหลัง = push frontend ขึ้น GitHub Pages (Edge Functions อยู่ Supabase แล้ว ไม่ต้องทำ backend เพิ่ม)
+```
+เบราว์เซอร์ ── frontend (static · GitHub Pages) ──► Supabase
+                                                    ├─ RPC = ฟังก์ชันใน Postgres (ตรรกะหลักทั้งหมด)
+                                                    ├─ Edge Functions: auth (login + LINE OTP), cod-upload
+                                                    └─ Postgres: ตาราง · trigger · RLS
+```
+- **frontend ไม่อ่าน/เขียนตารางตรง** — เรียกผ่าน RPC (`frontend/src/api.ts`) และ Edge Function เท่านั้น
+- ทุก RPC เป็น `SECURITY DEFINER` และตรวจ session token ในตัว · RLS ล็อกทุกตาราง
+- frontend ถือแค่ anon key (เปิดเผยได้) · service key / DB URL / LINE token อยู่ฝั่ง Supabase หรือไฟล์ secret นอก repo เท่านั้น
+- ตรรกะธุรกิจอยู่ใน DB เป็นหลัก เช่น `reconcile_order` (trigger คิดสถานะจากเงินเข้า COD / ตีกลับ) · CHECK constraint กันข้อมูลผิด
 
-## ฟีเจอร์ (Stage 1)
-- ดูออเดอร์รายเดือน (รวมทุกแบรนด์) · การ์ดสรุป 3 ใบ + กราฟแท่งรายวัน
-- ตารางเรียงเก่า→ใหม่ · กรองแต่ละคอลัมน์แบบ Google Sheets · ค้นหา · ซูมในแอป (จำค่า)
-- หัวตารางตรึง (sticky) เวลาเลื่อน
-- **เลือกเลขแทร็คหลายรายการแล้วคัดลอก** (สูงสุด 30 · คั่นเว้นวรรค · ปุ่มก๊อป+จำนวน+ยกเลิก)
+## โครงสร้างโฟลเดอร์
+| โฟลเดอร์ | คืออะไร |
+|---|---|
+| `frontend/` | Vite + TypeScript · โค้ดหน้าเว็บ `src/` · เทส `tests/` (node:test) |
+| `edge-functions/` | Edge Function `auth` และ `cod-upload` (deploy บน Supabase) |
+| `auth/` | สคริปต์สร้าง/รีเซ็ตบัญชีผู้ใช้ (`create_user.sh`) |
+| `docs/specs/` | สเปก/แผนงานของฟีเจอร์ |
+| `design/` | mockup หน้าจอ · ดู `DESIGN-DECISIONS.md` |
+| `API-CONTRACT.md` | สัญญา RPC ระหว่าง frontend ↔ DB |
+| `backend/`, `start-dev.sh` | ⚠️ **เลิกใช้แล้ว** (FastAPI รุ่นแรก) เก็บไว้อ้างอิง — `auth/create_user` ยังใช้ venv ในนี้ |
 
-## ยังไม่ทำ (ถัดไป)
-- Stage 2: หน้านำเข้าไฟล์ · Stage 3: login (LINE OTP) + audit + deploy
-- ปุ่ม "นำเข้าไฟล์" ตอนนี้ยังเป็น placeholder
+โค้ดฝั่ง DB อยู่นอกโฟลเดอร์นี้ (รากโปรเจกต์):
+- `database/schema/public-schema.sql` — โครงสร้าง DB ทั้งหมด (ตาราง · ฟังก์ชัน · trigger · สิทธิ์) · ไม่มีข้อมูล
+- `database/migrations/` — การเปลี่ยนแปลง DB แต่ละครั้ง (ตั้งแต่ 2026-09-16)
 
-## 🔒 ความปลอดภัย
-- service key / DB URL อยู่แค่ backend ในเครื่อง ไม่หลุดออก frontend · backend bind 127.0.0.1 (ไม่เปิดออกเน็ต)
+## พัฒนาในเครื่อง
+```bash
+cd "frontend"
+npm install
+npm run dev          # http://127.0.0.1:5173
+npm test             # เทสหน้าเว็บ (node:test)
+npx tsc --noEmit     # ตรวจ type
+npm run build        # build ไป dist/
+```
+หน้าเว็บในเครื่องต่อ Supabase จริง → **ห้ามทดสอบกับข้อมูลจริง** · ทดสอบ DB ด้วย transaction แล้ว rollback · ทดสอบหน้าเว็บด้วย RPC จำลอง
+
+## Deploy
+- **frontend:** push `main` → GitHub Actions build + deploy ขึ้น GitHub Pages อัตโนมัติ · deploy ตามเวลาที่ตกลงกันเท่านั้น
+- **DB:** รัน migration ใน `database/migrations/` (ทดสอบใน transaction ก่อนเสมอ) · ถ้าไม่เข้ากับเว็บเวอร์ชันเก่า → ขึ้นหน้าเว็บก่อน
+- ทุก deploy ต้องบันทึกใน `CHANGELOG.md` ใน commit เดียวกัน (ทั้ง frontend และ DB)
+
+## 🔒 ความปลอดภัย (repo นี้เป็น public)
+- ห้าม commit: ข้อมูลลูกค้า (ชื่อ เบอร์ ที่อยู่ เลขพัสดุ) · ไฟล์ Excel/CSV · secret ทุกชนิด — ดู `.gitignore` ที่รากโปรเจกต์
+- ก่อน commit ไฟล์ที่ดึงมาจาก DB (เช่น schema) ต้องสแกนหา secret และข้อมูลลูกค้าก่อน
