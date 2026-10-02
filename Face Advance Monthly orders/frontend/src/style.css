@@ -785,6 +785,43 @@ thead th.filtered .hpen{color:#fff}
 .nd-blue{background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE}
 .nd-green{background:#ECFDF5;color:#059669;border:1px solid #A7F3D0}
 .nd-amber{background:#FFFBEB;color:#D97706;border:1px solid #FDE68A}
+.nd-violet{background:#F5F3FF;color:#7C3AED;border:1px solid #DDD6FE}
+/* ปุ่มข้อความ "→ ส่งแมส" ต่อท้ายหัวข้อ "ขนส่ง" ใน sidebar */
+.sbgl:has(.messbtn){display:flex;align-items:center;gap:.35rem;white-space:nowrap}
+.messbtn{border:none;background:#F5F3FF;color:#7C3AED;cursor:pointer;font:inherit;font-size:.7rem;font-weight:700;line-height:1;padding:3px 7px;border-radius:999px;flex:none;transition:background .15s,color .15s}
+.messbtn:hover{background:#EDE9FE;color:#6D28D9}
+.messbtn:focus-visible{outline:2px solid #A78BFA;outline-offset:2px}
+/* กล่องยืนยันส่งแมส: ก่อน → หลัง */
+.mm{max-width:27rem}
+.mm-head{display:flex;align-items:center;gap:.85rem;padding:1.2rem 1.35rem .35rem}
+.mm-ico{width:2.75rem;height:2.75rem;border-radius:.85rem;background:#F5F3FF;color:#7C3AED;display:grid;place-items:center;flex:none}
+.mm-ico .ic{width:1.45rem;height:1.45rem}
+.mm-t{font-weight:700;font-size:1.06rem;color:var(--ink)}
+.mm-s{font-size:.78rem;color:var(--ink-3);margin-top:.15rem}
+.mm-body{padding:.75rem 1.35rem 1.2rem}
+.mm-q{font-size:.92rem;color:var(--ink-2);margin-bottom:.8rem}
+.mm-q b{color:#6D28D9}
+.mm-diff{border:1px solid var(--border);border-radius:.85rem;overflow:hidden;background:#fff}
+.mm-row{display:grid;grid-template-columns:5.4rem minmax(0,1fr) auto minmax(0,auto);align-items:center;gap:.55rem;padding:.65rem .85rem;font-size:.86rem}
+.mm-row+.mm-row{border-top:1px solid var(--border)}
+.mm-l{color:var(--ink-3);font-size:.74rem;font-weight:600}
+.mm-old{color:var(--ink-3);text-decoration:line-through;text-decoration-color:#CBD5E1;overflow-wrap:anywhere}
+.mm-arr{color:#A78BFA;display:inline-flex}
+.mm-arr .ic{width:.95rem;height:.95rem}
+.mm-new{justify-self:start;background:#F5F3FF;color:#6D28D9;font-weight:700;padding:.22rem .6rem;border-radius:.5rem;white-space:nowrap}
+.mm-new.del{background:#F1F5F9;color:var(--ink-3);font-weight:600}
+.mm-note{display:flex;align-items:flex-start;gap:.4rem;margin-top:.8rem;font-size:.76rem;color:var(--ink-3);line-height:1.5}
+.mm-note .ic{width:.95rem;height:.95rem;margin-top:.1rem}
+.mm-foot{display:flex;justify-content:flex-end;gap:.6rem;padding:.9rem 1.35rem 1.15rem;border-top:1px solid var(--border)}
+.mm-cancel{border:1px solid var(--border);background:#fff;color:var(--ink-2);border-radius:.6rem;padding:.55rem 1.15rem;font:inherit;font-size:.85rem;font-weight:600;cursor:pointer}
+.mm-cancel:hover{background:#F8FAFC}
+.mm-ok{display:inline-flex;align-items:center;gap:.45rem;border:none;background:#7C3AED;color:#fff;border-radius:.6rem;padding:.55rem 1.2rem;font:inherit;font-size:.85rem;font-weight:700;cursor:pointer;box-shadow:0 8px 18px -8px rgba(124,58,237,.7);transition:background .15s}
+.mm-ok:hover{background:#6D28D9}
+.mm-ok:disabled{opacity:.6;cursor:wait}
+.mm-ok .ic{width:1.05rem;height:1.05rem}
+.mm-ok:focus-visible,.mm-cancel:focus-visible{outline:2px solid #A78BFA;outline-offset:2px}
+@media (max-width:520px){.mm-head,.mm-body{padding-left:1.1rem;padding-right:1.1rem}.mm-row{grid-template-columns:4.3rem minmax(0,1fr) auto auto;gap:.4rem;padding:.6rem .7rem;font-size:.8rem}.mm-old{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mm-foot{padding-left:1.1rem;padding-right:1.1rem}}
+.tlship{font-size:.88rem}
 .tlmain{flex:1;min-width:0;padding-top:.1rem}
 .tlhead{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.3rem}
 .tlby{font-size:.78rem;font-weight:600;color:var(--ink)}
@@ -885,7 +922,7 @@ tbody tr:hover td.actcell{background:var(--hover)}
 
 /* -- v8: วันที่หัวการ์ด + meta 3 คอลัมน์ + ระยะห่างบล็อกในการ์ดข้อมูล -- */
 .sbheaddate{margin-left:auto;font-size:.78rem;color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
-.sbgrid3{grid-template-columns:minmax(0,.7fr) minmax(0,1.7fr) minmax(0,1fr)}
+.sbgrid3{grid-template-columns:minmax(min-content,.85fr) minmax(0,1.55fr) minmax(0,1fr)}   /* คอลัมน์ขนส่งกว้างพอให้ "ขนส่ง → ส่งแมส" อยู่บรรทัดเดียว */
 .sbcardbody > .sbgi{margin-bottom:.8rem}
 .sbcardbody > .sbgrid{margin-bottom:.8rem}
 .sbcardbody > *:last-child{margin-bottom:0}

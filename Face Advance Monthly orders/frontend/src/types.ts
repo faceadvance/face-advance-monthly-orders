@@ -31,7 +31,7 @@ export interface Order {
 // รายการในไทม์ไลน์บันทึกการติดตาม (โน้ต + log เปลี่ยนสถานะ)
 export interface TrackingEntry {
   id: number;
-  type: "note" | "delivery_change" | "payment_change";
+  type: "note" | "delivery_change" | "payment_change" | "shipping_change";
   note: string | null;
   old: string | null;
   new: string | null;

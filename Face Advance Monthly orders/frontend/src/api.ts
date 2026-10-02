@@ -222,6 +222,11 @@ export function saveOrderTracking(orderId: number, a: SaveTrackingArgs): Promise
     p_paid_amount: a.paid_amount ?? null,
   });
 }
+// ปุ่มส่งแมส (sidebar): ขนส่ง → ส่งแมส · ลบเลขแทร็ก · COD → โอนเงิน · server เก็บค่าเดิมในไทม์ไลน์ + audit
+export interface MessengerResp extends TrackingResp { carrier?: string; tracking_no?: string | null; payment_method?: string; }
+export function setMessenger(orderId: number): Promise<MessengerResp> {
+  return restRpc<MessengerResp>("app_set_messenger", { p_token: getToken(), p_order_id: orderId });
+}
 // แก้ "สถานะจัดส่ง" ทีเดียวหลายรายการ (ยกเลิก → payment=ยกเลิก ด้วย · ทำที่ server)
 export interface BulkDeliveryResp { authorized: boolean; ok?: boolean; error?: string; status?: string; delivery_changed?: number; payment_changed?: number; }
 export function bulkSetDelivery(ids: number[], status: string): Promise<BulkDeliveryResp> {

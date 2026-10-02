@@ -2,7 +2,7 @@ import "./style.css";
 import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
   importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch, type CodPartial,
-  saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery,
+  saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery, setMessenger,
   getDetailPresets, fetchNotifications, editNote,
   fetchImportHistory, type ImportHistResp, type NotifKind,
   fetchUserView, saveUserView,
@@ -1548,7 +1548,7 @@ function applyOrderUpdate(o: Order, r: { delivery_status?: string; payment_statu
   // ยกเว้นมี filter/sort บนคอลัมน์สถานะ ที่การเปลี่ยนอาจทำให้แถวย้าย/หาย → ต้อง render ใหม่
   // ค่าใหม่ที่ไม่เคยมีในเดือนนี้ (เช่น รายละเอียดปัญหาคำใหม่) → เติมเข้าตัวกรองที่เปิดอยู่ ไม่ให้แถวหาย/ตัวเลือกใหม่ไม่ถูกติ๊ก
   const addedToFilter = includeNewValues(state.filters, state.data!.orders, o, (x, c) => cellValue(x, c, today()));
-  const cols = ["delivery_status", "payment_status", "problem", "return_arrived"];
+  const cols = ["delivery_status", "payment_status", "problem", "return_arrived", "carrier", "tracking_no", "payment_method"];
   const affectsView = addedToFilter.length > 0 || (state.sort != null && cols.includes(state.sort.col))
     || [...state.filters.keys()].some((k) => cols.includes(k));
   const tr = document.querySelector<HTMLElement>(`#tableWrap tbody tr[data-oid="${o.id}"]`);
@@ -1651,6 +1651,68 @@ function openStatusPopup(anchor: HTMLElement, o: Order, field: "delivery" | "pay
   };
 }
 
+// ---- ปุ่มส่งแมส (sidebar) — เจ้านายสั่ง 2026-10-02 ----
+// ขนส่ง → ส่งแมส · ลบเลขแทร็ก · COD → โอนเงิน (เลือกสถานะชำระเองต่อได้) · ค่าเดิมเก็บในไทม์ไลน์ + audit (server)
+const MESSENGER = "ส่งแมส";
+function confirmMessenger(o: Order) {
+  const ov = el("div", { class: "modal-ov" });
+  const modal = el("div", { class: "modal mm", role: "dialog", "aria-label": "ยืนยันส่งแมส" });
+  const { name: cName } = splitNameCode(o.customer_name);
+  modal.append(el("div", { class: "mm-head" },
+    el("span", { class: "mm-ico" }, icon("i-moto")),
+    el("div", {}, el("div", { class: "mm-t" }, "ยืนยันส่งแมส"),
+      el("div", { class: "mm-s" }, `${cName || "—"} · ${o.phone || "—"} · ฿${nf(o.total_sales)}`))));
+  // ก่อน → หลัง (ค่าเดิมขีดฆ่า · ค่าใหม่สีม่วง)
+  const row = (label: string, from: Node | string, to: Node | string, del = false) => el("div", { class: "mm-row" },
+    el("span", { class: "mm-l" }, label), el("span", { class: "mm-old" }, from),
+    el("span", { class: "mm-arr" }, icon("i-chev-r")), el("span", { class: "mm-new" + (del ? " del" : "") }, to));
+  const diff = el("div", { class: "mm-diff" }, row("ขนส่ง", o.carrier || "—", MESSENGER));
+  if (o.tracking_no) diff.append(row("เลขแทร็ก", el("span", { class: "mono" }, o.tracking_no), "ลบออก", true));
+  if (isCOD(o)) diff.append(row("ช่องทางชำระ", "COD", "โอนเงิน"));
+  const body = el("div", { class: "mm-body" },
+    el("div", { class: "mm-q" }, "รายการนี้จะเปลี่ยนเป็น ", el("b", {}, "ส่งแมส"), " ใช่ไหม?"), diff,
+    el("div", { class: "mm-note" }, icon("i-info"),
+      el("span", {}, "ค่าเดิมเก็บไว้ในประวัติการติดตาม" + (isCOD(o) ? " · สถานะชำระเลือกต่อได้ใน sidebar" : ""))));
+  const cancel = el("button", { class: "mm-cancel", type: "button" }, "ยกเลิก");
+  const okLabel = () => [icon("i-moto"), "ยืนยันส่งแมส"];
+  const ok = el("button", { class: "mm-ok", type: "button" }, ...okLabel()) as HTMLButtonElement;
+  const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+  cancel.addEventListener("click", close);
+  ok.addEventListener("click", async () => {
+    ok.disabled = true; ok.textContent = "กำลังบันทึก…";
+    const done = await applyMessenger(o);
+    if (done) close(); else { ok.disabled = false; ok.textContent = ""; ok.append(...okLabel()); }
+  });
+  modal.append(body, el("div", { class: "mm-foot" }, cancel, ok));
+  ov.append(modal); document.body.append(ov);
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+  document.addEventListener("keydown", onKey);
+  ok.focus();
+}
+async function applyMessenger(o: Order): Promise<boolean> {
+  if (!(await guardSaveVersion())) return false;   // มีอัปเดตระบบ → บล็อกเหมือนการบันทึกอื่น
+  try {
+    const r = await setMessenger(o.id);
+    if (!r.authorized) { toLogin(); return false; }
+    if (!r.ok) {
+      toast(r.error === "forbidden_viewer" ? "ไม่มีสิทธิ์แก้ไข"
+        : r.error === "tracking_reconciled" ? "เลขแทร็กนี้มีบันทึกเงิน COD/ตีกลับแล้ว เปลี่ยนเป็นส่งแมสไม่ได้"
+        : r.error === "order_not_found" ? "ไม่พบออเดอร์นี้" : "บันทึกไม่สำเร็จ", false);
+      return false;
+    }
+    o.carrier = r.carrier ?? MESSENGER;
+    o.tracking_no = r.tracking_no ?? "";
+    if (r.payment_method) o.payment_method = r.payment_method;
+    applyOrderUpdate(o, { delivery_status: r.delivery_status, payment_status: r.payment_status,
+      return_reason: o.return_reason, status_detail: o.status_detail, timeline: r.timeline });
+    toast(r.noop ? "เป็นส่งแมสอยู่แล้ว" : "เปลี่ยนเป็นส่งแมสแล้ว");
+    // เปิด sidebar ใหม่ด้วยข้อมูลล่าสุด (COD → โอนเงิน = ปลดล็อกสถานะชำระ) · ที่กรอกค้างไว้กู้คืนจากร่างอัตโนมัติ
+    if (sidebarEl) openSidebar(o);
+    return true;
+  } catch { toast("บันทึกไม่สำเร็จ", false); return false; }
+}
+
 // ---- sidebar: ตัวแก้ไขหลัก + ไทม์ไลน์ ----
 let sidebarEl: HTMLElement | null = null;
 let sbHasChanges: (() => boolean) | null = null;   // ให้ beforeunload เช็คว่ามีแก้ไขค้างไหม
@@ -1746,8 +1808,15 @@ function openSidebar(o: Order, opts?: { presetDelivery?: string; presetPayment?:
     trackNode = el("span", { class: "trackwrap" }, el("span", { class: "trackbox mono" }, tno), copyBtn);
   }
   const meta = el("div", { class: "sbgrid sbgrid3" });
+  // ขนส่ง: ปุ่มข้อความ "→ ส่งแมส" ต่อท้ายหัวข้อ (ซ่อนเมื่อเป็นส่งแมสครบแล้ว: ไม่มีเลขแทร็ก และไม่ใช่ COD)
+  const carrierField = gridField("ขนส่ง", o.carrier);
+  if (!(o.carrier === MESSENGER && !o.tracking_no && !isCOD(o))) {
+    const mBtn = el("button", { class: "messbtn", type: "button", title: "เปลี่ยนเป็นส่งแมส" }, "→ ส่งแมส");
+    mBtn.addEventListener("click", (e) => { e.stopPropagation(); confirmMessenger(o); });
+    carrierField.querySelector(".sbgl")!.append(mBtn);
+  }
   meta.append(
-    gridField("ขนส่ง", o.carrier),
+    carrierField,
     gridField("เลขแทร็ก", trackNode),
     gridField("ผู้ขาย", seller),
   );
@@ -2529,11 +2598,18 @@ function trackTime(at: string): string {
 function tlNode(type: TrackingEntry["type"]): { iconId: string; cls: string } {
   if (type === "delivery_change") return { iconId: "i-truck", cls: "nd-blue" };
   if (type === "payment_change") return { iconId: "i-coin", cls: "nd-green" };
+  if (type === "shipping_change") return { iconId: "i-moto", cls: "nd-violet" };
   return { iconId: "i-msg", cls: "nd-amber" };
 }
 
 function tlContent(e: TrackingEntry): (Node | string)[] {
   if (e.type === "note") return [e.note ?? ""];
+  if (e.type === "shipping_change") {   // ขนส่งเดิม → ใหม่ (ข้อความธรรมดา ไม่ใช่ badge สถานะ) + รายละเอียดค่าเดิม
+    const p: (Node | string)[] = [el("span", { class: "tlship" }, "ขนส่ง ", el("b", {}, e.old ?? "—")),
+      el("span", { class: "tlarrow" }, icon("i-chev-r", "width:.85em")), el("span", { class: "tlship" }, el("b", {}, e.new ?? "—"))];
+    if (e.detail) p.push(el("div", { class: "tldetail" }, e.detail));
+    return p;
+  }
   const bfn = e.type === "delivery_change" ? deliveryBadge : paymentBadge;
   const parts: (Node | string)[] = [
     badge(bfn(e.old ?? ""), e.old ?? "—"),
