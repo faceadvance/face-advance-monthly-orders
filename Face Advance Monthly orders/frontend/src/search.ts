@@ -69,6 +69,11 @@ function addrCell(r: SearchRow): Node {
   frag.append(el("div", { class: "addrline" }, el("span", { class: "atxt", title: a }, highlight(a)), el("div", { class: "addrparts" }, el("div", { class: "apart" }, a)), tog));
   return frag;
 }
+// หมายเหตุ: ตัด … + สามเหลี่ยมกางทั้งแถว (แบบหน้าออเดอร์ · โชว์เฉพาะตอนล้น)
+function noteCell(r: SearchRow): Node {
+  const tog = caretToggle("notetoggle"); tog.style.display = "none";
+  return el("div", { class: "noteline" }, el("span", { class: "notetxt mono", title: r.note ?? "" }, r.note ? highlight(r.note) : "—"), tog);
+}
 function sellerCell(r: SearchRow): Node {
   if (!r.seller_code) return document.createTextNode("—");
   const box = el("span", { class: "rlseller" }, el("span", { class: "rlcode" }, r.seller_code));
@@ -77,11 +82,12 @@ function sellerCell(r: SearchRow): Node {
 }
 
 // ---------- columns (ยกจากหน้า order / หักยอด · มี val สำหรับ funnel) ----------
-interface Col { key: string; label: string; td?: string; th?: string; align?: "right" | "center"; numeric?: boolean; val: (r: SearchRow) => string; render: (r: SearchRow) => Node | string; }
+interface Col { key: string; label: string; td?: string; th?: string; align?: "right" | "center"; numeric?: boolean; val: (r: SearchRow) => string; sortVal?: (r: SearchRow) => string; render: (r: SearchRow) => Node | string; }
 const delivBadge = (r: SearchRow): Node | string => { const b = deliveryBadge(r.delivery_status ?? ""); return r.delivery_status ? badge(b.cls, b.icon, r.delivery_status) : "—"; };
 const payBadge = (r: SearchRow): Node | string => { const b = paymentBadge(r.payment_status ?? ""); return r.payment_status ? badge(b.cls, b.icon, paymentStatusLabel(r.payment_status)) : "—"; };
 const COLS_ORDER: Col[] = [
-  { key: "ordered_at", label: "วันที่", th: "datehead", td: "datecell", val: (r) => r.ordered_at, render: (r) => dmy(r.ordered_at) },
+  // วันที่: ตัวกรองโชว์ d/m/yyyy แบบหน้าออเดอร์ · เรียงด้วยวันที่จริง (ไม่งั้น 10/9 มาก่อน 2/9)
+  { key: "ordered_at", label: "วันที่", th: "datehead", td: "datecell", val: (r) => dmy(r.ordered_at), sortVal: (r) => r.ordered_at, render: (r) => dmy(r.ordered_at) },
   { key: "phone", label: "เบอร์โทร", td: "mono", val: (r) => r.phone ?? "", render: (r) => highlight(r.phone) },
   { key: "customer_name", label: "ชื่อลูกค้า", td: "name-cell", val: (r) => r.customer_name ?? "", render: nameCell },
   { key: "address", label: "ที่อยู่", td: "addr-cell", val: (r) => r.address ?? "", render: addrCell },
@@ -93,10 +99,10 @@ const COLS_ORDER: Col[] = [
   { key: "delivery_status", label: "สถานะจัดส่ง", align: "center", val: (r) => r.delivery_status ?? "", render: delivBadge },
   { key: "payment_status", label: "สถานะชำระ", align: "center", val: (r) => r.payment_status ?? "", render: payBadge },
   { key: "return_arrived", label: "ตีกลับถึงแล้ว", align: "center", val: (r) => (r.return_arrived ? "ถึงแล้ว" : "—"), render: (r) => (r.return_arrived ? badge("g", "i-return", "ถึงแล้ว") : "—") },
-  { key: "note", label: "หมายเหตุ", val: (r) => r.note ?? "", render: (r) => el("span", { class: "notetxt mono", title: r.note ?? "" }, r.note ? highlight(r.note) : "—") },
+  { key: "note", label: "หมายเหตุ", td: "note-cell", val: (r) => r.note ?? "", render: noteCell },
 ];
 const COLS_DEDUCT: Col[] = [
-  { key: "ordered_at", label: "วันที่", th: "datehead", td: "datecell", val: (r) => r.ordered_at, render: (r) => dmy(r.ordered_at) },
+  { key: "ordered_at", label: "วันที่", th: "datehead", td: "datecell", val: (r) => dmy(r.ordered_at), sortVal: (r) => r.ordered_at, render: (r) => dmy(r.ordered_at) },
   { key: "phone", label: "เบอร์โทร", td: "mono", val: (r) => r.phone ?? "", render: (r) => highlight(r.phone) },
   { key: "customer_name", label: "ชื่อลูกค้า", td: "name-cell", val: (r) => r.customer_name ?? "", render: nameCell },
   { key: "team_name", label: "ทีม", td: "rlteam", val: (r) => r.team_name ?? "", render: (r) => dash(r.team_name) },
@@ -105,7 +111,7 @@ const COLS_DEDUCT: Col[] = [
   { key: "total_sales", label: "ยอดขาย", align: "right", numeric: true, td: "amount num", val: (r) => String(r.total_sales), render: (r) => nf(r.total_sales) },
   { key: "carrier", label: "ขนส่ง", val: (r) => r.carrier ?? "", render: (r) => dash(r.carrier) },
   { key: "tracking_out", label: "เลขแทร็ค", td: "mono", val: (r) => r.tracking_out ?? "", render: (r) => highlight(r.tracking_out) },
-  { key: "return_date", label: "วันตีกลับถึง", th: "datehead", td: "datecell", val: (r) => r.return_date ?? "", render: (r) => (r.return_date ? dmy(r.return_date) : "—") },
+  { key: "return_date", label: "วันตีกลับถึง", th: "datehead", td: "datecell", val: (r) => (r.return_date ? dmy(r.return_date) : ""), sortVal: (r) => r.return_date ?? "", render: (r) => (r.return_date ? dmy(r.return_date) : "—") },
   { key: "cycle", label: "รอบเดือน", td: "rlteam", val: (r) => r.cycle_label ?? "", render: (r) => { const box = el("span", {}, el("span", { class: "srch-cycle" }, r.cycle_label || "—")); if (r.no_deduct) box.append(" ", badge("n", "i-ban", "ไม่หัก")); return box; } },
 ];
 const cols = (): Col[] => (view === "deduct" ? COLS_DEDUCT : COLS_ORDER);
@@ -131,8 +137,10 @@ function toggleSearchRow(tr: HTMLElement) {
   else { srchExpanded.delete(i); srchVt?.setRowHeight(i, null); }
 }
 function srchMeasureToggles(scope: ParentNode) {
-  for (const tx of scope.querySelectorAll<HTMLElement>(".ntxt, .atxt")) {
-    if (tx.scrollWidth > tx.clientWidth + 1) { const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle"); if (tog) tog.style.display = ""; }
+  // แบบหน้าออเดอร์: โชว์ ▸ เมื่อข้อความล้น (ตอนย่อ) หรือแถวกางอยู่ (ตอนกางข้อความไม่ล้นแล้ว — ต้องเหลือปุ่มไว้กดยุบ)
+  for (const tx of scope.querySelectorAll<HTMLElement>(".ntxt, .atxt, .notetxt")) {
+    const rowOpen = tx.closest("tr")?.classList.contains("rowopen");
+    if (tx.scrollWidth > tx.clientWidth + 1 || rowOpen) { const tog = tx.parentElement?.querySelector<HTMLElement>(".itemtoggle"); if (tog) tog.style.display = ""; }
   }
 }
 
@@ -141,7 +149,7 @@ function computeVisible(): SearchRow[] {
   const cs = cols();
   let rows = allRows;
   for (const [key, set] of filters) { const col = cs.find((c) => c.key === key); if (col) rows = rows.filter((r) => set.has(col.val(r))); }
-  if (sort) { const col = cs.find((c) => c.key === sort!.key); if (col) { const dir = sort.dir === "asc" ? 1 : -1; rows = [...rows].sort((a, b) => col.numeric ? (Number(col.val(a)) - Number(col.val(b))) * dir : col.val(a).localeCompare(col.val(b), "th") * dir); } }
+  if (sort) { const col = cs.find((c) => c.key === sort!.key); if (col) { const dir = sort.dir === "asc" ? 1 : -1; const sv = col.sortVal ?? col.val; rows = [...rows].sort((a, b) => col.numeric ? (Number(sv(a)) - Number(sv(b))) * dir : sv(a).localeCompare(sv(b), "th") * dir); } }
   return rows;
 }
 function distinctValues(col: Col): { value: string; count: number }[] {
@@ -158,6 +166,43 @@ function distinctValues(col: Col): { value: string; count: number }[] {
   return [...m.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => col.numeric ? Number(a.value) - Number(b.value) : a.value.localeCompare(b.value, "th"));
 }
 function closeDrop() { if (openDrop) { openDrop.remove(); openDrop = null; } }
+/** ดันกล่องตัวกรองให้อยู่ในกรอบตาราง (ตัวตัดจริง) — แบบหน้าออเดอร์ · ของเดิมเช็คแค่ขอบจอ กล่องเลยโดนกรอบตารางตัด */
+function fitDropInside(drop: HTMLElement, th: HTMLElement) {
+  const box = th.closest<HTMLElement>(".srch-tablewrap") ?? th.closest<HTMLElement>(".card");
+  if (!box) return;
+  const b = box.getBoundingClientRect(), t = th.getBoundingClientRect(), r = drop.getBoundingClientRect(), PAD = 4;
+  let left = r.left;
+  if (left + r.width > b.right - PAD) left = b.right - PAD - r.width;
+  if (left < b.left + PAD) left = b.left + PAD;
+  drop.style.right = "auto";
+  drop.style.left = `${Math.round(left - t.left)}px`;
+  drop.style.transformOrigin = left + r.width / 2 < t.left + t.width / 2 ? "top left" : "top right";
+}
+/** แถวบนสุดที่เห็นอยู่ (id) — กรอง/เรียงแล้วกลับมาที่แถวเดิม ไม่เด้งขึ้นบนสุด (แบบหน้าออเดอร์) */
+function topRowId(): number | null {
+  const wrap = q(".srch-tablewrap"); if (!wrap) return null;
+  const top = wrap.getBoundingClientRect().top + (wrap.querySelector("thead")?.getBoundingClientRect().height ?? 0);
+  for (const tr of wrap.querySelectorAll<HTMLElement>("tbody tr[data-idx]")) {
+    if (tr.getBoundingClientRect().bottom > top + 2) { const r = srchVisible[Number(tr.dataset.idx)]; return r ? r.id : null; }
+  }
+  return null;
+}
+// แถบตัวกรองที่ใช้อยู่ "ตัวกรอง: … ✕ · ล้างทั้งหมด" (แบบหน้าออเดอร์)
+function activeFiltersBar(): HTMLElement | null {
+  if (filters.size === 0) return null;
+  const bar = el("div", { class: "activefilters srch-active" }, el("span", {}, "ตัวกรอง:"));
+  for (const [key, set] of filters) {
+    const label = cols().find((c) => c.key === key)?.label ?? key;
+    const vals = [...set].map((v) => (v === "" ? "(ว่าง)" : v)).join(", ");
+    const chip = el("span", { class: "chip" }, `${label}: ${vals.length > 40 ? vals.slice(0, 40) + "…" : vals}`, icon("i-x", "width:.85em"));
+    chip.addEventListener("click", () => { const keep = topRowId(); filters.delete(key); paint(keep); });
+    bar.append(chip);
+  }
+  const clall = el("span", { class: "clearall" }, "ล้างทั้งหมด");
+  clall.addEventListener("click", () => { const keep = topRowId(); filters.clear(); paint(keep); });
+  bar.append(clall);
+  return bar;
+}
 function buildTh(col: Col): HTMLElement {
   const th = el("th", {});
   if (col.th) th.classList.add(...col.th.split(" "));
@@ -181,8 +226,8 @@ function openFilter(th: HTMLElement, col: Col) {
   const sortSec = el("div", { class: "sec fsort" });
   const asc = el("a", { class: sort?.key === col.key && sort.dir === "asc" ? "act" : "" }, icon("i-sortaz"), "เรียง A → Z");
   const desc = el("a", { class: sort?.key === col.key && sort.dir === "desc" ? "act" : "" }, icon("i-sortza"), "เรียง Z → A");
-  asc.addEventListener("click", () => { sort = { key: col.key, dir: "asc" }; closeDrop(); paint(); });
-  desc.addEventListener("click", () => { sort = { key: col.key, dir: "desc" }; closeDrop(); paint(); });
+  asc.addEventListener("click", () => { sort = { key: col.key, dir: "asc" }; closeDrop(); paint(topRowId()); });
+  desc.addEventListener("click", () => { sort = { key: col.key, dir: "desc" }; closeDrop(); paint(topRowId()); });
   sortSec.append(asc, desc); drop.append(sortSec);
   const searchSec = el("div", { class: "sec" });
   const fs = el("div", { class: "fsearch" }, icon("i-search"));
@@ -194,7 +239,7 @@ function openFilter(th: HTMLElement, col: Col) {
   links.append(selAll, " · ", clr);
   const fvals = el("div", { class: "fvals" });
   listSec.append(links, fvals); drop.append(listSec);
-  const rowEls: { cbx: HTMLElement }[] = [];
+  const rowEls: { value: string; cbx: HTMLElement }[] = [];
   function renderVals(filterText = "") {
     fvals.textContent = ""; rowEls.length = 0;
     const qq = filterText.trim().toLowerCase();
@@ -202,23 +247,25 @@ function openFilter(th: HTMLElement, col: Col) {
       const label = value === "" ? "(ว่าง)" : value;
       if (qq && !label.toLowerCase().includes(qq)) continue;
       const cbx = el("span", { class: "cbx" + (temp.has(value) ? "" : " off") }, icon("i-tick"));
-      const row = el("div", { class: "fval" }, cbx, label, el("span", { class: "cnt" }, nf(count)));
+      // ห่อป้ายด้วย span (ค่ายาวตัด … ไม่ดันตัวเลขหลุดขอบ) · title = ข้อความเต็ม — แบบหน้าออเดอร์
+      const row = el("div", { class: "fval" }, cbx, el("span", { class: "flabel", title: label }, label), el("span", { class: "cnt" }, nf(count)));
       row.addEventListener("click", () => { if (temp.has(value)) { temp.delete(value); cbx.classList.add("off"); } else { temp.add(value); cbx.classList.remove("off"); } });
-      fvals.append(row); rowEls.push({ cbx });
+      fvals.append(row); rowEls.push({ value, cbx });
     }
   }
   renderVals();
   inp.addEventListener("input", () => renderVals(inp.value));
-  selAll.addEventListener("click", () => { for (const v of values) temp.add(v.value); rowEls.forEach((r) => r.cbx.classList.remove("off")); });
-  clr.addEventListener("click", () => { temp.clear(); rowEls.forEach((r) => r.cbx.classList.add("off")); });
+  // 🔴 แบบหน้าออเดอร์: ทำเฉพาะค่าที่ "ค้นเจออยู่ตอนนี้" — ของเดิมไปติ๊ก/ล้างค่าที่ถูกค้นซ่อนไว้ด้วย หน้าจอกับค่าจริงไม่ตรงกัน
+  selAll.addEventListener("click", () => { for (const r of rowEls) { temp.add(r.value); r.cbx.classList.remove("off"); } });
+  clr.addEventListener("click", () => { for (const r of rowEls) { temp.delete(r.value); r.cbx.classList.add("off"); } });
   const actions = el("div", { class: "factions" });
   const cancel = el("button", { class: "btncancel" }, "ยกเลิก");
   const apply = el("button", { class: "fbtn p" }, "ใช้ตัวกรอง");
   cancel.addEventListener("click", closeDrop);
-  apply.addEventListener("click", () => { if (temp.size === values.length) filters.delete(col.key); else filters.set(col.key, new Set(temp)); closeDrop(); paint(); });
+  apply.addEventListener("click", () => { if (temp.size === values.length) filters.delete(col.key); else filters.set(col.key, new Set(temp)); closeDrop(); paint(topRowId()); });
   actions.append(cancel, apply); drop.append(actions);
   th.append(drop);
-  if (drop.getBoundingClientRect().left < 8) { drop.style.right = "auto"; drop.style.left = "0"; }
+  fitDropInside(drop, th);
   inp.focus();
 }
 
@@ -335,7 +382,14 @@ async function doSearch() {
 }
 
 // ---------- paint ----------
-function paint() {
+// ความกว้างคอลัมน์คงที่ = ชุดเดียวกับหน้าออเดอร์ (main.ts COL_W) → ข้อความยาวตัด … + ▸ ได้เหมือนกัน
+// (ของเดิมวัดจากข้อความ: ตารางถูกบีบให้พอดีจอ วันที่/เบอร์โดนตัด แต่หมายเหตุกลับยืดยาวไม่มี ▸)
+const ORDER_COL_W: Record<string, number> = {
+  // เบอร์ 126 (หน้าออเดอร์ 114): แถบไฮไลต์คำค้นกินที่
+  ordered_at: 98, phone: 126, customer_name: 166, address: 133, items: 240, payment_method: 73,
+  total_sales: 91, carrier: 79, tracking_out: 181, delivery_status: 115, payment_status: 115, return_arrived: 100, note: 110,
+};
+function paint(keepId: number | null = null) {
   const meta = q("#srchMeta"); const results = q("#srchResults"); const cards = q("#srchCards");
   if (!meta || !results || !cards) return;
   meta.innerHTML = ""; results.innerHTML = ""; cards.innerHTML = "";
@@ -355,6 +409,7 @@ function paint() {
     el("span", { class: "srch-count" }, `พบ ${nf(resp.count ?? allRows.length)}${capped ? "+" : ""} รายการ`),
     filters.size || sort ? el("span", { class: "srch-metaq" }, `กรองเหลือ ${nf(rows.length)}`) : el("span", { class: "srch-metaq" }, `ค้นด้วย “${resp.query}”`),
     el("span", { class: "srch-metascope" }, view === "order" ? "ทุกออเดอร์ · ข้ามรอบเดือน" : "ตีกลับทั้งหมด · ข้ามรอบเดือน"));
+  const afb = activeFiltersBar();
 
   // virtual scrolling — วาดเฉพาะแถวที่เห็น (รองรับผลลัพธ์เยอะเหมือนหน้าออเดอร์)
   srchVt?.detach(); srchVt = null;
@@ -366,6 +421,7 @@ function paint() {
   const tbody = el("tbody", {});
   table.append(el("thead", {}, thr), tbody);
   const wrap = el("div", { class: "srch-tablewrap" }, table);
+  if (afb) results.append(afb);
   results.append(el("div", { class: "card srch-card" }, wrap));
   attachTopScrollbar(wrap);   // แถบเลื่อนแนวนอนบนสุด (จับง่ายกว่าล่าง)
 
@@ -373,23 +429,36 @@ function paint() {
     tbody.append(el("tr", {}, el("td", { colspan: String(srchCols.length) }, el("div", { class: "srch-empty" }, el("p", {}, "ไม่มีรายการตรงกับตัวกรอง")))));
     return;
   }
-  // วัดความกว้างคอลัมน์จากตัวอย่าง → ล็อก table-layout fixed กันคอลัมน์เพี้ยนตอน virtualize
-  const sampleN = Math.min(rows.length, 60);
-  for (let i = 0; i < sampleN; i++) tbody.append(buildSearchRow(i));
   const ths = [...thr.children] as HTMLElement[];
-  const widths = ths.map((t) => Math.ceil(t.getBoundingClientRect().width));
-  const baseH = Math.round((tbody.firstElementChild as HTMLElement)?.getBoundingClientRect().height || 50);
-  tbody.textContent = "";
+  let widths: number[];
+  if (view === "order") {
+    // แบบหน้าออเดอร์: ความกว้างคงที่ ขยายเต็มกรอบถ้าพื้นที่เหลือ
+    const base = srchCols.reduce((t, c) => t + (ORDER_COL_W[c.key] ?? 100), 0);
+    const scale = Math.max(1, (wrap.clientWidth - 2) / base);
+    widths = srchCols.map((c) => Math.floor((ORDER_COL_W[c.key] ?? 100) * scale));
+    tbody.append(buildSearchRow(0));
+  } else {
+    // หักยอด: วัดจากตัวอย่างเหมือนเดิม → ล็อก table-layout fixed กันคอลัมน์เพี้ยนตอน virtualize
+    const sampleN = Math.min(rows.length, 60);
+    for (let i = 0; i < sampleN; i++) tbody.append(buildSearchRow(i));
+    widths = ths.map((t) => Math.ceil(t.getBoundingClientRect().width));
+  }
   table.style.tableLayout = "fixed";
   ths.forEach((t, i) => { t.style.width = widths[i] + "px"; });
+  const baseH = Math.round((tbody.firstElementChild as HTMLElement)?.getBoundingClientRect().height || 50);
+  tbody.textContent = "";
 
   srchVt = makeVTable({
     wrap, tbody, colspan: srchCols.length,
     count: () => srchVisible.length, buildRow: buildSearchRow, baseH,
     afterWindow: (tb) => srchMeasureToggles(tb),
   });
+  // กรอง/เรียงแล้วกลับไปแถวเดิม (ถ้ายังอยู่ในผล) · ไม่งั้นบนสุด
+  // ต้องวาดก่อน (ตารางมีความสูงจริง) แล้วค่อยเลื่อน — ตั้ง scrollTop ตอนตารางยังว่าง เบราว์เซอร์จะหนีบกลับเป็น 0
+  const at = keepId == null ? -1 : rows.findIndex((r) => r.id === keepId);
   wrap.scrollTop = 0;
   srchVt.render(true);
+  if (at > 0) { wrap.scrollTop = at * baseH; srchVt.render(true); }
 }
 function emptyState(ic: string, title: string, sub: string): HTMLElement {
   return el("div", { class: "srch-empty" }, icon(ic), el("h3", {}, title), el("p", {}, sub));
