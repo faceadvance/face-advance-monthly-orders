@@ -1,11 +1,14 @@
-// Edge Function `cod-upload` — รับไฟล์หลักฐาน COD (รูป/pdf/excel) → เก็บ Storage (service role)
-// verify_jwt=false · ตรวจ session ผ่าน app_session_uid + role=editor · คืน path ไว้เก็บใน recon_cod_payments.source
+// Edge Function `cod-upload` — รับไฟล์ → เก็บ Storage (service role)
+//   kind=cod (ค่าเริ่มต้น): หลักฐาน COD (รูป/pdf/excel) → bucket cod-evidence · path เก็บใน recon_cod_payments.source
+//   kind=orders: ไฟล์คำสั่งซื้อต้นฉบับ (.xlsx) → bucket order-imports · path เก็บใน audit_log (import_orders.source) — เจ้านายสั่ง 2026-10-08
+//   action=discard (kind=orders): ลบไฟล์ที่นำเข้าไม่สำเร็จ · ลบได้เฉพาะไฟล์ของ uid ตัวเอง และยังไม่ถูกใช้ใน audit_log
+// verify_jwt=false · ตรวจ session ผ่าน app_session_uid + role=Adm/OM (ตรงกับ RPC นำเข้า COD/คำสั่งซื้อ)
 // env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const SVC = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BUCKET = "cod-evidence";
+const BUCKETS: Record<string, string> = { cod: "cod-evidence", orders: "order-imports" };
 const MAX_BYTES = 10 * 1024 * 1024;
 // รับหลักฐานทุกชนิด (boss: ไฟล์มีหลายแบบ) — เช็คแค่ไม่ว่าง/ไม่เกินขนาด
 
@@ -63,11 +66,16 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "bad_form" }, 400);
   }
   const token = String(form.get("token") ?? "");
+  const kind = String(form.get("kind") ?? "cod");
+  const action = String(form.get("action") ?? "upload");
+  const BUCKET = BUCKETS[kind];
   const file = form.get("file");
   if (!token) return json({ ok: false, error: "no_token" }, 401);
-  if (!(file instanceof File)) return json({ ok: false, error: "no_file" }, 400);
+  if (!BUCKET) return json({ ok: false, error: "bad_kind" }, 400);
+  if (action !== "upload" && !(action === "discard" && kind === "orders")) return json({ ok: false, error: "bad_action" }, 400);
+  if (action === "upload" && !(file instanceof File)) return json({ ok: false, error: "no_file" }, 400);
 
-  // ตรวจ session + role
+  // ตรวจ session + role (COD import ทำได้เฉพาะ Adm/OM — ตรงกับ RPC app_import_cod_payments)
   let uid: string | null = null;
   try {
     uid = await rpc("app_session_uid", { p_token: token });
@@ -76,9 +84,26 @@ Deno.serve(async (req) => {
   }
   if (!uid) return json({ ok: false, error: "unauthorized" }, 401);
   const role = await roleOf(uid);
-  if (role !== "editor") return json({ ok: false, error: "forbidden_viewer" }, 403);
+  if (role !== "Adm" && role !== "OM") return json({ ok: false, error: "forbidden_viewer" }, 403);
 
-  // ตรวจไฟล์ — รับทุกชนิด แค่ไม่ว่าง/ไม่เกินขนาด
+  // ลบไฟล์คำสั่งซื้อที่นำเข้าไม่สำเร็จ (เก็บเฉพาะไฟล์ที่นำเข้าสำเร็จ)
+  if (action === "discard") {
+    const path = String(form.get("path") ?? "");
+    if (!/^\d{6}\/[0-9a-f-]{36}\/[A-Za-z0-9._-]+$/.test(path) || path.split("/")[1] !== uid) return json({ ok: false, error: "forbidden_path" }, 403);
+    const used = await fetch(`${URL}/rest/v1/audit_log?event=eq.import_orders&detail->>source=eq.${encodeURIComponent(path)}&select=id&limit=1`, {
+      headers: { apikey: SVC, Authorization: `Bearer ${SVC}` },
+    });
+    if (!used.ok) return json({ ok: false, error: "server" }, 500);
+    if ((await used.json()).length) return json({ ok: false, error: "in_use" }, 409);   // นำเข้าสำเร็จแล้ว → ห้ามลบ
+    const del = await fetch(`${URL}/storage/v1/object/${BUCKET}/${encodeURI(path)}`, {
+      method: "DELETE", headers: { apikey: SVC, Authorization: `Bearer ${SVC}` },
+    });
+    return json({ ok: del.ok });
+  }
+  if (!(file instanceof File)) return json({ ok: false, error: "no_file" }, 400);
+
+  // ตรวจไฟล์ — cod รับทุกชนิด · orders ต้องเป็น .xlsx · ไม่ว่าง/ไม่เกินขนาด
+  if (kind === "orders" && !/\.xlsx$/i.test(file.name)) return json({ ok: false, error: "bad_type" }, 400);
   if (file.size === 0) return json({ ok: false, error: "empty_file" }, 400);
   if (file.size > MAX_BYTES) return json({ ok: false, error: "too_large" }, 400);
 

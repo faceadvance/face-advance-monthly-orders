@@ -55,7 +55,9 @@ export interface ImportRow {
   note: string | null;
   items: ImportItem[];
 }
-export interface ParseResult { rows: ImportRow[]; warnings: string[]; skipped: string[]; }
+// ออเดอร์ที่ไม่มีเลขแทร็ก (ไม่นับที่ยกเลิก) → หน้านำเข้าบล็อกทั้งไฟล์ (เจ้านายสั่ง 2026-10-08: ไฟล์ 3/10 มีออเดอร์ "รอดำเนินการ" ยังไม่ออกเลขพัสดุ หลุดเข้าระบบ 36 ออเดอร์)
+export interface NoTrackingOrder { order_no: string; status: string | null; ship: string | null; }
+export interface ParseResult { rows: ImportRow[]; warnings: string[]; skipped: string[]; noTracking: NoTrackingOrder[]; }
 
 function clean(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -134,6 +136,7 @@ export function parseWorkbook(buf: ArrayBuffer): ParseResult {
   const warnings: string[] = [];
   const skipped: string[] = [];
   const rows: ImportRow[] = [];
+  const noTracking: NoTrackingOrder[] = [];
 
   for (const [okey, lines] of groups) {
     const first = lines[0];
@@ -148,6 +151,7 @@ export function parseWorkbook(buf: ArrayBuffer): ParseResult {
 
     // ข้ามออเดอร์ที่ยกเลิก (คอลัม สถานะคำสั่งซื้อ) — เอาเฉพาะออเดอร์ส่งจริง
     if (firstStr("สถานะคำสั่งซื้อ") === "ยกเลิก") { skipped.push(`${okey}: สถานะคำสั่งซื้อ = ยกเลิก`); continue; }
+    if (firstStr("หมายเลขพัสดุ") === null) noTracking.push({ order_no: okey, status: firstStr("สถานะคำสั่งซื้อ"), ship: firstStr("สถานะการจัดส่ง") });
 
     const cust = firstStr("ลูกค้า");
     const phone = normPhone(first[ci["เบอร์โทร1"]]);
@@ -211,7 +215,7 @@ export function parseWorkbook(buf: ArrayBuffer): ParseResult {
     });
   }
 
-  return { rows, warnings, skipped };
+  return { rows, warnings, skipped, noTracking };
 }
 
 // ===== COD รับเงินแล้ว (.xlsx ตาม template) =====

@@ -112,9 +112,10 @@ export interface ImportResp {
   last_date_before?: string | null;  // วันที่ออเดอร์ล่าสุดในระบบก่อนไฟล์นี้
 }
 // confirm ส่ง skipDates เสมอ (ไม่มีวันขาด = []) → DB บังคับว่าวันที่ขาดทุกวันต้องถูกยืนยันข้าม ไม่งั้นไม่นำเข้าเลย
-export function importOrders(rows: unknown[], mode: "preflight" | "confirm", skipDates?: string[]): Promise<ImportResp> {
+// confirm ต้องส่ง source = path ไฟล์ต้นฉบับที่อัปโหลดแล้ว → DB บังคับว่าไฟล์ต้องมีอยู่จริง ไม่งั้นไม่นำเข้า
+export function importOrders(rows: unknown[], mode: "preflight" | "confirm", skipDates?: string[], source?: string): Promise<ImportResp> {
   const args: Record<string, unknown> = { p_token: getToken(), p_rows: rows, p_mode: mode };
-  if (mode === "confirm") args.p_confirm_skip_dates = skipDates ?? [];
+  if (mode === "confirm") { args.p_confirm_skip_dates = skipDates ?? []; args.p_source = source ?? null; }
   return restRpc<ImportResp>("app_import_orders", args);
 }
 
@@ -171,10 +172,28 @@ export function importCodPayments(
 
 // อัปโหลดไฟล์หลักฐาน COD → Edge Function (service role) → คืน path เก็บใน source
 export interface CodUploadResp { ok: boolean; path?: string; error?: string; }
-export async function uploadCodEvidence(file: File): Promise<CodUploadResp> {
+export function uploadCodEvidence(file: File): Promise<CodUploadResp> { return uploadFile(file, "cod"); }
+// ไฟล์คำสั่งซื้อต้นฉบับ (ทุกไฟล์ที่นำเข้าสำเร็จต้องมีเก็บไว้ — เจ้านายสั่ง 2026-10-08) · edge function เดียวกับ COD ต่าง bucket
+export function uploadOrderFile(file: File): Promise<CodUploadResp> { return uploadFile(file, "orders"); }
+// นำเข้าไม่สำเร็จ → ลบไฟล์ที่เพิ่งอัปโหลดทิ้ง (เก็บเฉพาะไฟล์ที่นำเข้าสำเร็จ) · เซิร์ฟเวอร์ลบได้เฉพาะไฟล์ของตัวเองที่ยังไม่ถูกใช้นำเข้า
+export async function discardOrderFile(path: string): Promise<boolean> {
   try {
     const fd = new FormData();
     fd.append("token", getToken() ?? "");
+    fd.append("kind", "orders");
+    fd.append("action", "discard");
+    fd.append("path", path);
+    const res = await fetch(`${FUNCTIONS_URL}/cod-upload`, { method: "POST", body: fd });
+    return !!((await res.json()) as CodUploadResp).ok;
+  } catch {
+    return false;
+  }
+}
+async function uploadFile(file: File, kind: "cod" | "orders"): Promise<CodUploadResp> {
+  try {
+    const fd = new FormData();
+    fd.append("token", getToken() ?? "");
+    fd.append("kind", kind);
     fd.append("file", file);
     // multipart = CORS-safelisted → ไม่ trigger preflight (ไม่ใส่ apikey/authorization header)
     const res = await fetch(`${FUNCTIONS_URL}/cod-upload`, { method: "POST", body: fd });

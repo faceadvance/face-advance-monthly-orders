@@ -1,7 +1,7 @@
 import "./style.css";
 import {
   fetchMonths, fetchOrders, authLogout, importOrders, type ImportResp,
-  importCodPayments, uploadCodEvidence, type CodImportResp, type CodMismatch, type CodPartial,
+  importCodPayments, uploadCodEvidence, uploadOrderFile, discardOrderFile, type CodImportResp, type CodMismatch, type CodPartial,
   saveOrderTracking, getOrderTracking, type SaveTrackingArgs, bulkSetDelivery, setMessenger,
   getDetailPresets, fetchNotifications, editNote,
   fetchImportHistory, type ImportHistResp, type NotifKind,
@@ -3485,6 +3485,7 @@ function setupIdleTracking() {
 // ======================================================
 let importOv: HTMLElement | null = null;
 let importRows: ImportRow[] = [];
+let importFile: File | null = null;     // ไฟล์คำสั่งซื้อต้นฉบับ → อัปโหลดเก็บตอนยืนยันนำเข้า
 let codRows: CodRow[] = [];
 const codFix = new Set<string>();   // เลขแทร็คที่พนักงานเลือกแก้ยอด
 let codEvidence: File | null = null;   // ไฟล์หลักฐานที่แนบ (ด่านก่อนนำเข้า)
@@ -3495,6 +3496,7 @@ let importMissing: string[] = [];       // วันที่ขาดช่ว�
 function closeImportModal() {
   if (importOv) { importOv.remove(); importOv = null; }
   importRows = [];
+  importFile = null;
   importMissing = [];
   codRows = [];
   codFix.clear();
@@ -4076,6 +4078,31 @@ function importError(body: HTMLElement, msg: string) {
   body.append(el("div", { class: "modal-foot" }, again));
 }
 
+// ไฟล์มีออเดอร์ที่ไม่มีเลขแทร็ก (ไม่นับยกเลิก) → บล็อกทั้งไฟล์ ไม่ส่งอะไรเข้าระบบ (เจ้านายสั่ง 2026-10-08)
+function importBlockedNoTracking(body: HTMLElement, fname: string, parsed: ParseResult) {
+  setModalWide(false);
+  setImportBack(() => showImportMenu(body));
+  body.textContent = "";
+  const list = parsed.noTracking;
+  const byStatus = new Map<string, number>();
+  for (const x of list) { const k = [x.status ?? "ไม่ระบุสถานะ", x.ship].filter(Boolean).join(" · "); byStatus.set(k, (byStatus.get(k) ?? 0) + 1); }
+  body.append(el("div", { class: "ifile" }, icon("i-x"), fname));
+  const box = el("div", { class: "ibox err" });
+  box.append(el("div", { class: "ibh" }, icon("i-alert-solid"),
+    `ในไฟล์มีออเดอร์ที่ไม่มีเลขแทร็ก ${nf(list.length)} ออเดอร์ — โปรดตรวจสอบไฟล์ใหม่อีกครั้ง`));
+  box.append(el("div", { class: "codpartexp" },
+    "มักเกิดจาก export ไฟล์ตอนออเดอร์ยัง \"รอดำเนินการ\" (ยังไม่ออกเลขพัสดุ) · ยังไม่ได้นำเข้าอะไร · รอให้ออกเลขพัสดุครบแล้ว export ไฟล์ใหม่"));
+  box.append(el("div", { class: "codpartexp" }, [...byStatus].map(([k, n]) => `${k} ${nf(n)}`).join(" · ")));
+  const ul = el("div", { class: "ilist" });
+  for (const x of list.slice(0, 50)) ul.append(el("div", {}, `#${x.order_no} — ${[x.status, x.ship].filter(Boolean).join(" · ") || "ไม่ระบุสถานะ"}`));
+  if (list.length > 50) ul.append(el("div", { class: "more" }, `…และอีก ${list.length - 50} ออเดอร์`));
+  box.append(ul);
+  body.append(box);
+  const again = el("button", { class: "btn" }, "เลือกไฟล์ใหม่");
+  again.addEventListener("click", () => showImportPick(body));
+  body.append(el("div", { class: "modal-foot" }, again));
+}
+
 async function handleImportFile(file: File, body: HTMLElement) {
   if (!/\.xlsx$/i.test(file.name)) { importError(body, "รองรับเฉพาะไฟล์ .xlsx เท่านั้น"); return; }
   importLoading(body, `กำลังอ่านไฟล์ "${file.name}"...`);
@@ -4086,11 +4113,13 @@ async function handleImportFile(file: File, body: HTMLElement) {
     importError(body, e?.message ?? "อ่านไฟล์ไม่สำเร็จ");
     return;
   }
+  if (parsed.noTracking.length) { importBlockedNoTracking(body, file.name, parsed); return; }
   if (parsed.rows.length === 0) {
     importError(body, "ไม่พบออเดอร์ที่นำเข้าได้ในไฟล์นี้" + (parsed.skipped.length ? ` (ข้าม ${parsed.skipped.length} รายการ)` : ""));
     return;
   }
   importRows = parsed.rows;
+  importFile = file;
   importLoading(body, "กำลังตรวจสอบข้อมูล...");
   let pre: ImportResp;
   try {
@@ -4199,14 +4228,24 @@ function showImportGapConfirm(body: HTMLElement, fname: string, parsed: ParseRes
 
 async function doImportConfirm(body: HTMLElement, skipDates: string[]) {
   if (!(await guardSaveVersion())) return;   // มีอัปเดตระบบ → บล็อกก่อนนำเข้าจริง (ไฟล์เลือกใหม่ได้)
+  if (!importFile) { importError(body, "ไม่พบไฟล์ต้นฉบับ — เลือกไฟล์ใหม่อีกครั้ง"); return; }
+  // เก็บไฟล์ต้นฉบับก่อน (ไม่สำเร็จ = ไม่นำเข้า) · DB ตรวจซ้ำว่าไฟล์มีอยู่จริงก่อนบันทึก
+  importLoading(body, "กำลังเก็บไฟล์ต้นฉบับ...");
+  const up = await uploadOrderFile(importFile);
+  if (!up.ok || !up.path) {
+    importError(body, "เก็บไฟล์ต้นฉบับไม่สำเร็จ — ยังไม่ได้นำเข้า" + (up.error ? ` (${codUploadErr(up.error)})` : ""));
+    return;
+  }
   importLoading(body, "กำลังนำเข้าข้อมูล...");
   let res: ImportResp;
   try {
-    res = await importOrders(importRows, "confirm", skipDates);
+    res = await importOrders(importRows, "confirm", skipDates, up.path);
   } catch (e: any) {
+    await discardOrderFile(up.path);   // นำเข้าไม่สำเร็จ → ไม่เก็บไฟล์
     importError(body, "นำเข้าไม่สำเร็จ: " + (e?.message ?? e));
     return;
   }
+  if (!res.ok) await discardOrderFile(up.path);
   if (!res.authorized) { closeImportModal(); toLogin(); return; }
   if (!res.ok) { importError(body, res.error ?? "นำเข้าไม่สำเร็จ (ข้อมูลไม่ผ่านการตรวจสอบ)"); return; }
   const importedMonth = (res.dates?.[0] ?? "").slice(0, 7);
