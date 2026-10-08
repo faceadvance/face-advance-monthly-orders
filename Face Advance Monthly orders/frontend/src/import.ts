@@ -189,9 +189,11 @@ export function parseWorkbook(buf: ArrayBuffer): ParseResult {
       items.push({ product_name: pname, quantity: qty });
     }
 
-    // note (ช่วงนี้): เก็บค่าคอลัม ชื่อโซเชียล เฉพาะแถวที่มี "SO20"
+    // note: เก็บค่าคอลัม ชื่อโซเชียล เฉพาะที่มี "SO20" · หรือขึ้นต้น "CRM" / "#" (เจ้านายสั่ง 2026-10-08 · เช่น CRM-O-7934)
+    // ชื่อโซเชียลทั่วไป (ชื่อเฟซบุ๊กลูกค้า) ไม่เก็บ · ตัวพิมพ์เล็ก/ใหญ่ไม่สำคัญ · ช่องว่างหน้า/หลังถูกตัดโดย clean()
     const social = firstStr("ชื่อโซเชียล");
-    const note = social && social.toUpperCase().includes("SO20") ? social : null;
+    const su = social?.toUpperCase() ?? "";
+    const note = social && (su.includes("SO20") || su.startsWith("CRM") || su.startsWith("#")) ? social : null;
 
     rows.push({
       order_no: clean(okey),

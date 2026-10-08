@@ -56,3 +56,25 @@ test("แทร็กเป็น \"-\" หรือช่องว่าง →
   const p = parseWorkbook(book([base("OD1", { "หมายเลขพัสดุ": "-" }), base("OD2", { "หมายเลขพัสดุ": "   " })]));
   assert.deepEqual(p.noTracking.map((x) => x.order_no), ["OD1", "OD2"]);
 });
+
+// ---- หมายเหตุจากคอลัมน์ "ชื่อโซเชียล" (เจ้านายสั่ง 2026-10-08: + ขึ้นต้น CRM หรือ #) ----
+const note = (social: string | null) => parseWorkbook(book([base("OD1", { "ชื่อโซเชียล": social as string })])).rows[0].note;
+
+test("หมายเหตุ: มี SO20 → เก็บ (กติกาเดิม)", () => {
+  assert.equal(note("SO202610-010197"), "SO202610-010197");
+  assert.equal(note("ลูกค้า so202610-1"), "ลูกค้า so202610-1");
+});
+test("หมายเหตุ: ขึ้นต้น CRM → เก็บ (ตัวพิมพ์เล็ก/ใหญ่ได้ · ช่องว่างหน้าตัดทิ้ง)", () => {
+  assert.equal(note("CRM-O-7934"), "CRM-O-7934");
+  assert.equal(note("crm-o-1"), "crm-o-1");
+  assert.equal(note("  CRM-O-5"), "CRM-O-5");
+});
+test("หมายเหตุ: ขึ้นต้น # → เก็บ", () => {
+  assert.equal(note("#A1023"), "#A1023");
+});
+test("หมายเหตุ: CRM/# ไม่ได้อยู่ต้นข้อความ หรือชื่อโซเชียลทั่วไป → ไม่เก็บ", () => {
+  assert.equal(note("คุณสมใจ CRM"), null);
+  assert.equal(note("ร้าน #1"), null);
+  assert.equal(note("Arpapat Ooy Ksaran"), null);
+  assert.equal(note("-"), null);
+});
